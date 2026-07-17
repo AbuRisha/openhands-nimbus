@@ -69,7 +69,6 @@ class SandboxInfo(BaseModel):
         ),
     )
     created_at: datetime = Field(default_factory=utc_now)
-    status_changed_at: datetime | None = None
 
 
 class SandboxPage(BaseModel):

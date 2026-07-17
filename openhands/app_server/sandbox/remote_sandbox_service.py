@@ -3,7 +3,7 @@ import hashlib
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, AsyncGenerator
 from urllib.parse import urlparse
 from uuid import UUID
@@ -39,6 +39,7 @@ from openhands.app_server.sandbox.sandbox_models import (
 )
 from openhands.app_server.sandbox.sandbox_service import (
     ALLOW_CORS_ORIGINS_VARIABLE,
+    SESSION_API_KEY_TEARDOWN_GRACE_SECONDS,
     WEBHOOK_CALLBACK_VARIABLE,
     SandboxService,
     SandboxServiceInjector,
@@ -97,6 +98,12 @@ class StoredRemoteSandbox(Base):
     )  # shadows runtime['image']
     session_api_key_hash: Mapped[str | None] = mapped_column(
         String, nullable=True, index=True
+    )
+    teardown_session_api_key_hash: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True
+    )
+    teardown_session_api_key_expires_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         UtcDateTime, server_default=func.now(), index=True
@@ -194,17 +201,6 @@ class RemoteSandboxService(SandboxService):
             exposed_urls = None
 
         sandbox_spec_id = stored.sandbox_spec_id
-        status_changed_at = None
-        if runtime and isinstance(runtime.get('last_state_change'), str):
-            try:
-                status_changed_at = datetime.fromisoformat(
-                    runtime['last_state_change'].replace('Z', '+00:00')
-                )
-            except ValueError:
-                _logger.warning(
-                    'Runtime returned an invalid state-change timestamp',
-                    extra={'sandbox_id': stored.id},
-                )
         return SandboxInfo(
             id=stored.id,
             created_by_user_id=stored.created_by_user_id,
@@ -213,7 +209,6 @@ class RemoteSandboxService(SandboxService):
             session_api_key=session_api_key,
             exposed_urls=exposed_urls,
             created_at=stored.created_at,
-            status_changed_at=status_changed_at,
         )
 
     def _get_sandbox_status_from_runtime(
@@ -447,6 +442,25 @@ class RemoteSandboxService(SandboxService):
             created_by_user_id=stored_sandbox.created_by_user_id,
         )
 
+    async def get_sandbox_record_by_teardown_session_api_key(
+        self, session_api_key: str
+    ) -> SandboxRecord | None:
+        session_api_key_hash = _hash_session_api_key(session_api_key)
+
+        stmt = await self._secure_select()
+        stmt = stmt.where(
+            StoredRemoteSandbox.teardown_session_api_key_hash == session_api_key_hash,
+            StoredRemoteSandbox.teardown_session_api_key_expires_at >= utc_now(),
+        )
+        result = await self.db_session.execute(stmt)
+        stored_sandbox = result.scalar_one_or_none()
+        if stored_sandbox is None:
+            return None
+        return SandboxRecord(
+            id=stored_sandbox.id,
+            created_by_user_id=stored_sandbox.created_by_user_id,
+        )
+
     async def start_sandbox(
         self, sandbox_spec_id: str | None = None, sandbox_id: str | None = None
     ) -> SandboxInfo:
@@ -553,6 +567,8 @@ class RemoteSandboxService(SandboxService):
             # by the runtime-api. The old key was invalidated on resume.
             response_data = response.json()
             new_session_api_key = response_data.get('session_api_key')
+            stored_sandbox.teardown_session_api_key_hash = None
+            stored_sandbox.teardown_session_api_key_expires_at = None
             if new_session_api_key:
                 stored_sandbox.session_api_key_hash = _hash_session_api_key(
                     new_session_api_key
@@ -573,6 +589,16 @@ class RemoteSandboxService(SandboxService):
             if not stored_sandbox:
                 return False
 
+            stored_sandbox.teardown_session_api_key_hash = (
+                stored_sandbox.session_api_key_hash
+            )
+            stored_sandbox.teardown_session_api_key_expires_at = (
+                utc_now() + timedelta(seconds=SESSION_API_KEY_TEARDOWN_GRACE_SECONDS)
+                if stored_sandbox.session_api_key_hash is not None
+                else None
+            )
+            stored_sandbox.session_api_key_hash = None
+
             runtime_data = await self._get_runtime(sandbox_id)
             response = await self._send_runtime_api_request(
                 'POST',
@@ -582,6 +608,11 @@ class RemoteSandboxService(SandboxService):
             if response.status_code == 404:
                 return False
             response.raise_for_status()
+            if stored_sandbox.teardown_session_api_key_hash is not None:
+                stored_sandbox.teardown_session_api_key_expires_at = (
+                    utc_now()
+                    + timedelta(seconds=SESSION_API_KEY_TEARDOWN_GRACE_SECONDS)
+                )
             return True
 
         except httpx.HTTPError as e:
@@ -614,8 +645,13 @@ class RemoteSandboxService(SandboxService):
             if not stored_sandbox:
                 return False
             # Security: drop the key now, before the (fallible) runtime stop.
-            had_key = stored_sandbox.session_api_key_hash is not None
+            had_key = (
+                stored_sandbox.session_api_key_hash is not None
+                or stored_sandbox.teardown_session_api_key_hash is not None
+            )
             stored_sandbox.session_api_key_hash = None
+            stored_sandbox.teardown_session_api_key_hash = None
+            stored_sandbox.teardown_session_api_key_expires_at = None
             try:
                 runtime_data = await self._get_runtime(sandbox_id)
             except httpx.HTTPStatusError as e:
