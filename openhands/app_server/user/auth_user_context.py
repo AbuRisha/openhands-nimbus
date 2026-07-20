@@ -180,10 +180,7 @@ class AuthUserContext(UserContext):
         return user_info.default_sandbox_spec_id
 
     async def get_effective_org_id(self) -> UUID | None:
-        resolver = getattr(self.user_auth, 'get_effective_org_id', None)
-        if resolver is None:
-            return None
-        return await resolver()
+        return await self.user_auth.get_effective_org_id()
 
 
 USER_ID_ATTR = 'user_id'

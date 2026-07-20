@@ -160,8 +160,6 @@ def create_stored_sandbox(
     spec_id: str = 'test-image:latest',
     created_at: datetime | None = None,
     session_api_key_hash: str | None = None,
-    teardown_session_api_key_hash: str | None = None,
-    teardown_session_api_key_expires_at: datetime | None = None,
 ) -> StoredRemoteSandbox:
     """Helper function to create StoredRemoteSandbox for testing."""
     if created_at is None:
@@ -172,8 +170,6 @@ def create_stored_sandbox(
         created_by_user_id=user_id,
         sandbox_spec_id=spec_id,
         session_api_key_hash=session_api_key_hash,
-        teardown_session_api_key_hash=teardown_session_api_key_hash,
-        teardown_session_api_key_expires_at=teardown_session_api_key_expires_at,
         created_at=created_at,
     )
 
@@ -618,8 +614,6 @@ class TestSandboxLifecycle:
         # Verify
         assert result is True
         assert stored_sandbox.session_api_key_hash is not None
-        assert stored_sandbox.teardown_session_api_key_hash is None
-        assert stored_sandbox.teardown_session_api_key_expires_at is None
         remote_sandbox_service.pause_old_sandboxes.assert_called_once_with(9)
         remote_sandbox_service.httpx_client.request.assert_called_once_with(
             'POST',
@@ -680,9 +674,8 @@ class TestSandboxLifecycle:
         mock_response.status_code = 200
 
         async def pause_request(*_args, **_kwargs):
-            remote_sandbox_service.db_session.commit.assert_awaited_once()
+            remote_sandbox_service.db_session.commit.assert_not_awaited()
             assert stored_sandbox.session_api_key_hash is None
-            assert stored_sandbox.teardown_session_api_key_hash == 'live-hash'
             return mock_response
 
         remote_sandbox_service.httpx_client.request.side_effect = pause_request
@@ -693,9 +686,7 @@ class TestSandboxLifecycle:
         # Verify
         assert result is True
         assert stored_sandbox.session_api_key_hash is None
-        assert stored_sandbox.teardown_session_api_key_hash == 'live-hash'
-        assert stored_sandbox.teardown_session_api_key_expires_at is not None
-        remote_sandbox_service.db_session.commit.assert_awaited_once()
+        remote_sandbox_service.db_session.commit.assert_not_awaited()
         remote_sandbox_service.httpx_client.request.assert_called_once_with(
             'POST',
             'https://api.example.com/pause',
@@ -1171,7 +1162,7 @@ class TestErrorHandling:
     async def test_pause_sandbox_http_error(self, remote_sandbox_service):
         """Test pause sandbox with HTTP error."""
         # Setup
-        stored_sandbox = create_stored_sandbox()
+        stored_sandbox = create_stored_sandbox(session_api_key_hash='live-hash')
         runtime_data = create_runtime_data()
 
         remote_sandbox_service._get_stored_sandbox = AsyncMock(
@@ -1187,6 +1178,7 @@ class TestErrorHandling:
 
         # Verify
         assert result is False
+        remote_sandbox_service.db_session.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_delete_sandbox_http_error(self, remote_sandbox_service):
@@ -1291,28 +1283,6 @@ class TestGetSandboxBySessionApiKey:
         assert result is not None
         assert result.id == 'test-sandbox-123'
         assert result.status == SandboxStatus.MISSING  # No runtime means MISSING
-
-    @pytest.mark.asyncio
-    async def test_get_sandbox_by_teardown_session_api_key(
-        self, remote_sandbox_service
-    ):
-        stored_sandbox = create_stored_sandbox(
-            session_api_key_hash=None,
-            teardown_session_api_key_hash='teardown-hash',
-            teardown_session_api_key_expires_at=datetime.now(timezone.utc),
-        )
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = stored_sandbox
-        remote_sandbox_service.db_session.execute = AsyncMock(return_value=mock_result)
-
-        result = (
-            await remote_sandbox_service.get_sandbox_record_by_teardown_session_api_key(
-                'teardown-key'
-            )
-        )
-
-        assert result is not None
-        assert result.id == stored_sandbox.id
 
 
 class TestUtilityFunctions:
