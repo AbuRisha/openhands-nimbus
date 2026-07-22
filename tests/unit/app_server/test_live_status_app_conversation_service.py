@@ -4308,12 +4308,8 @@ class TestBuildAcpStartConversationRequestSecrets:
         service.user_context.get_user_id = AsyncMock(return_value='user1')
         service.user_context.get_effective_org_id = AsyncMock(return_value=org_id)
         service.jwt_service.create_jws_token.return_value = 'scoped-token'
-        server_info = Mock()
-        server_info.raise_for_status = Mock()
-        server_info.json.return_value = {'capabilities': ['credential_binding_v1']}
         activated = Mock()
         activated.raise_for_status = Mock()
-        service.httpx_client.get = AsyncMock(return_value=server_info)
         service.httpx_client.put = AsyncMock(return_value=activated)
 
         request = await self._call_build(
@@ -4334,11 +4330,7 @@ class TestBuildAcpStartConversationRequestSecrets:
         )
 
         assert 'CODEX_AUTH_JSON' not in prepared.secrets
-        service.httpx_client.get.assert_awaited_once_with(
-            'http://agent-server/server_info',
-            headers={'X-Session-API-Key': 'session-key'},
-            timeout=30,
-        )
+        service.httpx_client.get.assert_not_called()
         service.httpx_client.put.assert_awaited_once_with(
             f'http://agent-server/api/conversations/{request.conversation_id}'
             '/credential-bindings/CODEX_AUTH_JSON',
@@ -4379,11 +4371,8 @@ class TestBuildAcpStartConversationRequestSecrets:
         sandbox.id = 'sandbox-1'
         sandbox.session_api_key = 'session-key'
         service.web_url = 'https://cloud.example.com'
-        server_info = Mock()
-        server_info.raise_for_status = Mock()
-        server_info.json.return_value = {'capabilities': []}
-        service.httpx_client.get = AsyncMock(return_value=server_info)
-        service.httpx_client.put = AsyncMock()
+        not_found = Mock(status_code=404)
+        service.httpx_client.put = AsyncMock(return_value=not_found)
 
         prepared = await service._prepare_credential_bindings(
             request,
@@ -4394,36 +4383,7 @@ class TestBuildAcpStartConversationRequestSecrets:
         )
 
         assert prepared.secrets['CODEX_AUTH_JSON'] is source
-        service.httpx_client.put.assert_not_awaited()
-        service.jwt_service.create_jws_token.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_capability_probe_failure_keeps_plaintext(self, service, tmp_path):
-        source = StaticSecret(value=SecretStr('{"tokens":{"refresh_token":"r0"}}'))
-        user = self._make_acp_user(acp_server='codex')
-        request = await self._call_build(
-            service,
-            user,
-            tmp_path,
-            secrets={'CODEX_AUTH_JSON': source},
-        )
-        sandbox = Mock(spec=SandboxInfo)
-        sandbox.id = 'sandbox-1'
-        sandbox.session_api_key = 'session-key'
-        service.httpx_client.get = AsyncMock(side_effect=RuntimeError('unavailable'))
-        service.httpx_client.put = AsyncMock()
-
-        prepared = await service._prepare_credential_bindings(
-            request,
-            sandbox,
-            request.conversation_id,
-            'http://agent-server',
-            api_codex_auth=False,
-        )
-
-        assert prepared.secrets['CODEX_AUTH_JSON'] is source
-        service.httpx_client.put.assert_not_awaited()
-        service.jwt_service.create_jws_token.assert_not_called()
+        service.httpx_client.put.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_incomplete_binding_context_keeps_plaintext(self, service, tmp_path):
@@ -4438,10 +4398,6 @@ class TestBuildAcpStartConversationRequestSecrets:
         sandbox = Mock(spec=SandboxInfo)
         sandbox.id = 'sandbox-1'
         sandbox.session_api_key = None
-        server_info = Mock()
-        server_info.raise_for_status = Mock()
-        server_info.json.return_value = {'capabilities': ['credential_binding_v1']}
-        service.httpx_client.get = AsyncMock(return_value=server_info)
         service.httpx_client.put = AsyncMock()
 
         prepared = await service._prepare_credential_bindings(
@@ -4473,10 +4429,6 @@ class TestBuildAcpStartConversationRequestSecrets:
         sandbox = Mock(spec=SandboxInfo)
         sandbox.id = 'sandbox-1'
         sandbox.session_api_key = 'session-key'
-        server_info = Mock()
-        server_info.raise_for_status = Mock()
-        server_info.json.return_value = {'capabilities': ['credential_binding_v1']}
-        service.httpx_client.get = AsyncMock(return_value=server_info)
         service.httpx_client.put = AsyncMock(side_effect=RuntimeError('unavailable'))
 
         prepared = await service._prepare_credential_bindings(
@@ -4507,10 +4459,6 @@ class TestBuildAcpStartConversationRequestSecrets:
         sandbox = Mock(spec=SandboxInfo)
         sandbox.id = 'sandbox-1'
         sandbox.session_api_key = 'session-key'
-        server_info = Mock()
-        server_info.raise_for_status = Mock()
-        server_info.json.return_value = {'capabilities': ['credential_binding_v1']}
-        service.httpx_client.get = AsyncMock(return_value=server_info)
         service.httpx_client.put = AsyncMock()
 
         prepared = await service._prepare_credential_bindings(
@@ -4543,10 +4491,6 @@ class TestBuildAcpStartConversationRequestSecrets:
         sandbox = Mock(spec=SandboxInfo)
         sandbox.id = 'sandbox-1'
         sandbox.session_api_key = 'session-key'
-        server_info = Mock()
-        server_info.raise_for_status = Mock()
-        server_info.json.return_value = {'capabilities': ['credential_binding_v1']}
-        service.httpx_client.get = AsyncMock(return_value=server_info)
         service.httpx_client.put = AsyncMock()
 
         with pytest.raises(RuntimeError, match='Credential binding source is missing'):
@@ -4576,10 +4520,6 @@ class TestBuildAcpStartConversationRequestSecrets:
         sandbox = Mock(spec=SandboxInfo)
         sandbox.id = 'sandbox-1'
         sandbox.session_api_key = 'session-key'
-        server_info = Mock()
-        server_info.raise_for_status = Mock()
-        server_info.json.return_value = {'capabilities': ['credential_binding_v1']}
-        service.httpx_client.get = AsyncMock(return_value=server_info)
         service.httpx_client.put = AsyncMock()
 
         prepared = await service._prepare_credential_bindings(
@@ -4619,7 +4559,7 @@ class TestBuildAcpStartConversationRequestSecrets:
         sandbox = Mock(spec=SandboxInfo)
         sandbox.id = 'sandbox-1'
         sandbox.session_api_key = 'session-key'
-        service.httpx_client.get = AsyncMock()
+        service.httpx_client.put = AsyncMock()
         prepared = await service._prepare_credential_bindings(
             request,
             sandbox,
@@ -4628,7 +4568,7 @@ class TestBuildAcpStartConversationRequestSecrets:
             api_codex_auth=True,
         )
         assert prepared is request
-        service.httpx_client.get.assert_not_awaited()
+        service.httpx_client.put.assert_not_awaited()
         service.jwt_service.create_jws_token.assert_not_called()
 
     @pytest.mark.asyncio
