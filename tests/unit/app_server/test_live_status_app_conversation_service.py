@@ -32,10 +32,12 @@ from openhands.app_server.app_conversation.app_conversation_service import (
 )
 from openhands.app_server.app_conversation.live_status_app_conversation_service import (
     LiveStatusAppConversationService,
+    _resolve_web_url,
     effective_disabled_skills,
 )
 from openhands.app_server.integrations.provider import ProviderToken, ProviderType
 from openhands.app_server.integrations.service_types import SuggestedTask, TaskType
+from openhands.app_server.sandbox.docker_sandbox_service import DockerSandboxService
 from openhands.app_server.sandbox.sandbox_models import (
     AGENT_SERVER,
     ExposedUrl,
@@ -65,6 +67,15 @@ def _async_iter(items):
             yield item
 
     return iter_items()
+
+
+def test_docker_web_url_is_reachable_from_sandbox():
+    sandbox_service = Mock(spec=DockerSandboxService)
+    sandbox_service.host_port = 3000
+
+    assert _resolve_web_url('http://localhost:3000', sandbox_service) == (
+        'http://host.docker.internal:3000'
+    )
 
 
 class _FakeExportLock:
@@ -4305,6 +4316,7 @@ class TestBuildAcpStartConversationRequestSecrets:
         )
         user = self._make_acp_user(acp_server='codex')
         service.web_url = 'https://cloud.example.com/'
+        service.access_token_hard_timeout = timedelta(minutes=5)
         service.user_context.get_user_id = AsyncMock(return_value='user1')
         service.user_context.get_effective_org_id = AsyncMock(return_value=org_id)
         service.jwt_service.create_jws_token.return_value = 'scoped-token'
