@@ -32,7 +32,7 @@ from openhands.app_server.app_conversation.app_conversation_service import (
 )
 from openhands.app_server.app_conversation.live_status_app_conversation_service import (
     LiveStatusAppConversationService,
-    _resolve_web_url,
+    _resolve_credential_binding_url,
     effective_disabled_skills,
 )
 from openhands.app_server.integrations.provider import ProviderToken, ProviderType
@@ -46,7 +46,6 @@ from openhands.app_server.sandbox.sandbox_models import (
     SandboxStatus,
 )
 from openhands.app_server.sandbox.sandbox_spec_models import SandboxSpecInfo
-from openhands.app_server.secrets.secrets_store import SecretsStore
 from openhands.app_server.settings.llm_profiles import LLMProfiles
 from openhands.app_server.settings.settings_models import (
     SandboxGroupingStrategy,
@@ -69,26 +68,30 @@ def _async_iter(items):
     return iter_items()
 
 
-def test_docker_web_url_is_reachable_from_sandbox():
+def test_docker_credential_binding_url_is_reachable_from_sandbox():
     sandbox_service = Mock(spec=DockerSandboxService)
     sandbox_service.host_port = 3000
     sandbox_service.use_host_network = False
 
-    assert _resolve_web_url('http://localhost:3000', sandbox_service) == (
-        'http://host.docker.internal:3000'
+    assert (
+        _resolve_credential_binding_url('http://localhost:3000', sandbox_service)
+        == 'http://host.docker.internal:3000'
     )
 
 
-def test_host_network_web_url_keeps_localhost():
+def test_host_network_credential_binding_url_keeps_localhost():
     sandbox_service = Mock(spec=DockerSandboxService)
     sandbox_service.host_port = 3000
     sandbox_service.use_host_network = True
 
     assert (
-        _resolve_web_url('http://localhost:3000', sandbox_service)
+        _resolve_credential_binding_url('http://localhost:3000', sandbox_service)
         == 'http://localhost:3000'
     )
-    assert _resolve_web_url(None, sandbox_service) == 'http://localhost:3000'
+    assert (
+        _resolve_credential_binding_url(None, sandbox_service)
+        == 'http://localhost:3000'
+    )
 
 
 class _FakeExportLock:
@@ -4191,9 +4194,6 @@ class TestBuildAcpStartConversationRequestSecrets:
     @pytest.fixture
     def service(self):
         mock_user_context = Mock(spec=UserContext)
-        secrets_store = Mock(spec=SecretsStore)
-        secrets_store.supports_versioned_credentials = True
-        mock_user_context.get_secrets_store = AsyncMock(return_value=secrets_store)
         service = LiveStatusAppConversationService(
             init_git_in_empty_workspace=True,
             user_context=mock_user_context,
@@ -4335,7 +4335,11 @@ class TestBuildAcpStartConversationRequestSecrets:
             description='Codex login',
         )
         user = self._make_acp_user(acp_server='codex')
-        service.web_url = 'https://cloud.example.com/'
+        service.web_url = 'http://localhost:3000/'
+        sandbox_service = Mock(spec=DockerSandboxService)
+        sandbox_service.host_port = 3000
+        sandbox_service.use_host_network = False
+        service.sandbox_service = sandbox_service
         service.access_token_hard_timeout = timedelta(minutes=5)
         service.user_context.get_user_id = AsyncMock(return_value='user1')
         service.user_context.get_effective_org_id = AsyncMock(return_value=org_id)
@@ -4373,7 +4377,7 @@ class TestBuildAcpStartConversationRequestSecrets:
             headers={'X-Session-API-Key': 'session-key'},
             json={
                 'url': (
-                    'https://cloud.example.com/api/internal/conversations/'
+                    'http://host.docker.internal:3000/api/internal/conversations/'
                     f'{request.conversation_id}/credential-bindings/CODEX_AUTH_JSON'
                 ),
                 'headers': {'Authorization': 'Bearer scoped-token'},
@@ -4392,6 +4396,7 @@ class TestBuildAcpStartConversationRequestSecrets:
             },
             include_expiration=False,
         )
+        assert service.web_url == 'http://localhost:3000/'
 
     @pytest.mark.asyncio
     async def test_legacy_agent_server_keeps_plaintext(self, service, tmp_path):
@@ -4480,98 +4485,6 @@ class TestBuildAcpStartConversationRequestSecrets:
         )
 
         assert prepared.secrets['CODEX_AUTH_JSON'] is source
-
-    @pytest.mark.asyncio
-    async def test_binding_bootstrap_failure_keeps_plaintext(self, service, tmp_path):
-        source = StaticSecret(value=SecretStr('{"tokens":{"refresh_token":"r0"}}'))
-        user = self._make_acp_user(acp_server='codex')
-        service.web_url = 'https://cloud.example.com'
-        service.user_context.get_user_id = AsyncMock(return_value='user1')
-        service.user_context.get_effective_org_id = AsyncMock(return_value=None)
-        store = service.user_context.get_secrets_store.return_value
-        store.ensure_versioned.side_effect = PermissionError('read-only')
-        request = await self._call_build(
-            service,
-            user,
-            tmp_path,
-            secrets={'CODEX_AUTH_JSON': source},
-        )
-        sandbox = Mock(spec=SandboxInfo)
-        sandbox.id = 'sandbox-1'
-        sandbox.session_api_key = 'session-key'
-        service.httpx_client.put = AsyncMock()
-
-        prepared = await service._prepare_credential_bindings(
-            request,
-            sandbox,
-            request.conversation_id,
-            'http://agent-server',
-            api_codex_auth=False,
-        )
-
-        assert prepared.secrets['CODEX_AUTH_JSON'] is source
-        service.httpx_client.put.assert_not_awaited()
-        service.jwt_service.create_jws_token.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_binding_source_deleted_before_bootstrap_keeps_plaintext(
-        self, service, tmp_path
-    ):
-        source = StaticSecret(value=SecretStr('{"tokens":{"refresh_token":"r0"}}'))
-        user = self._make_acp_user(acp_server='codex')
-        service.web_url = 'https://cloud.example.com'
-        store = service.user_context.get_secrets_store.return_value
-        store.ensure_versioned.side_effect = KeyError('CODEX_AUTH_JSON')
-        request = await self._call_build(
-            service,
-            user,
-            tmp_path,
-            secrets={'CODEX_AUTH_JSON': source},
-        )
-        sandbox = Mock(spec=SandboxInfo)
-        sandbox.id = 'sandbox-1'
-        sandbox.session_api_key = 'session-key'
-        service.httpx_client.put = AsyncMock()
-
-        prepared = await service._prepare_credential_bindings(
-            request,
-            sandbox,
-            request.conversation_id,
-            'http://agent-server',
-            api_codex_auth=False,
-        )
-
-        assert prepared.secrets['CODEX_AUTH_JSON'] is source
-        service.httpx_client.put.assert_not_awaited()
-        service.jwt_service.create_jws_token.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_unsupported_binding_store_keeps_plaintext(self, service, tmp_path):
-        source = StaticSecret(value=SecretStr('{"tokens":{"refresh_token":"r0"}}'))
-        user = self._make_acp_user(acp_server='codex')
-        service.web_url = 'https://cloud.example.com'
-        service.user_context.get_secrets_store.return_value.supports_versioned_credentials = False
-        request = await self._call_build(
-            service,
-            user,
-            tmp_path,
-            secrets={'CODEX_AUTH_JSON': source},
-        )
-        sandbox = Mock(spec=SandboxInfo)
-        sandbox.id = 'sandbox-1'
-        sandbox.session_api_key = 'session-key'
-        service.httpx_client.put = AsyncMock()
-
-        prepared = await service._prepare_credential_bindings(
-            request,
-            sandbox,
-            request.conversation_id,
-            'http://agent-server',
-            api_codex_auth=False,
-        )
-
-        assert prepared.secrets['CODEX_AUTH_JSON'] is source
-        service.httpx_client.put.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_api_codex_auth_does_not_get_write_access(self, service, tmp_path):
