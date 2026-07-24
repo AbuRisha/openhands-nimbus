@@ -194,19 +194,30 @@ class ProcessSandboxService(SandboxService):
         return False
 
     def _get_process_status(self, process_info: ProcessInfo) -> SandboxStatus:
-        """Get the status of a process."""
+        """Get the status of a process.
+
+        A healthy uvicorn worker spends almost all its time in
+        ``psutil.STATUS_SLEEPING`` (kernel state ``S``) waiting on I/O — only
+        code actively burning CPU is briefly in ``STATUS_RUNNING`` (``R``).
+        Treating anything alive-and-not-stopped as RUNNING here matches
+        operator intent: the aliveness of the HTTP server is verified via the
+        ``/alive`` probe in ``_process_to_sandbox_info`` and the outer
+        ``wait_for_sandbox_running`` loop, which is where a real ERROR is
+        surfaced. Keeping only ``STATUS_RUNNING`` == RUNNING here caused the
+        120s outer poll to time out on every ProcessSandbox start.
+        """
         try:
             process = psutil.Process(process_info.pid)
-            if process.is_running():
-                status = process.status()
-                if status == psutil.STATUS_RUNNING:
-                    return SandboxStatus.RUNNING
-                elif status == psutil.STATUS_STOPPED:
-                    return SandboxStatus.PAUSED
-                else:
-                    return SandboxStatus.STARTING
-            else:
+            if not process.is_running():
                 return SandboxStatus.MISSING
+            status = process.status()
+            if status == psutil.STATUS_STOPPED:
+                return SandboxStatus.PAUSED
+            if status in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD):
+                return SandboxStatus.MISSING
+            # Sleeping (idle I/O wait), running, disk-sleep, etc. all mean
+            # "the process is up" from a supervisor perspective.
+            return SandboxStatus.RUNNING
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return SandboxStatus.MISSING
 
