@@ -96,6 +96,7 @@ RUN find /app \! -group openhands -exec chgrp openhands {} +
 
 COPY --chown=openhands:openhands --from=frontend-builder /app/build ./frontend/build
 COPY --chown=openhands:openhands ./containers/app/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 USER root
 
