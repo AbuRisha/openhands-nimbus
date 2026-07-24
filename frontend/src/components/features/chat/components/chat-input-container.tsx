@@ -60,49 +60,48 @@ export function ChatInputContainer({
   );
 
   return (
-    <div
-      ref={chatContainerRef}
-      className={cn(
-        "bg-[#25272D] box-border content-stretch flex flex-col items-start justify-center p-4 pt-3 relative rounded-[15px] w-full",
-        conversationMode === "plan" && "border border-[#597FF4]",
-      )}
-      onDragOver={(e) => onDragOver(e, disabled)}
-      onDragLeave={(e) => onDragLeave(e, disabled)}
-      onDrop={(e) => onDrop(e, disabled)}
-    >
-      {/* Drag Over UI */}
-      {isDragOver && <DragOver />}
-
-      <UploadedFiles />
-
-      {/* Wrapper so the slash menu anchors just above the input row,
-          not above the entire (possibly resized) container */}
-      <div className="relative w-full">
-        {isSlashMenuOpen && onSlashSelect && (
-          <SlashCommandMenu
-            items={slashItems}
-            selectedIndex={slashSelectedIndex}
-            onSelect={onSlashSelect}
-          />
+    <div className="nimbus-composer-wrap relative w-full">
+      <div
+        ref={chatContainerRef}
+        className={cn(
+          "nimbus-composer bg-[#111318]/85 box-border content-stretch flex flex-col items-start justify-center p-4 pt-3 relative rounded-[15px] w-full border border-[rgba(139,92,246,0.18)]",
+          conversationMode === "plan" && "border-[#597FF4]",
         )}
+        onDragOver={(e) => onDragOver(e, disabled)}
+        onDragLeave={(e) => onDragLeave(e, disabled)}
+        onDrop={(e) => onDrop(e, disabled)}
+      >
+        {isDragOver && <DragOver />}
 
-        <ChatInputRow
-          chatInputRef={chatInputRef}
-          disabled={disabled}
-          isNewConversationPending={isNewConversationPending}
-          showButton={showButton}
-          buttonClassName={buttonClassName}
-          handleFileIconClick={handleFileIconClick}
-          handleSubmit={handleSubmit}
-          onInput={onInput}
-          onPaste={onPaste}
-          onKeyDown={onKeyDown}
-          onFocus={onFocus}
-          onBlur={onBlur}
-        />
+        <UploadedFiles />
+
+        <div className="relative w-full">
+          {isSlashMenuOpen && onSlashSelect && (
+            <SlashCommandMenu
+              items={slashItems}
+              selectedIndex={slashSelectedIndex}
+              onSelect={onSlashSelect}
+            />
+          )}
+
+          <ChatInputRow
+            chatInputRef={chatInputRef}
+            disabled={disabled}
+            isNewConversationPending={isNewConversationPending}
+            showButton={showButton}
+            buttonClassName={buttonClassName}
+            handleFileIconClick={handleFileIconClick}
+            handleSubmit={handleSubmit}
+            onInput={onInput}
+            onPaste={onPaste}
+            onKeyDown={onKeyDown}
+            onFocus={onFocus}
+            onBlur={onBlur}
+          />
+        </div>
+
+        <ChatInputActions disabled={disabled} />
       </div>
-
-      <ChatInputActions disabled={disabled} />
     </div>
   );
 }
