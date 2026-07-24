@@ -7,7 +7,7 @@ import { useV1ResumeConversation } from "#/hooks/mutation/use-v1-resume-conversa
 import { ChangeAgentButton } from "../change-agent-button";
 import { SwitchAcpModelButton } from "../switch-acp-model-button";
 import { SwitchProfileButton } from "../switch-profile-button";
-import { ComposerModelChip } from "./composer-model-chip";
+import { EffortSliderButton } from "../effort-slider-popover";
 
 interface ChatInputActionsProps {
   disabled: boolean;
@@ -41,18 +41,16 @@ export function ChatInputActions({ disabled }: ChatInputActionsProps) {
           <ChangeAgentButton />
           <SwitchProfileButton />
           <SwitchAcpModelButton />
+          <EffortSliderButton />
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <ComposerModelChip />
-        <AgentStatus
-          className="ml-2 md:ml-3"
-          handleStop={handlePauseAgent}
-          handleResumeAgent={handleResumeAgentClick}
-          disabled={disabled}
-          isPausing={isPausing}
-        />
-      </div>
+      <AgentStatus
+        className="ml-2 md:ml-3"
+        handleStop={handlePauseAgent}
+        handleResumeAgent={handleResumeAgentClick}
+        disabled={disabled}
+        isPausing={isPausing}
+      />
     </div>
   );
 }
