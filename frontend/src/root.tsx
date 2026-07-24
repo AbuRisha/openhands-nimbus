@@ -11,6 +11,7 @@ import "./index.css";
 import React from "react";
 import { Toaster } from "react-hot-toast";
 import { useInvitation } from "#/hooks/use-invitation";
+import NimbusCompanion from "#/components/nimbus-companion/NimbusCompanion";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -38,6 +39,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Scripts />
         <Toaster />
         <div id="modal-portal-exit" />
+        {/* Nimbus pet mascot — floats over every page. Wrapper is `fixed` so the
+            component's own `absolute inset-0` fills the viewport regardless of route. */}
+        <div className="pointer-events-none fixed inset-0 z-[100] hidden md:block">
+          <NimbusCompanion state="ready" />
+        </div>
       </body>
     </html>
   );
