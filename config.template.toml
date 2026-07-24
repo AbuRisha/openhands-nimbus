@@ -6,6 +6,26 @@
 #
 ##############################################################################
 
+##############################################################################
+# Nimbus fork — LLM defaults
+##############################################################################
+# This fork ships with the Nimbus SS-native catalog wired at ``api.nimbusapi.net``.
+# LLM configuration is loaded from environment variables (LiteLLM standard):
+#
+#   LLM_MODEL     = "anthropic/claude-sonnet-5"
+#   LLM_BASE_URL  = "https://api.nimbusapi.net/v1"
+#   LLM_API_KEY   = "${NIMBUS_API_KEY}"       # injected in Azure Container Apps
+#
+# The model-picker in the UI is restricted to the curated 15-model chat catalog
+# defined in ``openhands/app_server/config_api/nimbus_llm_model_service.py``.
+# Set ``NIMBUS_CATALOG_MODE=false`` to fall back to upstream LiteLLM discovery
+# (dev only — never in a customer-facing deploy).
+#
+# Bring-your-own-key is intentionally hidden behind the collapsible
+# ``Advanced: bring your own key`` panel in the LLM settings page and stays
+# available when ``OH_ALLOW_USER_LLM_CONFIGURATION=true`` (upstream default).
+##############################################################################
+
 #################################### Core ####################################
 # General core configurations
 ##############################################################################

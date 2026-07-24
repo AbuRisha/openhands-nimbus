@@ -285,24 +285,36 @@ def config_from_env() -> AppServerConfig:
     config: AppServerConfig = from_env(AppServerConfig, 'OH')  # type: ignore
 
     if config.llm_model is None:
-        from openhands.app_server.config_api.default_llm_model_service import (
-            DefaultLLMModelServiceInjector,
-        )
+        # Nimbus fork: by default expose ONLY the SS-native catalog served by
+        # https://api.nimbusapi.net/v1. Setting NIMBUS_CATALOG_MODE=false opts
+        # back into upstream LiteLLM/Bedrock/Ollama discovery for dev use.
+        nimbus_catalog_mode = os.getenv('NIMBUS_CATALOG_MODE', 'true').lower() != 'false'
 
-        llm_model_kwargs: dict = {}
-        aws_region = os.getenv('AWS_REGION_NAME')
-        aws_key = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret = os.getenv('AWS_SECRET_ACCESS_KEY')
-        if aws_region and aws_key and aws_secret:
-            llm_model_kwargs['aws_region_name'] = aws_region
-            llm_model_kwargs['aws_access_key_id'] = SecretStr(aws_key)
-            llm_model_kwargs['aws_secret_access_key'] = SecretStr(aws_secret)
+        if nimbus_catalog_mode:
+            from openhands.app_server.config_api.nimbus_llm_model_service import (
+                NimbusLLMModelServiceInjector,
+            )
 
-        ollama_url = os.getenv('OLLAMA_BASE_URL')
-        if ollama_url:
-            llm_model_kwargs['ollama_base_url'] = ollama_url
+            config.llm_model = NimbusLLMModelServiceInjector()
+        else:
+            from openhands.app_server.config_api.default_llm_model_service import (
+                DefaultLLMModelServiceInjector,
+            )
 
-        config.llm_model = DefaultLLMModelServiceInjector(**llm_model_kwargs)
+            llm_model_kwargs: dict = {}
+            aws_region = os.getenv('AWS_REGION_NAME')
+            aws_key = os.getenv('AWS_ACCESS_KEY_ID')
+            aws_secret = os.getenv('AWS_SECRET_ACCESS_KEY')
+            if aws_region and aws_key and aws_secret:
+                llm_model_kwargs['aws_region_name'] = aws_region
+                llm_model_kwargs['aws_access_key_id'] = SecretStr(aws_key)
+                llm_model_kwargs['aws_secret_access_key'] = SecretStr(aws_secret)
+
+            ollama_url = os.getenv('OLLAMA_BASE_URL')
+            if ollama_url:
+                llm_model_kwargs['ollama_base_url'] = ollama_url
+
+            config.llm_model = DefaultLLMModelServiceInjector(**llm_model_kwargs)
 
     if config.event is None:
         provider = get_storage_provider()
