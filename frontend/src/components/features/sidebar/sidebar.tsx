@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useGitUser } from "#/hooks/query/use-git-user";
@@ -7,10 +7,14 @@ import { OpenHandsLogoButton } from "#/components/shared/buttons/openhands-logo-
 import { NewProjectButton } from "#/components/shared/buttons/new-project-button";
 import { ConversationPanelButton } from "#/components/shared/buttons/conversation-panel-button";
 import { AutomationsButton } from "#/components/shared/buttons/automations-button";
+import { NimbusSkillsPanelButton } from "#/components/shared/buttons/nimbus-skills-panel-button";
 import { SettingsModal } from "#/components/shared/modals/settings/settings-modal";
 import { useSettings } from "#/hooks/query/use-settings";
 import { ConversationPanel } from "../conversation-panel/conversation-panel";
 import { ConversationPanelWrapper } from "../conversation-panel/conversation-panel-wrapper";
+import { NimbusSkillsPanel } from "../nimbus-skills-panel/nimbus-skills-panel";
+import { NimbusSkillsPanelWrapper } from "../nimbus-skills-panel/nimbus-skills-panel-wrapper";
+import { useNimbusSkillsStore } from "#/stores/nimbus-skills-store";
 import { useConfig } from "#/hooks/query/use-config";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import { I18nKey } from "#/i18n/declaration";
@@ -33,6 +37,24 @@ export function Sidebar() {
   const [conversationPanelIsOpen, setConversationPanelIsOpen] =
     React.useState(false);
 
+  // Nimbus Skills panel — state lives in a zustand store so /skill can open
+  // it from the composer without prop-drilling.
+  const skillsPanelIsOpen = useNimbusSkillsStore((s) => s.isPanelOpen);
+  const closeSkillsPanel = useNimbusSkillsStore((s) => s.closePanel);
+  const togglePanel = useNimbusSkillsStore((s) => s.togglePanel);
+  const activeSkillByConversation = useNimbusSkillsStore(
+    (s) => s.activeSkillByConversation,
+  );
+
+  const currentConversationId = useMemo(() => {
+    const match = pathname.match(/\/conversations\/([^/]+)/);
+    return match ? match[1] : null;
+  }, [pathname]);
+  const hasActiveSkill = Boolean(
+    currentConversationId &&
+      activeSkillByConversation[currentConversationId],
+  );
+
   React.useEffect(() => {
     if (pathname === "/settings") {
       setSettingsModalIsOpen(false);
@@ -41,6 +63,8 @@ export function Sidebar() {
       settingsIsError &&
       settingsError?.status !== 404
     ) {
+      // We don't show toast errors for settings in the global error handler
+      // because we have a special case for 404 errors
       displayErrorToast(
         "Something went wrong while fetching settings. Please reload the page.",
       );
@@ -65,11 +89,11 @@ export function Sidebar() {
       <aside
         aria-label={t(I18nKey.SIDEBAR$NAVIGATION_LABEL)}
         className={cn(
-          "nimbus-sidebar-decor relative h-[54px] p-3 md:p-0 md:h-[40px] md:h-auto flex flex-row md:flex-col gap-1 bg-base md:w-[75px] md:min-w-[75px] sm:pt-0 sm:px-2 md:pt-[14px] md:px-0",
+          "h-[54px] p-3 md:p-0 md:h-[40px] md:h-auto flex flex-row md:flex-col gap-1 bg-base md:w-[75px] md:min-w-[75px] sm:pt-0 sm:px-2 md:pt-[14px] md:px-0",
           pathname === "/" && "md:pt-6.5 md:pb-3",
         )}
       >
-        <nav className="relative z-10 flex flex-row md:flex-col items-center justify-between w-full h-auto md:w-auto md:h-full">
+        <nav className="flex flex-row md:flex-col items-center justify-between w-full h-auto md:w-auto md:h-full">
           <div className="flex flex-row md:flex-col items-center gap-[26px]">
             <div className="flex items-center justify-center">
               <OpenHandsLogoButton />
@@ -85,6 +109,14 @@ export function Sidebar() {
                   : setConversationPanelIsOpen((prev) => !prev)
               }
               disabled={settings?.email_verified === false}
+            />
+            <NimbusSkillsPanelButton
+              isOpen={skillsPanelIsOpen}
+              onClick={() =>
+                settings?.email_verified === false ? null : togglePanel()
+              }
+              disabled={settings?.email_verified === false}
+              hasActiveSkill={hasActiveSkill}
             />
             {config?.feature_flags?.enable_automations && (
               <AutomationsButton
@@ -109,6 +141,12 @@ export function Sidebar() {
               onClose={() => setConversationPanelIsOpen(false)}
             />
           </ConversationPanelWrapper>
+        )}
+
+        {skillsPanelIsOpen && (
+          <NimbusSkillsPanelWrapper isOpen={skillsPanelIsOpen}>
+            <NimbusSkillsPanel onClose={closeSkillsPanel} />
+          </NimbusSkillsPanelWrapper>
         )}
       </aside>
 
