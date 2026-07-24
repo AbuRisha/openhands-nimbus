@@ -49,6 +49,21 @@ from openhands.app_server.utils.docker_utils import (
 _logger = logging.getLogger(__name__)
 
 
+def _local_agent_url(port: int, path: str = '') -> str:
+    """URL for reaching a ProcessSandbox child from the same container.
+
+    ProcessSandbox spawns the child agent-server as a sibling PROCESS in the
+    same container, so localhost is always the correct hostname. The generic
+    ``replace_localhost_hostname_for_docker`` helper is designed for the case
+    where the parent needs to reach a sibling CONTAINER (Docker sandbox) and
+    would rewrite this to ``host.docker.internal`` — that hostname does not
+    resolve in ACA / k8s-underlaid environments where cgroups contain
+    ``kubepods`` and ``is_running_in_docker()`` returns True, breaking
+    ProcessSandbox health checks. Keep localhost here regardless of runtime.
+    """
+    return f'http://localhost:{port}{path}'
+
+
 class ProcessInfo(BaseModel):
     """Information about a running process."""
 
@@ -167,9 +182,7 @@ class ProcessSandboxService(SandboxService):
         start_time = time.time()
         while time.time() - start_time < timeout:
             try:
-                url = replace_localhost_hostname_for_docker(
-                    f'http://localhost:{port}/alive'
-                )
+                url = _local_agent_url(port, '/alive')
                 response = await self.httpx_client.get(url, timeout=5.0)
                 if response.status_code == 200:
                     data = response.json()
@@ -209,15 +222,15 @@ class ProcessSandboxService(SandboxService):
         if status == SandboxStatus.RUNNING:
             # Check if server is actually responding
             try:
-                url = replace_localhost_hostname_for_docker(
-                    f'http://localhost:{process_info.port}{self.health_check_path}'
+                url = _local_agent_url(
+                    process_info.port, self.health_check_path
                 )
                 response = await self.httpx_client.get(url, timeout=5.0)
                 if response.status_code == 200:
                     exposed_urls = [
                         ExposedUrl(
                             name=AGENT_SERVER,
-                            url=f'http://localhost:{process_info.port}',
+                            url=_local_agent_url(process_info.port),
                             port=process_info.port,
                         ),
                     ]
