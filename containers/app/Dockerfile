@@ -73,7 +73,7 @@ ENV VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH='/app'
 
-COPY --chown=openhands:openhands --chmod=770 --from=backend-builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
+COPY --chown=openhands:openhands --from=backend-builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 
 # Pin pip to a known-good version (reproducible builds) and fix CVE-2025-8869
 # Pin both venv pip and system pip (Trivy scans both)
@@ -86,16 +86,16 @@ USER root
 RUN /usr/local/bin/python3 -m pip install --no-cache-dir "pip==${PIP_VERSION}" --break-system-packages
 USER openhands
 
-COPY --chown=openhands:openhands --chmod=770 ./skills ./skills
-COPY --chown=openhands:openhands --chmod=770 ./openhands ./openhands
+COPY --chown=openhands:openhands ./skills ./skills
+COPY --chown=openhands:openhands ./openhands ./openhands
 COPY --chown=openhands:openhands pyproject.toml poetry.lock README.md MANIFEST.in LICENSE ./
 
 # Add this line to set group ownership of all files/directories not already in "app" group
 # openhands:openhands -> openhands:openhands
 RUN find /app \! -group openhands -exec chgrp openhands {} +
 
-COPY --chown=openhands:openhands --chmod=770 --from=frontend-builder /app/build ./frontend/build
-COPY --chown=openhands:openhands --chmod=770 ./containers/app/entrypoint.sh /app/entrypoint.sh
+COPY --chown=openhands:openhands --from=frontend-builder /app/build ./frontend/build
+COPY --chown=openhands:openhands ./containers/app/entrypoint.sh /app/entrypoint.sh
 
 USER root
 
