@@ -27,6 +27,7 @@ import { WebSocketProviderWrapper } from "#/contexts/websocket-provider-wrapper"
 import { useErrorMessageStore } from "#/stores/error-message-store";
 import { I18nKey } from "#/i18n/declaration";
 import { useEventStore } from "#/stores/use-event-store";
+import { NimbusLocalFolderBridge } from "#/components/features/projects/nimbus-local-folder-bridge";
 
 function AppContent() {
   const { t } = useTranslation();
@@ -117,6 +118,10 @@ function AppContent() {
           data-testid="app-route"
           className="p-3 md:p-0 flex flex-col h-full gap-3"
         >
+          {/* Bridges the browser-side folder handle for local-folder projects
+              to the in-page fs message channel. No-op when this conversation
+              isn't bound to a local folder project. */}
+          <NimbusLocalFolderBridge conversationId={conversationId} />
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4.5 pt-2 lg:pt-0">
             <ConversationNameWithStatus />
             <ConversationTabs />

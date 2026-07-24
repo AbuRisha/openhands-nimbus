@@ -6,11 +6,13 @@ import { useActiveConversation } from "#/hooks/query/use-active-conversation";
 import { useUnifiedPauseConversationSandbox } from "#/hooks/mutation/use-unified-stop-conversation";
 import { useUnifiedResumeConversationSandbox } from "#/hooks/mutation/use-unified-start-conversation";
 import { useUserProviders } from "#/hooks/use-user-providers";
+import { useProjectForConversation } from "#/hooks/projects/use-projects";
 import { getStatusColor } from "#/utils/utils";
 import { AgentState } from "#/types/agent-state";
 import DebugStackframeDot from "#/icons/debug-stackframe-dot.svg?react";
 import { ServerStatusContextMenu } from "../controls/server-status-context-menu";
 import { ConversationName } from "./conversation-name";
+import { ProjectWorkspaceChip } from "#/components/features/projects/project-workspace-chip";
 
 export function ConversationNameWithStatus() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -22,6 +24,7 @@ export function ConversationNameWithStatus() {
   const { mutate: resumeConversationSandbox } =
     useUnifiedResumeConversationSandbox();
   const { providers } = useUserProviders();
+  const { data: project } = useProjectForConversation(conversationId);
 
   const isStartingStatus =
     curAgentState === AgentState.LOADING || curAgentState === AgentState.INIT;
@@ -53,8 +56,8 @@ export function ConversationNameWithStatus() {
   };
 
   return (
-    <div className="flex items-center">
-      <div className="group relative">
+    <div className="flex items-center gap-2 min-w-0">
+      <div className="group relative shrink-0">
         <DebugStackframeDot
           className="ml-[3.5px] w-6 h-6 cursor-pointer"
           color={statusColor}
@@ -78,6 +81,7 @@ export function ConversationNameWithStatus() {
         />
       </div>
       <ConversationName />
+      {project && <ProjectWorkspaceChip project={project} />}
     </div>
   );
 }
