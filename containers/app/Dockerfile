@@ -102,15 +102,26 @@ USER root
 
 WORKDIR /app
 
-# Install Playwright Chromium so the agent's browser_use tool works.
-# Without this, /api/v1/app-conversations/{id}/send-message 502s because the
-# agent tries to launch Chromium and playwright errors out.
-# Browsers installed to a world-readable shared path so the openhands user
-# can access them at runtime (default $HOME/.cache/ms-playwright would be /root's).
-# playwright is pinned in pyproject.toml (1.58.0) — venv invocation is the primary path;
-# the || uvx fallback + || echo cover the (unlikely) case that the wheel is missing.
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" \
+# Install Chromium so the agent's browser_use tool works.
+# Without this, /api/v1/app-conversations/{id}/send-message returned 502 from the
+# agent-server sandbox with "Chromium is required for browser operations but is not
+# installed" (raised by openhands/tools/browser_use/impl.py::check_chromium_available).
+#
+# That check hardcodes candidates under /usr/bin/chromium* and $HOME/.cache/ms-playwright
+# — it does NOT honor PLAYWRIGHT_BROWSERS_PATH. A `playwright install --with-deps chromium`
+# in a shared path is therefore invisible to it. The upstream openhands reference
+# sandbox Dockerfile installs the OS chromium package at /usr/bin/chromium, which the
+# first path check finds. That is what we do here — matches upstream, minimal deps.
+# The base image is Debian trixie, so the package name is `chromium` (Ubuntu would be
+# `chromium-browser`). Also fall back to `playwright install` for the venv playwright
+# client (used elsewhere in the agent), and keep browsers in a shared path so the
+# openhands user can read them at runtime.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+    CHROME_BIN=/usr/bin/chromium \
+    CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage --disable-gpu"
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends chromium \
+    && mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" \
     && ( /app/.venv/bin/python -m playwright install --with-deps chromium \
          || uvx playwright install --with-deps chromium \
          || echo "warning: playwright install failed, browser_use tool will not work" ) \
