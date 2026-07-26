@@ -102,5 +102,20 @@ USER root
 
 WORKDIR /app
 
+# Install Playwright Chromium so the agent's browser_use tool works.
+# Without this, /api/v1/app-conversations/{id}/send-message 502s because the
+# agent tries to launch Chromium and playwright errors out.
+# Browsers installed to a world-readable shared path so the openhands user
+# can access them at runtime (default $HOME/.cache/ms-playwright would be /root's).
+# playwright is pinned in pyproject.toml (1.58.0) — venv invocation is the primary path;
+# the || uvx fallback + || echo cover the (unlikely) case that the wheel is missing.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" \
+    && ( /app/.venv/bin/python -m playwright install --with-deps chromium \
+         || uvx playwright install --with-deps chromium \
+         || echo "warning: playwright install failed, browser_use tool will not work" ) \
+    && chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH" \
+    && rm -rf /var/lib/apt/lists/*
+
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "openhands.server.listen:app", "--host", "0.0.0.0", "--port", "3000"]
