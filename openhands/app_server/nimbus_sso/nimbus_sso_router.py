@@ -59,6 +59,7 @@ async def nimbus_sso(token: str | None = Query(default=None)) -> RedirectRespons
             token,
             secret,
             algorithms=['HS256'],
+            audience='chat',
             leeway=_JWT_LEEWAY_SECONDS,
         )
     except jwt.ExpiredSignatureError:
