@@ -8,6 +8,7 @@ import { buildSessionHeaders } from "#/utils/utils";
 import type {
   V1SendMessageRequest,
   V1SendMessageResponse,
+  V1AppSendMessageResponse,
   V1AppConversationStartRequest,
   V1AppConversationStartTask,
   V1AppConversationStartTaskPage,
@@ -49,6 +50,21 @@ class V1ConversationService {
       message,
     );
 
+    return data;
+  }
+
+  /**
+   * Send through the app server, which can reach a private local/container
+   * runtime even when the browser cannot connect to its WebSocket directly.
+   */
+  static async sendMessageViaAppServer(
+    conversationId: string,
+    message: V1SendMessageRequest,
+  ): Promise<V1AppSendMessageResponse> {
+    const { data } = await openHands.post<V1AppSendMessageResponse>(
+      `/api/v1/app-conversations/${conversationId}/send-message`,
+      message,
+    );
     return data;
   }
 

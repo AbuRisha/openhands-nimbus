@@ -2,14 +2,36 @@ import { describe, expect, it, vi, beforeEach, afterEach, Mock } from "vitest";
 import axios from "axios";
 import V1ConversationService from "#/api/conversation-service/v1-conversation-service.api";
 
-const { mockGet } = vi.hoisted(() => ({ mockGet: vi.fn() }));
+const { mockGet, mockPost } = vi.hoisted(() => ({
+  mockGet: vi.fn(),
+  mockPost: vi.fn(),
+}));
 vi.mock("#/api/open-hands-axios", () => ({
-  openHands: { get: mockGet },
+  openHands: { get: mockGet, post: mockPost },
 }));
 
 vi.mock("axios");
 
 describe("V1ConversationService", () => {
+  describe("sendMessageViaAppServer", () => {
+    it("uses the same-origin app-server proxy for a private runtime", async () => {
+      const message = {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hello" }],
+      };
+      mockPost.mockResolvedValue({
+        data: { success: true, sandbox_status: "RUNNING", message: null },
+      });
+
+      await V1ConversationService.sendMessageViaAppServer("conv-123", message);
+
+      expect(mockPost).toHaveBeenCalledWith(
+        "/api/v1/app-conversations/conv-123/send-message",
+        message,
+      );
+    });
+  });
+
   describe("readConversationFile", () => {
     it("uses default plan path when filePath is not provided", async () => {
       // Arrange
@@ -40,9 +62,12 @@ describe("V1ConversationService", () => {
 
     it("uses query params for file upload path", async () => {
       // Arrange
-      const conversationUrl = "http://localhost:54928/api/conversations/conv-123";
+      const conversationUrl =
+        "http://localhost:54928/api/conversations/conv-123";
       const sessionApiKey = "test-api-key";
-      const file = new File(["test content"], "test.txt", { type: "text/plain" });
+      const file = new File(["test content"], "test.txt", {
+        type: "text/plain",
+      });
       const uploadPath = "/workspace/custom/path.txt";
 
       // Act
@@ -67,9 +92,12 @@ describe("V1ConversationService", () => {
 
     it("uses default workspace path when no path provided", async () => {
       // Arrange
-      const conversationUrl = "http://localhost:54928/api/conversations/conv-123";
+      const conversationUrl =
+        "http://localhost:54928/api/conversations/conv-123";
       const sessionApiKey = "test-api-key";
-      const file = new File(["test content"], "myfile.txt", { type: "text/plain" });
+      const file = new File(["test content"], "myfile.txt", {
+        type: "text/plain",
+      });
 
       // Act
       await V1ConversationService.uploadFile(
@@ -88,9 +116,12 @@ describe("V1ConversationService", () => {
 
     it("sends file as FormData with correct headers", async () => {
       // Arrange
-      const conversationUrl = "http://localhost:54928/api/conversations/conv-123";
+      const conversationUrl =
+        "http://localhost:54928/api/conversations/conv-123";
       const sessionApiKey = "test-api-key";
-      const file = new File(["test content"], "test.txt", { type: "text/plain" });
+      const file = new File(["test content"], "test.txt", {
+        type: "text/plain",
+      });
 
       // Act
       await V1ConversationService.uploadFile(
@@ -109,7 +140,7 @@ describe("V1ConversationService", () => {
       expect(formData.get("file")).toBe(file);
 
       // Verify headers include session API key and content type
-      const headers = callArgs[2].headers;
+      const { headers } = callArgs[2];
       expect(headers).toHaveProperty("X-Session-API-Key", sessionApiKey);
       expect(headers).toHaveProperty("Content-Type", "multipart/form-data");
     });
