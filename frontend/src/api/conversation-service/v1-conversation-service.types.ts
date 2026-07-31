@@ -99,6 +99,12 @@ export interface V1SendMessageResponse {
   content: V1MessageContent[];
 }
 
+export interface V1AppSendMessageResponse {
+  success: boolean;
+  sandbox_status: V1SandboxStatus;
+  message: string | null;
+}
+
 export interface V1AppConversationStartTaskPage {
   items: V1AppConversationStartTask[];
   next_page_id: string | null;
