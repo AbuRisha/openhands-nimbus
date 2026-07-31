@@ -9,10 +9,8 @@ identify the Nimbus customer for downstream code that wants them, and
 /?error=<code> so the frontend can surface a message rather than dumping
 a stack trace.
 
-DefaultUserAuth in this fork is single-user (returns None for user_id
-and treats every request as root), so the cookies below are informational
-- they let future middleware attach a Nimbus identity without breaking
-today's flow.
+Successful handoff exchanges the short-lived query token for one signed,
+HttpOnly, audience-bound session cookie consumed by NimbusUserAuth.
 """
 
 from __future__ import annotations
@@ -24,22 +22,24 @@ import jwt
 from fastapi import APIRouter, Query
 from fastapi.responses import RedirectResponse
 
+from openhands.app_server.nimbus_sso.nimbus_session import (
+    NIMBUS_SESSION_COOKIE,
+    NIMBUS_SESSION_MAX_AGE_SECONDS,
+    mint_nimbus_session,
+)
 from openhands.app_server.utils.logger import openhands_logger as logger
 
 router = APIRouter(tags=['NimbusSSO'])
 
-# Cookies are informational for DefaultUserAuth today but let future
-# middleware pin an identity without another round-trip to nimbus-v2.
-_COOKIE_EMAIL: Final[str] = 'nimbus_sso_email'
-_COOKIE_SUB: Final[str] = 'nimbus_sso_sub'
-_COOKIE_NAME: Final[str] = 'nimbus_sso_name'
-_COOKIE_MAX_AGE_SECONDS: Final[int] = 60 * 60 * 24 * 30  # 30 days
 _JWT_LEEWAY_SECONDS: Final[int] = 5
 
 
 def _redirect_error(code: str) -> RedirectResponse:
     """302 to the SPA root with an error query param the frontend can read."""
-    return RedirectResponse(url=f'/?error={code}', status_code=302)
+    response = RedirectResponse(url=f'/?error={code}', status_code=302)
+    response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    return response
 
 
 @router.get('/api/auth/nimbus-sso', include_in_schema=False)
@@ -78,26 +78,23 @@ async def nimbus_sso(token: str | None = Query(default=None)) -> RedirectRespons
         return _redirect_error('sso_payload')
 
     sub = payload.get('sub')
-    name = payload.get('name') or email.split('@')[0]
+    if not isinstance(sub, str) or not sub:
+        logger.warning('nimbus_sso:payload missing sub')
+        return _redirect_error('sso_payload')
 
-    logger.info('nimbus_sso:ok sub=%s email=%s', sub, email)
+    logger.info('nimbus_sso:ok')
 
-    # Redirect to SPA root and stamp identity cookies. Path=/ so the whole
-    # app can read them; HttpOnly=False so the SPA can pick up displayName
-    # without another /me round-trip; Secure=True since we're always TLS
-    # behind ACA; SameSite=Lax so the cross-site redirect from
-    # nimbusapi.net keeps the cookies.
+    session_token = mint_nimbus_session(payload, secret)
     response = RedirectResponse(url='/', status_code=302)
-    cookie_kwargs = dict(
-        max_age=_COOKIE_MAX_AGE_SECONDS,
+    response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    response.set_cookie(
+        NIMBUS_SESSION_COOKIE,
+        session_token,
+        max_age=NIMBUS_SESSION_MAX_AGE_SECONDS,
         path='/',
         secure=True,
-        httponly=False,
+        httponly=True,
         samesite='lax',
     )
-    response.set_cookie(_COOKIE_EMAIL, email, **cookie_kwargs)
-    if isinstance(sub, str) and sub:
-        response.set_cookie(_COOKIE_SUB, sub, **cookie_kwargs)
-    if isinstance(name, str) and name:
-        response.set_cookie(_COOKIE_NAME, name, **cookie_kwargs)
     return response

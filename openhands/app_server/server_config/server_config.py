@@ -21,7 +21,7 @@ class ServerConfig(ServerConfigInterface):
         'openhands.app_server.secrets.file_secrets_store.FileSecretsStore'
     )
     user_auth_class: str = (
-        'openhands.app_server.user_auth.default_user_auth.DefaultUserAuth'
+        'openhands.app_server.user_auth.nimbus_user_auth.NimbusUserAuth'
     )
     conversation_secret_enricher_class: str | None = None
     analytics_user_provider_class: str | None = None
