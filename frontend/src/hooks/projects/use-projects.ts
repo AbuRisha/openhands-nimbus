@@ -13,6 +13,20 @@ import {
 
 const PROJECTS_KEY = ["nimbus", "projects"] as const;
 
+// React Query v5 rejects a queryFn that resolves to `undefined` — it throws
+// "Query data cannot be undefined" and puts the query into an error state.
+// Every lookup below can legitimately find nothing (a brand-new conversation
+// has no project yet), and Array.find / an absent IndexedDB row both yield
+// undefined, so the normal empty case was being reported as a failure.
+//
+// That surfaced as the error toast
+//   ["nimbus","projects","by-conversation","task-…"] data is undefined
+// with the conversation stuck on "Loading…", because the query never
+// resolved. It fired on every new conversation, which is why it read as
+// "the chat does not work at all" rather than as one failing lookup.
+//
+// `null` is the value v5 wants for "looked, found nothing".
+
 export function useProjects() {
   return useQuery({
     queryKey: PROJECTS_KEY,
@@ -24,7 +38,7 @@ export function useProjects() {
 export function useProject(id: string | undefined) {
   return useQuery({
     queryKey: [...PROJECTS_KEY, id],
-    queryFn: () => (id ? getProject(id) : undefined),
+    queryFn: async () => (id ? ((await getProject(id)) ?? null) : null),
     enabled: !!id,
   });
 }
@@ -32,8 +46,10 @@ export function useProject(id: string | undefined) {
 export function useProjectForConversation(conversationId: string | undefined) {
   return useQuery({
     queryKey: [...PROJECTS_KEY, "by-conversation", conversationId],
-    queryFn: () =>
-      conversationId ? findProjectForConversation(conversationId) : undefined,
+    queryFn: async () =>
+      conversationId
+        ? ((await findProjectForConversation(conversationId)) ?? null)
+        : null,
     enabled: !!conversationId,
     staleTime: 30_000,
   });
@@ -42,7 +58,7 @@ export function useProjectForConversation(conversationId: string | undefined) {
 export function useFolderHandle(key: string | undefined) {
   return useQuery({
     queryKey: [...PROJECTS_KEY, "folder-handle", key],
-    queryFn: () => (key ? getFolderHandle(key) : undefined),
+    queryFn: async () => (key ? ((await getFolderHandle(key)) ?? null) : null),
     enabled: !!key,
     staleTime: Number.POSITIVE_INFINITY, // handle identity only changes via re-bind
   });
