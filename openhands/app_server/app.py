@@ -11,7 +11,7 @@ from fastapi import (
     FastAPI,
     Request,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from openhands.app_server import v1_router
 from openhands.app_server.config import get_app_lifespan_service
@@ -25,6 +25,10 @@ from openhands.app_server.middleware import (
 )
 from openhands.app_server.nimbus_sso.nimbus_sso_router import (
     router as nimbus_sso_router,
+)
+from openhands.app_server.nimbus_sso.nimbus_user_auth import (
+    NIMBUS_LOGIN_URL,
+    should_redirect_nimbus_guest,
 )
 from openhands.app_server.static import SPAStaticFiles
 from openhands.app_server.status.status_router import router as health_router
@@ -61,6 +65,14 @@ app = FastAPI(
     lifespan=combine_lifespans(*lifespans),
     routes=[Mount(path='/mcp', app=mcp_app)],
 )
+
+
+@app.middleware('http')
+async def nimbus_guest_redirect(request: Request, call_next):
+    """Reject direct-host guest navigations before the Chat SPA is served."""
+    if should_redirect_nimbus_guest(request):
+        return RedirectResponse(url=NIMBUS_LOGIN_URL, status_code=302)
+    return await call_next(request)
 
 
 @app.exception_handler(AuthenticationError)

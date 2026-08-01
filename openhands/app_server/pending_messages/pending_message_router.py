@@ -7,6 +7,9 @@ from pydantic import TypeAdapter, ValidationError
 
 from openhands.agent_server.models import ImageContent, TextContent
 from openhands.app_server.config import depends_pending_message_service
+from openhands.app_server.nimbus_sso.nimbus_execution_gate import (
+    require_customer_metering_ready,
+)
 from openhands.app_server.pending_messages.pending_message_models import (
     PendingMessageResponse,
 )
@@ -56,6 +59,8 @@ async def queue_pending_message(
         HTTPException 400: If the request body is invalid
         HTTPException 429: If too many pending messages are queued (limit: 10)
     """
+    require_customer_metering_ready()
+
     try:
         body = await request.json()
     except Exception:

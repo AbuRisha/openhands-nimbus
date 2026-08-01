@@ -66,6 +66,9 @@ from openhands.app_server.config import (
     depends_user_context,
     get_app_conversation_service,
 )
+from openhands.app_server.nimbus_sso.nimbus_execution_gate import (
+    require_customer_metering_ready,
+)
 from openhands.app_server.sandbox.sandbox_models import (
     AGENT_SERVER,
     SandboxInfo,
@@ -118,22 +121,6 @@ db_session_dependency = depends_db_session()
 httpx_client_dependency = depends_httpx_client()
 sandbox_service_dependency = depends_sandbox_service()
 sandbox_spec_service_dependency = depends_sandbox_spec_service()
-
-
-def _require_customer_metering_ready() -> None:
-    """Never let hosted Chat fall back to the container's shared LLM key."""
-    nimbus_auth_required = os.getenv('NIMBUS_AUTH_REQUIRED', 'true').lower() in (
-        'true',
-        '1',
-    )
-    customer_metering_ready = os.getenv(
-        'NIMBUS_CUSTOMER_METERING_READY', 'false'
-    ).lower() in ('true', '1')
-    if nimbus_auth_required and not customer_metering_ready:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail='nimbus_customer_metering_not_configured',
-        )
 
 
 @dataclass
@@ -388,7 +375,7 @@ async def start_app_conversation(
         app_conversation_service_dependency
     ),
 ) -> AppConversationStartTask:
-    _require_customer_metering_ready()
+    require_customer_metering_ready()
     # Because we are processing after the request finishes, keep the db connection open
     set_db_session_keep_open(request.state, True)
     set_httpx_client_keep_open(request.state, True)
@@ -507,6 +494,8 @@ async def send_message_to_conversation(
     Returns:
         AppSendMessageResponse with success status and sandbox state
     """
+    require_customer_metering_ready()
+
     # Get conversation info
     conversation = await app_conversation_service.get_app_conversation(conversation_id)
     if not conversation:
@@ -1054,6 +1043,7 @@ async def stream_app_conversation_start(
     """Start an app conversation start task and stream updates from it.
     Leaves the connection open until either the conversation starts or there was an error
     """
+    require_customer_metering_ready()
     response = StreamingResponse(
         _stream_app_conversation_start(request, user_context),
         media_type='application/json',
@@ -1720,6 +1710,7 @@ async def _stream_app_conversation_start(
     user_context: UserContext,
 ) -> AsyncGenerator[str, None]:
     """Stream a json list, item by item."""
+    require_customer_metering_ready()
     # Because the original dependencies are closed after the method returns, we need
     # a new dependency context which will continue intil the stream finishes.
     state = InjectorState()

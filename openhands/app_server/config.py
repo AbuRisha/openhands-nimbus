@@ -39,6 +39,9 @@ from openhands.app_server.event_callback.event_callback_service import (
 )
 from openhands.app_server.file_store.files import FileStore
 from openhands.app_server.file_store.local import LocalFileStore
+from openhands.app_server.nimbus_sso.nimbus_execution_gate import (
+    nimbus_auth_required,
+)
 from openhands.app_server.pending_messages.pending_message_service import (
     PendingMessageService,
     PendingMessageServiceInjector,
@@ -284,11 +287,19 @@ def config_from_env() -> AppServerConfig:
 
     config: AppServerConfig = from_env(AppServerConfig, 'OH')  # type: ignore
 
+    # Hosted Nimbus Chat is a customer-authenticated surface, not OSS single-user.
+    # This makes the SPA call /api/authenticate instead of assuming every visitor
+    # is authenticated without a request.
+    if nimbus_auth_required():
+        config.app_mode = AppMode.SAAS
+
     if config.llm_model is None:
         # Nimbus fork: by default expose ONLY the SS-native catalog served by
         # https://api.nimbusapi.net/v1. Setting NIMBUS_CATALOG_MODE=false opts
         # back into upstream LiteLLM/Bedrock/Ollama discovery for dev use.
-        nimbus_catalog_mode = os.getenv('NIMBUS_CATALOG_MODE', 'true').lower() != 'false'
+        nimbus_catalog_mode = (
+            os.getenv('NIMBUS_CATALOG_MODE', 'true').lower() != 'false'
+        )
 
         if nimbus_catalog_mode:
             from openhands.app_server.config_api.nimbus_llm_model_service import (

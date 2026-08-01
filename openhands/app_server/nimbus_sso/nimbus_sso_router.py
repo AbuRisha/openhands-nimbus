@@ -15,15 +15,17 @@ The one-time handoff token is never used as the long-lived session itself.
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from typing import Final
 
 import jwt
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse
 
 from openhands.app_server.nimbus_sso.nimbus_user_auth import (
     SESSION_COOKIE,
     SESSION_MAX_AGE_SECONDS,
+    NimbusUserAuth,
     create_session_token,
 )
 from openhands.app_server.utils.logger import openhands_logger as logger
@@ -31,6 +33,7 @@ from openhands.app_server.utils.logger import openhands_logger as logger
 router = APIRouter(tags=['NimbusSSO'])
 
 _JWT_LEEWAY_SECONDS: Final[int] = 5
+_HANDOFF_MAX_AGE_SECONDS: Final[int] = 60
 
 
 def _redirect_error(code: str) -> RedirectResponse:
@@ -57,7 +60,21 @@ async def nimbus_sso(token: str | None = Query(default=None)) -> RedirectRespons
             algorithms=['HS256'],
             audience='chat',
             leeway=_JWT_LEEWAY_SECONDS,
+            options={'require': ['sub', 'email', 'aud', 'iat', 'exp']},
         )
+        issued_at = payload['iat']
+        expires_at = payload['exp']
+        if (
+            isinstance(issued_at, bool)
+            or not isinstance(issued_at, (int, float))
+            or isinstance(expires_at, bool)
+            or not isinstance(expires_at, (int, float))
+            or expires_at <= issued_at
+            or expires_at - issued_at > _HANDOFF_MAX_AGE_SECONDS
+            or datetime.now(UTC).timestamp() - issued_at
+            > _HANDOFF_MAX_AGE_SECONDS + _JWT_LEEWAY_SECONDS
+        ):
+            raise jwt.InvalidTokenError('handoff lifetime is invalid')
     except jwt.ExpiredSignatureError:
         logger.info('nimbus_sso:expired')
         return _redirect_error('sso_expired')
@@ -100,3 +117,10 @@ async def nimbus_sso(token: str | None = Query(default=None)) -> RedirectRespons
     for legacy_cookie in ('nimbus_sso_email', 'nimbus_sso_sub', 'nimbus_sso_name'):
         response.delete_cookie(legacy_cookie, path='/', secure=True, samesite='lax')
     return response
+
+
+@router.post('/api/authenticate', include_in_schema=False)
+async def nimbus_authenticate(request: Request) -> dict[str, bool]:
+    """Authenticate the SPA against the signed Nimbus customer session."""
+    await NimbusUserAuth.get_instance(request)
+    return {'authenticated': True}

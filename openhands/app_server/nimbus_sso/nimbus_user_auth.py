@@ -10,6 +10,9 @@ from typing import Any, Final
 import jwt
 from fastapi import HTTPException, Request, status
 
+from openhands.app_server.nimbus_sso.nimbus_execution_gate import (
+    nimbus_auth_required,
+)
 from openhands.app_server.user_auth.default_user_auth import DefaultUserAuth
 from openhands.app_server.user_auth.user_auth import AuthType, UserAuth
 
@@ -17,6 +20,7 @@ SESSION_COOKIE: Final[str] = 'nimbus_chat_session'
 SESSION_AUDIENCE: Final[str] = 'chat-session'
 SESSION_ISSUER: Final[str] = 'nimbus-chat'
 SESSION_MAX_AGE_SECONDS: Final[int] = 60 * 60 * 24 * 30
+NIMBUS_LOGIN_URL: Final[str] = 'https://nimbusapi.net/login?next=%2Fdashboard%2Fchat'
 
 
 def _shared_secret() -> str:
@@ -57,6 +61,25 @@ def decode_session_token(token: str) -> dict[str, Any]:
         issuer=SESSION_ISSUER,
         options={'require': ['sub', 'email', 'iat', 'exp']},
     )
+
+
+def should_redirect_nimbus_guest(request: Request) -> bool:
+    """Redirect unauthenticated browser navigations before serving the SPA."""
+    if not nimbus_auth_required() or request.method not in ('GET', 'HEAD'):
+        return False
+    if request.url.path.startswith('/api/'):
+        return False
+    if 'text/html' not in request.headers.get('accept', ''):
+        return False
+
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return True
+    try:
+        decode_session_token(token)
+    except (HTTPException, jwt.PyJWTError):
+        return True
+    return False
 
 
 @dataclass

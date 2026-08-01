@@ -1,6 +1,9 @@
 # TODO: Merge this module with openhands.app_server.config
 import os
 
+from openhands.app_server.nimbus_sso.nimbus_execution_gate import (
+    nimbus_auth_required,
+)
 from openhands.app_server.types import AppMode, ServerConfigInterface
 from openhands.app_server.utils.import_utils import get_impl
 from openhands.app_server.utils.logger import openhands_logger as logger
@@ -8,7 +11,8 @@ from openhands.app_server.utils.logger import openhands_logger as logger
 
 class ServerConfig(ServerConfigInterface):
     config_cls = os.environ.get('OPENHANDS_CONFIG_CLS', None)
-    app_mode = AppMode.OPENHANDS
+    nimbus_auth_required = nimbus_auth_required()
+    app_mode = AppMode.SAAS if nimbus_auth_required else AppMode.OPENHANDS
     posthog_client_key = 'phc_3ESMmY9SgqEAGBB6sMGK5ayYHkeUuknH2vP6FmWH9RA'
     github_client_id = os.environ.get('GITHUB_APP_CLIENT_ID', '')
     enable_billing = os.environ.get('ENABLE_BILLING', 'false') == 'true'
@@ -19,10 +23,6 @@ class ServerConfig(ServerConfigInterface):
     )
     secret_store_class: str = (
         'openhands.app_server.secrets.file_secrets_store.FileSecretsStore'
-    )
-    nimbus_auth_required = os.getenv('NIMBUS_AUTH_REQUIRED', 'true').lower() in (
-        'true',
-        '1',
     )
     user_auth_class: str = (
         'openhands.app_server.nimbus_sso.nimbus_user_auth.NimbusUserAuth'
