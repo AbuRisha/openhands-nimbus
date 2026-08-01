@@ -120,6 +120,22 @@ sandbox_service_dependency = depends_sandbox_service()
 sandbox_spec_service_dependency = depends_sandbox_spec_service()
 
 
+def _require_customer_metering_ready() -> None:
+    """Never let hosted Chat fall back to the container's shared LLM key."""
+    nimbus_auth_required = os.getenv('NIMBUS_AUTH_REQUIRED', 'true').lower() in (
+        'true',
+        '1',
+    )
+    customer_metering_ready = os.getenv(
+        'NIMBUS_CUSTOMER_METERING_READY', 'false'
+    ).lower() in ('true', '1')
+    if nimbus_auth_required and not customer_metering_ready:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='nimbus_customer_metering_not_configured',
+        )
+
+
 @dataclass
 class AgentServerContext:
     """Context for accessing the agent server for a conversation."""
@@ -372,6 +388,7 @@ async def start_app_conversation(
         app_conversation_service_dependency
     ),
 ) -> AppConversationStartTask:
+    _require_customer_metering_ready()
     # Because we are processing after the request finishes, keep the db connection open
     set_db_session_keep_open(request.state, True)
     set_httpx_client_keep_open(request.state, True)

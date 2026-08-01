@@ -1,92 +1,129 @@
-"""Unit tests for the Nimbus SS-native LLM catalog service.
+"""Tests for the dynamic, customer-safe Nimbus model catalog."""
 
-Pins the guarantee that the customer-facing model picker only offers the
-15 curated Nimbus chat models — never the raw LiteLLM/Bedrock/Ollama
-catalogue.
-"""
-
+import httpx
 import pytest
 
-from openhands.app_server.config_api.config_models import (
-    LLMModelPage,
-    ProviderPage,
-)
+from openhands.app_server.config_api.config_models import LLMModelPage, ProviderPage
 from openhands.app_server.config_api.nimbus_llm_model_service import (
-    NIMBUS_CHAT_MODELS,
     NIMBUS_DEFAULT_MODEL,
-    NIMBUS_VERIFIED_PROVIDERS,
     NimbusLLMModelService,
     NimbusLLMModelServiceInjector,
 )
 
 
-class TestNimbusLLMModelServiceCatalog:
-    """The catalog is closed: only the 15 SS-native models are exposed."""
+def _service(models: list[dict]) -> NimbusLLMModelService:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={'models': models})
 
+    return NimbusLLMModelService(
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        catalog_url='https://nimbus.example/api/models',
+    )
+
+
+CHAT_MODELS = [
+    {'id': 'anthropic/claude-sonnet-5', 'provider': 'anthropic'},
+    {'id': 'openai/gpt-5.6-sol', 'provider': 'openai'},
+    # Public Nimbus groups several maker brands under "china". The picker must
+    # derive the actual maker from the model id instead of displaying "china".
+    {'id': 'deepseek/deepseek-v4-pro', 'provider': 'china'},
+    {'id': 'qwen/qwen3-coder', 'provider': 'china'},
+]
+
+
+class TestNimbusLLMModelServiceCatalog:
     @pytest.mark.asyncio
-    async def test_search_returns_only_nimbus_models(self):
-        service = NimbusLLMModelService()
+    async def test_search_mirrors_dynamic_nimbus_chat_roster(self):
+        service = _service(CHAT_MODELS)
         result = await service.search_llm_models(limit=100)
 
         assert isinstance(result, LLMModelPage)
-        returned = {f'{m.provider}/{m.name}' for m in result.items}
-        assert returned == set(NIMBUS_CHAT_MODELS)
+        returned = {f'{model.provider}/{model.name}' for model in result.items}
+        assert returned == {model['id'] for model in CHAT_MODELS}
+        assert all(model.verified and not model.hidden for model in result.items)
+        await service.http_client.aclose()
 
     @pytest.mark.asyncio
-    async def test_every_returned_model_is_verified(self):
-        """Nimbus curates every model — none are 'unverified' from the
-        customer's point of view."""
-        service = NimbusLLMModelService()
+    async def test_media_uses_separate_endpoint_and_never_enters_chat_picker(self):
+        service = _service(
+            CHAT_MODELS
+            + [
+                {
+                    'id': 'google/gemini-3.1-flash-image',
+                    'provider': 'image',
+                    'isImage': True,
+                    'mediaUnit': 'per-image',
+                },
+                {
+                    'id': 'openai/whisper',
+                    'provider': 'audio',
+                    'isMedia': True,
+                    'mediaUnit': 'per-minute-audio',
+                },
+            ]
+        )
+
         result = await service.search_llm_models(limit=100)
 
-        assert all(m.verified for m in result.items)
-        assert not any(m.hidden for m in result.items)
+        assert {model.name for model in result.items} == {
+            model['id'].split('/', 1)[1] for model in CHAT_MODELS
+        }
+        await service.http_client.aclose()
 
     @pytest.mark.asyncio
-    async def test_default_model_is_claude_sonnet_5(self):
-        """The Nimbus default is anthropic/claude-sonnet-5 per the platform
-        brief. This test fails loudly if that ever drifts."""
-        assert NIMBUS_DEFAULT_MODEL == 'anthropic/claude-sonnet-5'
-        assert NIMBUS_DEFAULT_MODEL in NIMBUS_CHAT_MODELS
+    async def test_supplier_labels_never_leak(self):
+        service = _service(
+            CHAT_MODELS
+            + [
+                {'id': 'spiderssense/best', 'provider': 'spiderssense'},
+                {'id': 'nimbus/spider-sense-pro', 'provider': 'nimbus'},
+            ]
+        )
+
+        models = await service.search_llm_models(limit=100)
+        providers = await service.search_providers(limit=100)
+        customer_visible = repr(models.model_dump()) + repr(providers.model_dump())
+
+        assert 'spiderssense' not in customer_visible.lower()
+        assert 'spider-sense' not in customer_visible.lower()
+        assert 'spider sense' not in customer_visible.lower()
+        await service.http_client.aclose()
 
     @pytest.mark.asyncio
-    async def test_no_upstream_provider_leaks(self):
-        """A regression test: if anyone adds 'bedrock/', 'ollama/', 'clarifai/',
-        or any raw LiteLLM catalogue entry to NIMBUS_CHAT_MODELS, this fails."""
-        forbidden_prefixes = ('bedrock/', 'ollama/', 'clarifai/', 'openhands/')
-        for model in NIMBUS_CHAT_MODELS:
-            assert not model.startswith(forbidden_prefixes), (
-                f'{model!r} would leak an upstream/internal provider into '
-                f'the customer UI'
-            )
+    async def test_default_model_is_in_live_roster(self):
+        service = _service(CHAT_MODELS)
+        result = await service.search_llm_models(limit=100)
+        returned = {f'{model.provider}/{model.name}' for model in result.items}
+        assert NIMBUS_DEFAULT_MODEL in returned
+        await service.http_client.aclose()
 
     @pytest.mark.asyncio
-    async def test_query_filter(self):
-        service = NimbusLLMModelService()
-        result = await service.search_llm_models(query='sonnet', limit=100)
-        names = {m.name for m in result.items}
-        assert 'claude-sonnet-5' in names
-        # No non-matching model should slip through the filter.
-        assert all('sonnet' in m.name.lower() for m in result.items)
-
-    @pytest.mark.asyncio
-    async def test_provider_filter(self):
-        service = NimbusLLMModelService()
-        result = await service.search_llm_models(provider_eq='anthropic', limit=100)
-        assert result.items
-        assert all(m.provider == 'anthropic' for m in result.items)
+    async def test_query_and_provider_filters(self):
+        service = _service(CHAT_MODELS)
+        query_result = await service.search_llm_models(query='sonnet', limit=100)
+        provider_result = await service.search_llm_models(
+            provider_eq='openai', limit=100
+        )
+        assert [model.name for model in query_result.items] == ['claude-sonnet-5']
+        assert all(model.provider == 'openai' for model in provider_result.items)
+        await service.http_client.aclose()
 
 
 class TestNimbusLLMModelServiceProviders:
     @pytest.mark.asyncio
-    async def test_returns_curated_providers_only(self):
-        service = NimbusLLMModelService()
+    async def test_returns_model_maker_brands(self):
+        service = _service(CHAT_MODELS)
         result = await service.search_providers(limit=100)
 
         assert isinstance(result, ProviderPage)
-        names = [p.name for p in result.items]
-        assert names == NIMBUS_VERIFIED_PROVIDERS
-        assert all(p.verified for p in result.items)
+        assert [provider.name for provider in result.items] == [
+            'anthropic',
+            'openai',
+            'deepseek',
+            'qwen',
+        ]
+        assert all(provider.verified for provider in result.items)
+        await service.http_client.aclose()
 
 
 class TestNimbusLLMModelServiceInjector:

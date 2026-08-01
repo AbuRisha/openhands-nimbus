@@ -16,8 +16,9 @@
 #   LLM_BASE_URL  = "https://api.nimbusapi.net/v1"
 #   LLM_API_KEY   = "${NIMBUS_API_KEY}"       # injected in Azure Container Apps
 #
-# The model-picker in the UI is restricted to the curated 15-model chat catalog
-# defined in ``openhands/app_server/config_api/nimbus_llm_model_service.py``.
+# The model-picker fetches Nimbus' public catalog dynamically and exposes only
+# chat-capable models. Supplier labels and separately billed media models are
+# not returned by the Chat picker.
 # Set ``NIMBUS_CATALOG_MODE=false`` to fall back to upstream LiteLLM discovery
 # (dev only — never in a customer-facing deploy).
 #

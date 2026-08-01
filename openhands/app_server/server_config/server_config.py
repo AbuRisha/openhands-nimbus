@@ -20,8 +20,14 @@ class ServerConfig(ServerConfigInterface):
     secret_store_class: str = (
         'openhands.app_server.secrets.file_secrets_store.FileSecretsStore'
     )
+    nimbus_auth_required = os.getenv('NIMBUS_AUTH_REQUIRED', 'true').lower() in (
+        'true',
+        '1',
+    )
     user_auth_class: str = (
-        'openhands.app_server.user_auth.default_user_auth.DefaultUserAuth'
+        'openhands.app_server.nimbus_sso.nimbus_user_auth.NimbusUserAuth'
+        if nimbus_auth_required
+        else 'openhands.app_server.user_auth.default_user_auth.DefaultUserAuth'
     )
     conversation_secret_enricher_class: str | None = None
     analytics_user_provider_class: str | None = None

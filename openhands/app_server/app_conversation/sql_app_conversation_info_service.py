@@ -210,6 +210,24 @@ class StoredConversationCostEvent(Base):
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
+class StoredConversationOwner(Base):
+    """Customer ownership for OSS-hosted multi-user conversation metadata.
+
+    The Nimbus deployment uses the OSS app server rather than the Enterprise
+    ``conversation_metadata_saas`` wrapper. Keeping ownership in a separate
+    table lets existing unowned rows fail closed without rewriting them.
+    """
+
+    __tablename__ = 'conversation_owner'
+
+    conversation_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey('conversation_metadata.conversation_id', ondelete='CASCADE'),
+        primary_key=True,
+    )
+    user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+
 @dataclass
 class SQLAppConversationInfoService(AppConversationInfoService):
     """SQL implementation of AppConversationInfoService focused on db operations.
@@ -308,9 +326,7 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         sandbox_id__eq: str | None = None,
     ) -> int:
         """Count sandboxed conversations matching the given filters."""
-        query = select(func.count(StoredConversationMetadata.conversation_id)).where(
-            StoredConversationMetadata.conversation_version == 'V1'
-        )
+        query = await self._secure_select()
 
         query = self._apply_filters(
             query=query,
@@ -322,7 +338,8 @@ class SQLAppConversationInfoService(AppConversationInfoService):
             sandbox_id__eq=sandbox_id__eq,
         )
 
-        result = await self.db_session.execute(query)
+        count_query = select(func.count()).select_from(query.subquery())
+        result = await self.db_session.execute(count_query)
         count = result.scalar()
         return count or 0
 
@@ -462,6 +479,15 @@ class SQLAppConversationInfoService(AppConversationInfoService):
                 StoredConversationMetadata.conversation_id == str(info.id)
             )
         )
+        user_id = await self.user_context.get_user_id()
+        if user_id is not None and existing_created_at is not None:
+            existing_owner = await self.db_session.scalar(
+                select(StoredConversationOwner.user_id).where(
+                    StoredConversationOwner.conversation_id == str(info.id)
+                )
+            )
+            if existing_owner != user_id:
+                raise PermissionError('Conversation is not owned by this customer')
         if existing_created_at is not None:
             created_at = existing_created_at
 
@@ -499,6 +525,13 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         )
 
         await self.db_session.merge(stored)
+        if user_id is not None:
+            await self.db_session.merge(
+                StoredConversationOwner(
+                    conversation_id=str(info.id),
+                    user_id=user_id,
+                )
+            )
         await self.db_session.commit()
         return info
 
@@ -756,6 +789,13 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         query = select(StoredConversationMetadata).where(
             StoredConversationMetadata.conversation_version == 'V1'
         )
+        user_id = await self.user_context.get_user_id()
+        if user_id is not None:
+            query = query.join(
+                StoredConversationOwner,
+                StoredConversationOwner.conversation_id
+                == StoredConversationMetadata.conversation_id,
+            ).where(StoredConversationOwner.user_id == user_id)
         return query
 
     def _to_info(

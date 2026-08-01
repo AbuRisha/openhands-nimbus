@@ -3,16 +3,13 @@
 The nimbusapi.net dashboard mints a 60-second HS256 JWT via its own
 /api/auth/chat-token route, then navigates the browser here with
 ?token=<jwt>. We verify the JWT with the shared secret
-(NIMBUS_SSO_SHARED_SECRET, identical on both sides), stamp cookies that
-identify the Nimbus customer for downstream code that wants them, and
+(NIMBUS_SSO_SHARED_SECRET, identical on both sides), stamp a signed session
+cookie that binds requests to the Nimbus customer, and
 302 the user to the chat root. On ANY failure we redirect to
 /?error=<code> so the frontend can surface a message rather than dumping
 a stack trace.
 
-DefaultUserAuth in this fork is single-user (returns None for user_id
-and treats every request as root), so the cookies below are informational
-- they let future middleware attach a Nimbus identity without breaking
-today's flow.
+The one-time handoff token is never used as the long-lived session itself.
 """
 
 from __future__ import annotations
@@ -24,16 +21,15 @@ import jwt
 from fastapi import APIRouter, Query
 from fastapi.responses import RedirectResponse
 
+from openhands.app_server.nimbus_sso.nimbus_user_auth import (
+    SESSION_COOKIE,
+    SESSION_MAX_AGE_SECONDS,
+    create_session_token,
+)
 from openhands.app_server.utils.logger import openhands_logger as logger
 
 router = APIRouter(tags=['NimbusSSO'])
 
-# Cookies are informational for DefaultUserAuth today but let future
-# middleware pin an identity without another round-trip to nimbus-v2.
-_COOKIE_EMAIL: Final[str] = 'nimbus_sso_email'
-_COOKIE_SUB: Final[str] = 'nimbus_sso_sub'
-_COOKIE_NAME: Final[str] = 'nimbus_sso_name'
-_COOKIE_MAX_AGE_SECONDS: Final[int] = 60 * 60 * 24 * 30  # 30 days
 _JWT_LEEWAY_SECONDS: Final[int] = 5
 
 
@@ -82,22 +78,25 @@ async def nimbus_sso(token: str | None = Query(default=None)) -> RedirectRespons
 
     logger.info('nimbus_sso:ok sub=%s email=%s', sub, email)
 
-    # Redirect to SPA root and stamp identity cookies. Path=/ so the whole
-    # app can read them; HttpOnly=False so the SPA can pick up displayName
-    # without another /me round-trip; Secure=True since we're always TLS
-    # behind ACA; SameSite=Lax so the cross-site redirect from
-    # nimbusapi.net keeps the cookies.
+    if not isinstance(sub, str) or not sub:
+        logger.warning('nimbus_sso:payload missing sub')
+        return _redirect_error('sso_payload')
+    if not isinstance(name, str) or not name:
+        name = email.split('@')[0]
+
+    # Exchange the one-minute handoff JWT for a signed, HttpOnly chat session.
+    # Identity is never accepted from the old browser-writable display cookies.
     response = RedirectResponse(url='/', status_code=302)
-    cookie_kwargs = dict(
-        max_age=_COOKIE_MAX_AGE_SECONDS,
+    response.set_cookie(
+        SESSION_COOKIE,
+        create_session_token(sub=sub, email=email, name=name),
+        max_age=SESSION_MAX_AGE_SECONDS,
         path='/',
         secure=True,
-        httponly=False,
+        httponly=True,
         samesite='lax',
     )
-    response.set_cookie(_COOKIE_EMAIL, email, **cookie_kwargs)
-    if isinstance(sub, str) and sub:
-        response.set_cookie(_COOKIE_SUB, sub, **cookie_kwargs)
-    if isinstance(name, str) and name:
-        response.set_cookie(_COOKIE_NAME, name, **cookie_kwargs)
+    # Remove the legacy unsigned identity cookies on the first successful handoff.
+    for legacy_cookie in ('nimbus_sso_email', 'nimbus_sso_sub', 'nimbus_sso_name'):
+        response.delete_cookie(legacy_cookie, path='/', secure=True, samesite='lax')
     return response
