@@ -9,6 +9,7 @@ import logging
 import os
 import socket
 import subprocess
+
 import sys
 import tempfile
 import time
@@ -24,6 +25,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from openhands.agent_server.utils import utc_now
 from openhands.app_server.errors import SandboxError
+from openhands.app_server.sandbox.nimbus_uid_allocator import (
+    can_isolate,
+    uid_for_user,
+)
 from openhands.app_server.sandbox.sandbox_models import (
     AGENT_SERVER,
     ExposedUrl,
@@ -121,9 +126,45 @@ class ProcessSandboxService(SandboxService):
         raise SandboxError('No available ports found')
 
     def _create_sandbox_directory(self, sandbox_id: str) -> str:
-        """Create a dedicated directory for the sandbox."""
+        """Create a dedicated directory for the sandbox, owned by its customer.
+
+        Each sandbox already got its own directory, but every one of them was
+        created and run as the SAME OS user with default permissions - so the
+        shell the agent hands a customer could simply walk up one level and read
+        another customer's workspace. Separate directories are not isolation if
+        one uid owns them all.
+        """
         sandbox_dir = os.path.join(self.base_working_dir, sandbox_id)
         os.makedirs(sandbox_dir, exist_ok=True)
+
+        uid = uid_for_user(self.user_id)
+        if uid is None or not can_isolate():
+            if uid is not None and not can_isolate():
+                # Do not fail the request, but never let this pass silently -
+                # the deployment believes it is isolating customers.
+                _logger.error(
+                    'nimbus_isolation: not running as root, cannot chown sandbox '
+                    '%s to uid %s - agent processes will share an OS user and '
+                    'CAN read each other files',
+                    sandbox_id,
+                    uid,
+                )
+            return sandbox_dir
+
+        # The parent must stay traversable so a child can reach its own
+        # directory, but NOT listable, so it cannot enumerate its neighbours.
+        try:
+            os.chmod(self.base_working_dir, 0o711)
+        except OSError as e:
+            _logger.warning('nimbus_isolation: could not chmod base dir: %s', e)
+
+        os.chown(sandbox_dir, uid, uid)
+        os.chmod(sandbox_dir, 0o700)
+        _logger.info(
+            'nimbus_isolation: sandbox %s owned by uid %s (mode 0700)',
+            sandbox_id,
+            uid,
+        )
         return sandbox_dir
 
     async def _start_agent_process(
@@ -157,9 +198,27 @@ class ProcessSandboxService(SandboxService):
         try:
             # Start the process, directing output to a log file to avoid pipe-buffer deadlocks
             log_path = os.path.join(working_dir, '.openhands-agent-server.log')
+            # Drop privileges to the customer's own uid. Popen(user=/group=) is
+            # available on Python 3.9+ and the image is 3.13. The log file is
+            # opened by the parent and inherited as a file descriptor, so the
+            # child can still write to it without owning it.
+            uid = uid_for_user(self.user_id)
+            spawn_kwargs: dict = {}
+            if uid is not None and can_isolate():
+                spawn_kwargs['user'] = uid
+                spawn_kwargs['group'] = uid
+                # HOME must live inside the sandbox: left pointing at the app
+                # user's home, tooling would write there as the customer's uid
+                # and either fail or leak between customers.
+                env['HOME'] = working_dir
             with open(log_path, 'a', buffering=1) as log_handle:
                 process = subprocess.Popen(
-                    cmd, env=env, cwd=working_dir, stdout=log_handle, stderr=log_handle
+                    cmd,
+                    env=env,
+                    cwd=working_dir,
+                    stdout=log_handle,
+                    stderr=log_handle,
+                    **spawn_kwargs,
                 )
 
             # Wait a moment for the process to start
