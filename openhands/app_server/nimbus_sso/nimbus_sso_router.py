@@ -24,6 +24,11 @@ import jwt
 from fastapi import APIRouter, Query
 from fastapi.responses import RedirectResponse
 
+from openhands.app_server.nimbus_sso.nimbus_session import (
+    COOKIE_SESSION,
+    SESSION_MAX_AGE_SECONDS,
+    issue_session,
+)
 from openhands.app_server.utils.logger import openhands_logger as logger
 
 router = APIRouter(tags=['NimbusSSO'])
@@ -95,6 +100,30 @@ async def nimbus_sso(token: str | None = Query(default=None)) -> RedirectRespons
         httponly=False,
         samesite='lax',
     )
+    # The three cookies below are DISPLAY ONLY and deliberately not HttpOnly,
+    # so the SPA can render a name without another round-trip. They are
+    # therefore forgeable by any script on the page and MUST NOT be trusted for
+    # identity. NimbusUserAuth reads the signed session cookie instead.
+    session = issue_session(sub if isinstance(sub, str) else '', email)
+    if session:
+        response.set_cookie(
+            COOKIE_SESSION,
+            session,
+            max_age=SESSION_MAX_AGE_SECONDS,
+            path='/',
+            secure=True,
+            httponly=True,   # the whole point: page scripts cannot read or forge it
+            samesite='lax',
+        )
+    else:
+        # No shared secret, or no subject. Say so rather than silently signing
+        # the user in with an identity nothing can verify.
+        logger.error(
+            'nimbus_sso: could not issue a signed session (missing '
+            'NIMBUS_SSO_SHARED_SECRET or empty sub) - the user will be treated '
+            'as unauthenticated'
+        )
+
     response.set_cookie(_COOKIE_EMAIL, email, **cookie_kwargs)
     if isinstance(sub, str) and sub:
         response.set_cookie(_COOKIE_SUB, sub, **cookie_kwargs)

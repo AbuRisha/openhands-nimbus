@@ -145,7 +145,7 @@ export function UserContextMenu({
           <SettingsNavDivider className="my-1.5" />
 
           <a
-            href="https://docs.openhands.dev"
+            href="https://docs.nimbusapi.net"
             target="_blank"
             rel="noopener noreferrer"
             onClick={onClose}

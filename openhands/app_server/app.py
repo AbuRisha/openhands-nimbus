@@ -27,6 +27,9 @@ from openhands.app_server.nimbus_sso.nimbus_sso_router import (
     router as nimbus_sso_router,
 )
 from openhands.app_server.sandbox.agent_proxy_router import agent_proxy_router
+from openhands.app_server.nimbus_sso.nimbus_auth_gate import (
+    NimbusAuthGateMiddleware,
+)
 from openhands.app_server.static import SPAStaticFiles
 from openhands.app_server.status.status_router import router as health_router
 from openhands.app_server.version import get_version
@@ -95,6 +98,10 @@ if os.getenv('SERVE_FRONTEND', 'true').lower() == 'true':
             '/', SPAStaticFiles(directory='./frontend/build', html=True), name='dist'
         )
 
+# Default-deny on /api. Added last so it runs FIRST — Starlette applies
+# middleware in reverse registration order, and an auth gate that runs after
+# anything else is an auth gate that something else already answered past.
+app.add_middleware(NimbusAuthGateMiddleware)
 app.add_middleware(LocalhostCORSMiddleware)
 app.add_middleware(CacheControlMiddleware)
 app.add_middleware(

@@ -22,7 +22,7 @@ export function OpenHandsApiKeyHelp({ testId }: OpenHandsApiKeyHelpProps) {
       <Typography.Paragraph className="text-xs">
         {t(I18nKey.SETTINGS$LLM_BILLING_INFO)}{" "}
         <a
-          href="https://docs.openhands.dev/usage/llms/openhands-llms"
+          href="https://docs.nimbusapi.net"
           rel="noreferrer noopener"
           target="_blank"
           className="underline underline-offset-2"

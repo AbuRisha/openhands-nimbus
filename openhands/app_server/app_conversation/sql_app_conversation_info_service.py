@@ -188,6 +188,15 @@ class StoredConversationMetadata(Base):
         create_json_type_decorator(dict[str, str]), nullable=True
     )
 
+    # Owning Nimbus customer. Added 2026-08-02 (migration 015) to make
+    # conversations per-customer. Upstream keeps the owner in
+    # ConversationMetadataSaas, which lives under enterprise/ and is not
+    # available here, so this table had no owner column at all and _secure_select
+    # could not filter by one however trustworthy the caller's identity was.
+    # Nullable so pre-existing rows survive the migration; those rows are
+    # ownerless and only an anonymous context can see them.
+    nimbus_user_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+
 
 class StoredConversationCostEvent(Base):
     __tablename__ = 'conversation_cost_events'
@@ -465,8 +474,13 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         if existing_created_at is not None:
             created_at = existing_created_at
 
+        # Stamp the owning customer at creation. Without this the column stays
+        # NULL and _secure_select's filter would hide every conversation from
+        # the very customer who made it — isolation and ownership have to be
+        # written by the same change or the feature is worse than not having it.
         stored = StoredConversationMetadata(
             conversation_id=str(info.id),
+            nimbus_user_id=await self._nimbus_user_id(),
             selected_repository=info.selected_repository,
             selected_branch=info.selected_branch,
             git_provider=info.git_provider.value if info.git_provider else None,
@@ -753,10 +767,38 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         await self.db_session.commit()
 
     async def _secure_select(self):
+        """Base query for every read path — the single place isolation is enforced.
+
+        It used to filter on conversation_version alone, so every caller saw
+        every conversation ever created. `user_context` was already a field on
+        this service (declared above) and simply never appeared in a query.
+
+        A verified user id therefore was NOT sufficient on its own: without the
+        predicate below, NimbusUserAuth returning a real customer id would have
+        changed nothing about what that customer could read.
+        """
         query = select(StoredConversationMetadata).where(
             StoredConversationMetadata.conversation_version == 'V1'
         )
+        user_id = await self._nimbus_user_id()
+        if user_id is not None:
+            query = query.where(
+                StoredConversationMetadata.nimbus_user_id == user_id
+            )
         return query
+
+    async def _nimbus_user_id(self) -> str | None:
+        """The owning customer for this request, or None when unauthenticated.
+
+        Never raises: a failure to resolve identity must not become a failure to
+        apply the filter, and it must not become an open query either — callers
+        treat None as "no owner scope", and the auth gate refuses anonymous
+        requests before they reach here.
+        """
+        try:
+            return await self.user_context.get_user_id()
+        except Exception:  # noqa: BLE001
+            return None
 
     def _to_info(
         self,

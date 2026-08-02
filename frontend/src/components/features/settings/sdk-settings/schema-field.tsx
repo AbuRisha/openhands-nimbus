@@ -26,7 +26,7 @@ export const FIELD_HELP_LINKS: Record<
   "llm.api_key": {
     textKey: "SCHEMA$LLM$API_KEY$HELP_TEXT",
     linkTextKey: "SCHEMA$LLM$API_KEY$HELP_LINK_TEXT",
-    href: "https://docs.openhands.dev/usage/local-setup#getting-an-api-key",
+    href: "https://docs.nimbusapi.net",
   },
 };
 
