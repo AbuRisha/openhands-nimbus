@@ -1,3 +1,4 @@
+import os
 import asyncio
 import importlib.metadata
 import io
@@ -754,6 +755,30 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 None,
             )
             if conversation_url:
+                # This URL is handed to the BROWSER. The value we just read off
+                # the sandbox is the agent server's IN-CONTAINER address
+                # (http://localhost:<port>), which on a hosted deployment points
+                # at the customer's own machine — so the client could never
+                # reach the agent and every conversation hung on "Connecting...".
+                #
+                # OH_PUBLIC_BASE_URL is the origin customers actually resolve.
+                # agent_proxy_router.py serves /api/conversations/* there and
+                # forwards to this same sandbox, routing on the session key
+                # rather than a port (the port is allocated, not fixed).
+                #
+                # It must be an ABSOLUTE origin with no path prefix. The client
+                # derives both a host and a path prefix from this string; a bare
+                # origin makes it request "/" (the SPA), and a prefixed one makes
+                # it request the prefix twice. Absolute also keeps the two
+                # server-side httpx consumers of conversation_url working
+                # (webhook_router, set_title_callback_processor) — a relative
+                # value raises httpx.UnsupportedProtocol in both.
+                #
+                # Unset -> previous behaviour, so a local single-machine run
+                # where localhost IS correct is unaffected.
+                public_base = os.getenv('OH_PUBLIC_BASE_URL', '').strip()
+                if public_base:
+                    conversation_url = public_base.rstrip('/')
                 conversation_url += f'/api/conversations/{app_conversation_info.id.hex}'
             session_api_key = sandbox.session_api_key
 
