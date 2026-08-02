@@ -90,7 +90,7 @@ class NimbusSettingsStore(FileSettingsStore):
             override_agent_profile_id=override_agent_profile_id,
         )
         if settings is not None:
-            return settings
+            return await self._upgrade_shared_key(settings)
 
         model = os.getenv('LLM_MODEL')
         base_url = os.getenv('LLM_BASE_URL')
@@ -146,3 +146,53 @@ class NimbusSettingsStore(FileSettingsStore):
         except Exception as e:  # noqa: BLE001 - serving the request matters more
             logger.warning('nimbus_settings: could not persist seed: %s', e)
         return seeded
+
+    async def _upgrade_shared_key(self, settings):
+        """Move a customer off the shared deployment key onto their own.
+
+        Customers seeded before per-customer keys existed hold the deployment's
+        LLM_API_KEY in their settings, so their usage bills to the deployment
+        rather than to them. `load` only seeds when nothing is stored, so
+        without this they would keep the shared key forever and the billing fix
+        would silently apply to new customers only.
+
+        Only rewrites when the stored key is EXACTLY the deployment key. A
+        customer who has set their own is left alone.
+        """
+        shared = os.getenv('LLM_API_KEY')
+        if not shared or not self.nimbus_user_id:
+            return settings
+        try:
+            llm = getattr(getattr(settings, 'agent_settings', None), 'llm', None)
+            current = getattr(llm, 'api_key', None)
+            # api_key may be a SecretStr; compare the plain value either way.
+            plain = (
+                current.get_secret_value()
+                if hasattr(current, 'get_secret_value')
+                else current
+            )
+            if plain != shared:
+                return settings
+        except Exception:  # noqa: BLE001 - never break a load over this
+            return settings
+
+        own = await fetch_customer_api_key(self.nimbus_user_id)
+        if not own:
+            logger.error(
+                'nimbus_settings: %s still holds the shared deployment key and a '
+                'per-customer key could not be minted - their usage is billing to '
+                'the deployment, not to them',
+                self.nimbus_user_id,
+            )
+            return settings
+
+        try:
+            llm.api_key = own
+            await self.store(settings)
+            logger.info(
+                'nimbus_settings: upgraded %s from the shared key to their own',
+                self.nimbus_user_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error('nimbus_settings: could not persist key upgrade: %s', e)
+        return settings
