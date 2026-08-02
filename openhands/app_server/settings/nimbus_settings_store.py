@@ -23,6 +23,9 @@ import os
 from dataclasses import dataclass
 
 from openhands.app_server.settings.file_settings_store import FileSettingsStore
+from openhands.app_server.settings.nimbus_customer_key import (
+    fetch_customer_api_key,
+)
 from openhands.app_server.utils.logger import openhands_logger as logger
 
 
@@ -44,6 +47,11 @@ def user_scoped_path(user_id: str | None, filename: str) -> str:
 
 @dataclass
 class NimbusSettingsStore(FileSettingsStore):
+    # Whose settings these are. Needed so the first-run seed can ask nimbus-v2
+    # for a key belonging to THIS customer rather than falling back to the
+    # shared deployment key.
+    nimbus_user_id: str | None = None
+
     @classmethod
     async def get_instance(cls, user_id: str | None) -> 'NimbusSettingsStore':
         from openhands.app_server.config import get_global_config
@@ -51,6 +59,7 @@ class NimbusSettingsStore(FileSettingsStore):
         return NimbusSettingsStore(
             file_store=get_global_config().file_store,
             path=user_scoped_path(user_id, 'settings.json'),
+            nimbus_user_id=user_id,
         )
 
     async def load(
@@ -84,8 +93,32 @@ class NimbusSettingsStore(FileSettingsStore):
             return settings
 
         model = os.getenv('LLM_MODEL')
-        api_key = os.getenv('LLM_API_KEY')
         base_url = os.getenv('LLM_BASE_URL')
+
+        # Bill the CUSTOMER, not the deployment. Their own sk-nim-live- key
+        # resolves at the gateway to their customerId and their balance, so
+        # usage draws down their credit (free/welcome credit included) and never
+        # anybody else's. This is the whole point of per-customer chat.
+        api_key = await fetch_customer_api_key(self.nimbus_user_id)
+        if api_key:
+            logger.info(
+                'nimbus_settings: seeding %s with the customer own API key',
+                self.path,
+            )
+        else:
+            # Falling back to the shared key means this customer's usage bills
+            # to the deployment. That is a correctness problem, not a crash, so
+            # chat keeps working - but it must be visible, because the symptom
+            # (someone else's balance draining) is otherwise silent.
+            api_key = os.getenv('LLM_API_KEY')
+            if self.nimbus_user_id:
+                logger.error(
+                    'nimbus_settings: could not obtain a per-customer key for %s '
+                    '- falling back to the shared deployment key, so this '
+                    'customer usage will NOT bill to their own balance',
+                    self.nimbus_user_id,
+                )
+
         if not model or not api_key:
             logger.warning(
                 'nimbus_settings: no stored settings and LLM_MODEL/LLM_API_KEY '
