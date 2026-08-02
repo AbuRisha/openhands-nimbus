@@ -148,6 +148,25 @@ class NimbusSettingsStore(FileSettingsStore):
         return seeded
 
     async def _upgrade_shared_key(self, settings):
+        """Serialised wrapper — see _upgrade_shared_key_locked for the logic.
+
+        The lock inside fetch_customer_api_key only serialises the MINT. The
+        read-compare-write around it was still concurrent, so two loads that both
+        read the shared key before either wrote would both upgrade: observed as
+        two keys 465ms apart, one immediately revoked.
+
+        Self-limiting (once a customer is upgraded, later loads skip) but
+        pointless churn in their dashboard, so hold the lock across the whole
+        sequence instead.
+        """
+        if not self.nimbus_user_id:
+            return settings
+        from openhands.app_server.settings.nimbus_customer_key import _lock_for
+
+        async with await _lock_for(f'settings:{self.nimbus_user_id}'):
+            return await self._upgrade_shared_key_locked(settings)
+
+    async def _upgrade_shared_key_locked(self, settings):
         """Move a customer off the shared deployment key onto their own.
 
         Customers seeded before per-customer keys existed hold the deployment's
