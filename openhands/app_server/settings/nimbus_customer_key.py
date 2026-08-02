@@ -22,6 +22,7 @@ for.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import os
@@ -39,6 +40,32 @@ def _base_url() -> str:
     return (os.getenv('NIMBUS_SITE_BASE_URL') or _DEFAULT_BASE).rstrip('/')
 
 
+# One lock per customer, so concurrent settings loads for the SAME customer
+# serialise instead of racing.
+#
+# Observed live the first time this worked: three "Nimbus Chat" keys minted for
+# one customer inside nine seconds, two immediately revoked. The endpoint
+# revokes-then-mints so exactly one ends up active and the result self-corrects,
+# but a customer with two tabs open would watch keys churn in their dashboard
+# for no reason.
+#
+# A process-level lock is sufficient because the app runs at maxReplicas 1 -
+# RUNTIME=process pins a conversation's sandbox to the replica that started it,
+# so the deployment cannot scale out anyway. If that ever changes this needs to
+# become a database-level advisory lock, and this comment is the warning.
+_key_locks: dict[str, asyncio.Lock] = {}
+_locks_guard = asyncio.Lock()
+
+
+async def _lock_for(customer_id: str) -> asyncio.Lock:
+    async with _locks_guard:
+        lock = _key_locks.get(customer_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _key_locks[customer_id] = lock
+        return lock
+
+
 async def fetch_customer_api_key(customer_id: str | None) -> str | None:
     """Mint/return an API key owned by ``customer_id``, or None.
 
@@ -49,6 +76,14 @@ async def fetch_customer_api_key(customer_id: str | None) -> str | None:
     """
     if not customer_id:
         return None
+
+    # Serialise per customer. Without this, two concurrent settings loads each
+    # mint a key and each revokes the other's.
+    async with await _lock_for(customer_id):
+        return await _fetch_customer_api_key_locked(customer_id)
+
+
+async def _fetch_customer_api_key_locked(customer_id: str) -> str | None:
     secret = os.getenv('NIMBUS_SSO_SHARED_SECRET') or ''
     if not secret:
         logger.warning(
