@@ -128,5 +128,26 @@ RUN apt-get update -y \
     && chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH" \
     && rm -rf /var/lib/apt/lists/*
 
+# Make the runtime readable and executable by ANY uid.
+#
+# Each customer's agent process is spawned with Popen(user=<their uid>) so that
+# the shell the agent exposes cannot read another customer's files - see
+# openhands/app_server/sandbox/nimbus_uid_allocator.py. That uid is not the
+# image's `openhands` user and is in no group, so with the default ownership it
+# could not even start:
+#
+#   Starting agent process: /app/.venv/bin/python -m openhands.agent_server
+#   PermissionError: [Errno 13] Permission denied: '/app/.venv/bin/python'
+#
+# a+rX (capital X) sets the execute bit on directories and on files that are
+# already executable, so it makes the interpreter runnable and the package tree
+# traversable without marking every .py file executable.
+#
+# This grants READ on application code, not on data. Customer workspaces live
+# under the sandbox base dir, each chowned to its owner at mode 0700, and
+# secrets arrive through the environment of the specific child process rather
+# than from anything on this filesystem.
+RUN chmod -R a+rX /app/.venv /app/openhands /app/pyproject.toml 2>/dev/null || true
+
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "openhands.server.listen:app", "--host", "0.0.0.0", "--port", "3000"]

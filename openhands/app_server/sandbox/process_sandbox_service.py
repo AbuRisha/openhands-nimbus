@@ -212,14 +212,47 @@ class ProcessSandboxService(SandboxService):
                 # and either fail or leak between customers.
                 env['HOME'] = working_dir
             with open(log_path, 'a', buffering=1) as log_handle:
-                process = subprocess.Popen(
-                    cmd,
-                    env=env,
-                    cwd=working_dir,
-                    stdout=log_handle,
-                    stderr=log_handle,
-                    **spawn_kwargs,
-                )
+                try:
+                    process = subprocess.Popen(
+                        cmd,
+                        env=env,
+                        cwd=working_dir,
+                        stdout=log_handle,
+                        stderr=log_handle,
+                        **spawn_kwargs,
+                    )
+                except (PermissionError, OSError) as e:
+                    # Dropping privileges must never be able to take chat down.
+                    #
+                    # It did, once: the customer uid could not execute
+                    # /app/.venv/bin/python because the venv was not readable by
+                    # other users, so every conversation died with
+                    #   PermissionError: [Errno 13] Permission denied
+                    # and the failure looked like a chat outage rather than a
+                    # permissions problem. The Dockerfile now chmods the runtime
+                    # a+rX, but a hard dependency on image permissions is a bad
+                    # bet for something that silently breaks conversations.
+                    #
+                    # Retry unisolated and say so at ERROR level. Weaker
+                    # isolation that is visible beats strong isolation that
+                    # takes the product offline, and this line is what tells
+                    # someone which one they have.
+                    if not spawn_kwargs:
+                        raise
+                    _logger.error(
+                        'nimbus_isolation: could not spawn agent as uid %s (%s) - '
+                        'falling back to the shared app user, so this sandbox is '
+                        'NOT file-isolated from other customers',
+                        spawn_kwargs.get('user'),
+                        e,
+                    )
+                    process = subprocess.Popen(
+                        cmd,
+                        env=env,
+                        cwd=working_dir,
+                        stdout=log_handle,
+                        stderr=log_handle,
+                    )
 
             # Wait a moment for the process to start
             await asyncio.sleep(1)
