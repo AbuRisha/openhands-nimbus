@@ -187,8 +187,44 @@ class NimbusSettingsStore(FileSettingsStore):
             return settings
 
         try:
-            llm.api_key = own
+            # SecretStr, not a plain str. `api_key` is typed SecretStr | None and
+            # this model deliberately bypasses validate_assignment (see the
+            # object.__setattr__ note in settings_models.py), so assigning a raw
+            # string does NOT get coerced — it is stored as-is and the field
+            # serializer then fails on the missing .get_secret_value().
+            #
+            # That is what produced the churn loop: store() raised, the except
+            # below swallowed it, nothing persisted, so the next settings load
+            # saw the old key and minted again. Sixteen keys in about a minute,
+            # none ever used, and whatever the customer's settings held was
+            # revoked seconds later — which surfaced as chat returning 500.
+            #
+            # The seed path was unaffected because Settings(**{...}) goes through
+            # the constructor, which DOES validate and coerce. Only assignment
+            # skips it, which is exactly why the bug hid: seeding looked fine.
+            from pydantic import SecretStr
+
+            llm.api_key = SecretStr(own)
             await self.store(settings)
+
+            # Prove it stuck. A mint that returns 200 is not evidence the key was
+            # saved, and treating it as such is what let this run for a minute.
+            written = await super().load()
+            saved = getattr(getattr(written, 'agent_settings', None), 'llm', None)
+            saved_key = getattr(saved, 'api_key', None)
+            plain_saved = (
+                saved_key.get_secret_value()
+                if hasattr(saved_key, 'get_secret_value')
+                else saved_key
+            )
+            if plain_saved != own:
+                logger.error(
+                    'nimbus_settings: key upgrade did NOT persist for %s - '
+                    'refusing to report success; chat will keep using the '
+                    'previous key rather than re-minting on every load',
+                    self.nimbus_user_id,
+                )
+                return settings
             logger.info(
                 'nimbus_settings: upgraded %s from the shared key to their own',
                 self.nimbus_user_id,
