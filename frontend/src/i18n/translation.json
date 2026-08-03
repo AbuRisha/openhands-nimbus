@@ -28830,5 +28830,22 @@
     "de": "Could not resume this conversation. Please try again.",
     "uk": "Could not resume this conversation. Please try again.",
     "ca": "Could not resume this conversation. Please try again."
+  },
+  "COMMON$ALL": {
+    "en": "All",
+    "ja": "すべて",
+    "zh-CN": "全部",
+    "zh-TW": "全部",
+    "ko-KR": "전체",
+    "no": "Alle",
+    "it": "Tutti",
+    "pt": "Todos",
+    "es": "Todos",
+    "ar": "All",
+    "fr": "Tous",
+    "tr": "All",
+    "de": "Alle",
+    "uk": "All",
+    "ca": "All"
   }
 }
