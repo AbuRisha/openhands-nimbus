@@ -54,6 +54,12 @@ export interface V1SendMessageRequest {
 }
 
 export interface V1AppConversationStartRequest {
+  // Reuse an EXISTING conversation instead of minting a new id. The server does
+  // `conversation_id = request.conversation_id or uuid4()`, so supplying one
+  // attaches a fresh sandbox to a conversation that already has a transcript.
+  // That is what makes an archived conversation resumable rather than a dead
+  // end — see useResumeConversation.
+  conversation_id?: string | null;
   sandbox_id?: string | null;
   initial_message?: V1SendMessageRequest | null;
   processors?: unknown[]; // EventCallbackProcessor - keeping as unknown for now

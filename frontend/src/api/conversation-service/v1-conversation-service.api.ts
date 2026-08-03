@@ -109,6 +109,41 @@ class V1ConversationService {
   }
 
   /**
+   * Give an archived conversation a new sandbox and carry on.
+   *
+   * "Archived" is not a state anybody chose: it is derived from
+   * `sandbox.status == MISSING`, and a sandbox goes missing whenever the app
+   * container restarts — a deploy, a replica recycle, a crash. Under
+   * RUNTIME=process the sandbox is a child process of that container, so every
+   * restart silently converted every live conversation into a read-only husk
+   * with no way back, even though the transcript was never lost (events live in
+   * Postgres, keyed by conversation id).
+   *
+   * The server already supports the repair: it does
+   * `conversation_id = request.conversation_id or uuid4()`, so passing an
+   * existing id attaches a fresh sandbox to the conversation that already
+   * exists. Nothing new was needed on the backend — the capability was simply
+   * never offered to the user.
+   *
+   * @param conversationId The existing conversation to resume
+   * @returns The start task to poll, exactly as a new conversation would
+   */
+  static async resumeConversation(
+    conversationId: string,
+  ): Promise<V1AppConversationStartTask> {
+    const body: V1AppConversationStartRequest = {
+      conversation_id: conversationId,
+    };
+
+    const { data } = await openHands.post<V1AppConversationStartTask>(
+      "/api/v1/app-conversations",
+      body,
+    );
+
+    return data;
+  }
+
+  /**
    * Get a start task by ID
    * Poll this endpoint until status is READY to get the app_conversation_id
    *
