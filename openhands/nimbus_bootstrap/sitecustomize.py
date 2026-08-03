@@ -20,3 +20,13 @@ try:
     register_nimbus_model_caps()
 except Exception:  # noqa: BLE001 - see the docstring; never break interpreter start
     pass
+
+try:
+    # Separate try: a failure to register model capabilities must not also
+    # disable the nudge cap, and vice versa. They are unrelated repairs that
+    # happen to share the only hook that reaches the agent process.
+    from nimbus_nudge_cap import install_nudge_cap
+
+    install_nudge_cap()
+except Exception:  # noqa: BLE001
+    pass
