@@ -49,21 +49,31 @@ from openhands.app_server.utils.paging_utils import paginate_results
 # ``moonshotai/*`` deployment aliases (see api.nimbusapi.net roster).
 # ---------------------------------------------------------------------------
 NIMBUS_CHAT_MODELS: list[str] = [
-    'anthropic/claude-sonnet-5',
+    'anthropic/claude-opus-5',
     'anthropic/claude-opus-4.8',
-    'anthropic/claude-fable-5',
+    'anthropic/claude-opus-4.6',
+    'anthropic/claude-sonnet-5',
+    'anthropic/claude-sonnet-4.6',
     'anthropic/claude-haiku-4.5',
-    'openai/gpt-5.1',
+    'openai/gpt-5.6-sol',
+    'openai/gpt-5.6-terra',
+    'openai/gpt-5.6-luna',
+    'openai/gpt-5.5',
+    'openai/gpt-5.4',
     'openai/gpt-5.4-mini',
-    'openai/gpt-5-codex',
     'openai/gpt-5.3-codex',
-    'openai/o4-mini',
+    'google/gemini-3.1-pro-preview',
+    'google/gemini-3.5-flash',
+    'google/gemini-3-flash-preview',
     'deepseek/deepseek-v4-pro',
     'deepseek/deepseek-v4-flash',
+    'qwen/qwen3.7-max',
+    'qwen/qwen3-coder',
     'moonshotai/kimi-k3',
-    'moonshotai/kimi-k2.7-code',
-    'google/gemini-3.1-pro-preview',
-    'google/gemini-3-flash-preview',
+    'moonshotai/kimi-k2.6',
+    'z-ai/glm-5.2',
+    'z-ai/glm-5.1',
+    'z-ai/glm-5',
 ]
 
 # ``anthropic/claude-sonnet-5`` is the default per the Nimbus platform brief.
@@ -75,7 +85,9 @@ NIMBUS_VERIFIED_PROVIDERS: list[str] = [
     'openai',
     'google',
     'deepseek',
+    'qwen',
     'moonshotai',
+    'z-ai',
 ]
 
 # Providers rendered when computing :meth:`search_providers`. Extracted from
