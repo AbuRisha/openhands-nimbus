@@ -84,7 +84,10 @@ NIMBUS_CHAT_MODELS: list[str] = [
     'openai/gpt-5.4',
     'openai/gpt-5.3-codex',
     'openai/gpt-5.1-codex-max',
-    'openai/gpt-5.1-codex-mini',
+    # gpt-5.1-codex-mini removed 2026-08-03: advertised by /v1/models but a
+    # real completion returns 404 upstream_error "upstream-H unavailable".
+    # Presence in the catalog is NOT proof of routability - only a
+    # completion is.
     # Google
     'google/gemini-3.5-flash',
     'google/gemini-3.1-pro-preview',
