@@ -832,7 +832,25 @@ class SQLAppConversationInfoService(AppConversationInfoService):
 
         return AppConversationInfo(
             id=UUID(stored.conversation_id),
-            created_by_user_id=None,  # User ID is now stored in ConversationMetadataSaas
+            # Upstream hard-codes None here and notes the id "is now stored in
+            # ConversationMetadataSaas" - a table that only exists in the SaaS
+            # build. We are OSS, so nothing ever filled this in, and the field
+            # is not cosmetic: valid_conversation() in the webhook router
+            # rejects an event batch when
+            #
+            #     app_conversation_info.created_by_user_id
+            #         != sandbox_record.created_by_user_id
+            #
+            # With the left side permanently None and the right side the real
+            # customer, EVERY event POST from the agent server came back 401
+            # and no conversation transcript was ever persisted. Measured on
+            # production 2026-08-03: sandbox_id matched exactly, owner did not
+            # (null vs cmr2xrqby...), and events/count was 0 on every
+            # conversation ever created.
+            #
+            # We already carry the owner in our own nimbus_user_id column, so
+            # use it.
+            created_by_user_id=stored.nimbus_user_id,
             sandbox_id=sandbox_id,  # Use the asserted non-None value
             selected_repository=stored.selected_repository,
             selected_branch=stored.selected_branch,
