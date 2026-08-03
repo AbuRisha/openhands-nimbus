@@ -12,6 +12,7 @@ import socket
 import subprocess
 
 import sys
+from pathlib import Path
 import tempfile
 import time
 from dataclasses import dataclass
@@ -223,6 +224,32 @@ class ProcessSandboxService(SandboxService):
         # only to this sandbox's own record.
         env['OH_WEBHOOKS_0_HEADERS'] = json.dumps(
             {'X-Session-API-Key': session_api_key}
+        )
+
+        # Teach the CHILD interpreter what our models can do.
+        #
+        # Every model reported "does not support image understanding", because
+        # LLM._supports_vision asks litellm and litellm's bundled model map does
+        # not contain our ids — not the prefixed form, not the bare form, and
+        # not via _model_info, which reads the same registry. All three lookups
+        # miss and the expression falls through to False.
+        #
+        # It has to be registered HERE rather than in the app server: the check
+        # runs inside the agent server, which this line is about to spawn as a
+        # separate `python -m` process importing the SDK, not our application.
+        # Registering app-side would leave the child exactly as it was — the
+        # same per-process trap that broke tool registration once already.
+        #
+        # PYTHONPATH is the injection point because the interpreter imports
+        # `sitecustomize` from it automatically, before any agent code runs.
+        # Appended to any inherited value rather than replacing it, so a
+        # deployment that already sets PYTHONPATH keeps working.
+        bootstrap_dir = str(Path(__file__).resolve().parents[2] / 'nimbus_bootstrap')
+        existing_pythonpath = env.get('PYTHONPATH')
+        env['PYTHONPATH'] = (
+            f'{bootstrap_dir}{os.pathsep}{existing_pythonpath}'
+            if existing_pythonpath
+            else bootstrap_dir
         )
 
         # Prepare command arguments
