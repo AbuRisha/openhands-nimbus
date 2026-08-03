@@ -251,6 +251,13 @@ class ProcessSandboxService(SandboxService):
             if existing_pythonpath
             else bootstrap_dir
         )
+        # The flag, not the path, is what arms the bootstrap. Being on
+        # PYTHONPATH alone would run it in every interpreter that inherits this
+        # environment; importing litellm and the SDK that eagerly made Azure's
+        # default startup probe fail continuously on revision 0000054 while the
+        # app still served traffic. Only this child needs the work, so only this
+        # child asks for it.
+        env['NIMBUS_AGENT_BOOTSTRAP'] = '1'
 
         # Prepare command arguments
         cmd = [
