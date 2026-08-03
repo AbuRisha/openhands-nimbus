@@ -23,6 +23,10 @@ import os
 from dataclasses import dataclass
 
 from openhands.app_server.settings.file_settings_store import FileSettingsStore
+from openhands.app_server.settings.nimbus_catalog_profiles import (
+    repair_catalog_profile_base_urls,
+    seed_catalog_profiles,
+)
 from openhands.app_server.settings.nimbus_customer_key import (
     fetch_customer_api_key,
 )
@@ -91,6 +95,7 @@ class NimbusSettingsStore(FileSettingsStore):
         )
         if settings is not None:
             settings = self._repair_base_url(settings)
+            settings = await self._ensure_catalog_profiles(settings)
             return await self._upgrade_shared_key(settings)
 
         model = os.getenv('LLM_MODEL')
@@ -141,12 +146,50 @@ class NimbusSettingsStore(FileSettingsStore):
             }
         )
         seeded.v1_enabled = True
+        # Seed the model picker in the same pass. Doing it here rather than on
+        # the next load means a brand new customer's first view of chat already
+        # has every Nimbus model in the header dropdown.
+        seed_catalog_profiles(seeded)
         try:
             await self.store(seeded)
             logger.info('nimbus_settings: seeded defaults into %s', self.path)
         except Exception as e:  # noqa: BLE001 - serving the request matters more
             logger.warning('nimbus_settings: could not persist seed: %s', e)
         return seeded
+
+    async def _ensure_catalog_profiles(self, settings):
+        """Give the chat model picker something to show, and keep it pointed here.
+
+        The picker hides itself entirely when a user has no LLM profiles, which
+        in practice meant it never appeared: profiles are hand-created and
+        nobody creates twenty-seven of them. See nimbus_catalog_profiles for
+        why the seeded profiles carry no API key and always pin a base_url.
+
+        Persists only when something actually changed, so the common case —
+        already seeded, gateway unchanged — costs a dict lookup per model and
+        no write.
+        """
+        try:
+            added = seed_catalog_profiles(settings)
+            repaired = repair_catalog_profile_base_urls(settings)
+        except Exception as e:  # noqa: BLE001
+            # A broken picker is a degraded chat; a raised exception here is no
+            # chat at all, because every settings load goes through this.
+            logger.warning('nimbus_settings: catalog profile seed failed: %s', e)
+            return settings
+
+        if not (added or repaired):
+            return settings
+
+        try:
+            await self.store(settings)
+        except Exception as e:  # noqa: BLE001
+            # Serve the request with the in-memory profiles anyway; the next
+            # load will try again.
+            logger.warning(
+                'nimbus_settings: could not persist catalog profiles: %s', e
+            )
+        return settings
 
     def _repair_base_url(self, settings):
         """Re-point stored settings at the CURRENT gateway base URL.

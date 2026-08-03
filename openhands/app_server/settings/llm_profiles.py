@@ -65,8 +65,18 @@ def resolve_profile_llm(
 
 
 # Soft cap — keeps Settings payload bounded and blocks per-user storage
-# blow-ups. Tune if product requirements change.
-MAX_PROFILES_PER_USER: Final[int] = 10
+# blow-ups.
+#
+# Raised from 10 when the Nimbus catalog began seeding a profile per model
+# (see nimbus_catalog_profiles). The catalog alone is 27 entries, so at the old
+# value every user would sit permanently above the cap and save() would reject
+# their FIRST hand-made profile with "Profile limit reached (10)" — a cap meant
+# to bound what a user accumulates would instead have stopped them owning
+# anything at all. The headroom above the catalog is what a user may add.
+#
+# Still a bound: profiles are small (model, base_url, optional key), so this
+# keeps the settings blob in the tens of kilobytes.
+MAX_PROFILES_PER_USER: Final[int] = 40
 
 
 class ProfileNotFoundError(LookupError):
