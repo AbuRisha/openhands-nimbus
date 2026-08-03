@@ -24,10 +24,6 @@ from openhands.agent_server.models import (
 from openhands.app_server.app_conversation.app_conversation_info_service import (
     AppConversationInfoService,
 )
-from openhands.app_server.app_conversation.sticky_model import (
-    STICKY_MODEL_LOOKBACK,
-    pick_last_used_model,
-)
 from openhands.app_server.app_conversation.app_conversation_models import (
     ACP_SERVER_TAG_KEY,
     AGENT_PROFILE_ID_TAG_KEY,
@@ -68,6 +64,10 @@ from openhands.app_server.app_conversation.hook_loader import (
 )
 from openhands.app_server.app_conversation.sql_app_conversation_info_service import (
     SQLAppConversationInfoService,
+)
+from openhands.app_server.app_conversation.sticky_model import (
+    STICKY_MODEL_LOOKBACK,
+    pick_last_used_model,
 )
 from openhands.app_server.config import (
     get_event_callback_service,
@@ -1136,9 +1136,11 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         a conversation.
         """
         try:
-            page = await self.app_conversation_info_service.search_app_conversation_info(
-                sort_order=AppConversationSortOrder.CREATED_AT_DESC,
-                limit=STICKY_MODEL_LOOKBACK,
+            page = (
+                await self.app_conversation_info_service.search_app_conversation_info(
+                    sort_order=AppConversationSortOrder.CREATED_AT_DESC,
+                    limit=STICKY_MODEL_LOOKBACK,
+                )
             )
         except Exception:
             _logger.warning(
