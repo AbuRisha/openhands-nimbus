@@ -112,15 +112,29 @@ NIMBUS_CHAT_MODELS: list[str] = [
     'moonshotai/kimi-k2.6',
     # Qwen
     #
-    # qwen3.8-max ships under the ``alibaba/`` prefix, not ``qwen/`` — the two
-    # sit side by side upstream and the newer model is the one that moved.
-    # Guessing ``qwen/qwen3.8-max`` returns model_not_found, so the prefix is
-    # load-bearing rather than cosmetic.
+    # alibaba/qwen3.8-max is DELIBERATELY ABSENT. It was added earlier today and
+    # removed the same day, and the reason is worth keeping because the mistake
+    # is easy to repeat.
     #
-    # Verified 2026-08-03 by a real completion (HTTP 200 with content), not by
-    # presence in /v1/models — see the gpt-5.1-codex-mini note below for why
-    # that distinction is not academic.
-    'alibaba/qwen3.8-max',
+    # It was "verified by a real completion" — but against the WRONG HOP. The
+    # check ran direct to SpiderSense, which answers 200. A customer does not
+    # take that path: chat -> api.nimbusapi.net -> SpiderSense. Through our own
+    # gateway it is 404 model_not_found, because routing_table.mjs carries only
+    # qwen3-coder and qwen3.7-max, and pricing.mjs has no qwen3.8 entry at all.
+    # Verifying the supplier is not verifying the product.
+    #
+    # Re-adding it needs BOTH the route and the price in the SAME change. A
+    # route without a price makes estimateCost return 0 and the model bills
+    # $0.00 — that is the claude-opus-5 incident (373 of 373 requests free,
+    # 54.9M prompt tokens in a day), not a hypothetical.
+    #
+    # Upstream list price when checked: prompt $0.0000002/token ($0.20/M),
+    # completion $0.0000006/token ($0.60/M). Do NOT derive our price from those
+    # by applying the 5x markup that qwen3.7-max carries (0.625/1.875 against
+    # upstream 0.125/0.375): SpiderSense is running a one-week 90%-off promotion
+    # on all LLM models, so it is unresolved whether those figures are the
+    # promotional or the standard rate. Price it against the standard rate, or
+    # we sell below cost the day the promotion ends.
     'qwen/qwen3.7-max',
     'qwen/qwen3-coder',
     # Z.ai
