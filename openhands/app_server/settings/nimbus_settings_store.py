@@ -90,6 +90,7 @@ class NimbusSettingsStore(FileSettingsStore):
             override_agent_profile_id=override_agent_profile_id,
         )
         if settings is not None:
+            settings = self._repair_base_url(settings)
             return await self._upgrade_shared_key(settings)
 
         model = os.getenv('LLM_MODEL')
@@ -146,6 +147,65 @@ class NimbusSettingsStore(FileSettingsStore):
         except Exception as e:  # noqa: BLE001 - serving the request matters more
             logger.warning('nimbus_settings: could not persist seed: %s', e)
         return seeded
+
+    def _repair_base_url(self, settings):
+        """Re-point stored settings at the CURRENT gateway base URL.
+
+        THE BUG THIS FIXES
+        ------------------
+        Every message returned "Error occurred". The reason was one path
+        segment:
+
+            litellm.NotFoundError: AnthropicException -
+            {"message":"not_found: POST /v1/v1/messages"}
+
+        LiteLLM picks its wire format from the model prefix. For anthropic/*
+        it speaks the Anthropic API and appends "/v1/messages" to the base
+        URL; for openai/* it appends only "/chat/completions". With a base of
+        "https://api.nimbusapi.net/v1" the first becomes /v1/v1/messages and
+        404s. There is no single base URL that satisfies both formats, so the
+        gateway now also answers /chat/completions at the root and the base
+        URL drops its /v1.
+
+        Changing LLM_BASE_URL alone was not enough. That env var only seeds
+        customers who have NO stored settings; anyone who had ever opened chat
+        already had the old value written to their own settings file and would
+        have kept hitting the dead path forever. Their model choice is theirs
+        to keep, but the base URL is deployment infrastructure — it should
+        follow the deployment, not be frozen at whatever it was on the day
+        they first signed in.
+
+        Idempotent, and a no-op when the two already agree, so it costs a
+        string compare on the normal path.
+        """
+        want = os.getenv('LLM_BASE_URL')
+        if not want:
+            return settings
+
+        agent = getattr(settings, 'agent_settings', None)
+        llm = getattr(agent, 'llm', None) if agent else None
+        if llm is None:
+            return settings
+
+        have = getattr(llm, 'base_url', None)
+        if have == want:
+            return settings
+
+        try:
+            llm.base_url = want
+        except Exception as e:  # noqa: BLE001
+            # Never fail a settings load over this. A wrong base URL breaks
+            # sending a message; a raised exception breaks loading chat at all.
+            logger.warning('nimbus_settings: could not repair base_url: %s', e)
+            return settings
+
+        logger.info(
+            'nimbus_settings: repaired stale base_url %r -> %r for %s',
+            have,
+            want,
+            self.nimbus_user_id or 'anonymous',
+        )
+        return settings
 
     async def _upgrade_shared_key(self, settings):
         """Serialised wrapper — see _upgrade_shared_key_locked for the logic.
