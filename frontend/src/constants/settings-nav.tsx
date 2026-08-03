@@ -160,26 +160,18 @@ export const SAAS_NAV_ITEMS: SettingsNavItem[] = [
 
 export const OSS_NAV_ITEMS: SettingsNavItem[] = [
   /*
-   * Usage, Budgets and API Keys were reachable only by hand-typing the URL.
+   * API Keys was reachable only by hand-typing the URL: the page is built but
+   * lived in SAAS_NAV_ITEMS only, and this deployment runs app_mode "oss", so
+   * nothing linked to it and a customer could not manage their own keys from
+   * inside the product. It is a per-user surface, so it belongs here.
    *
-   * The pages are fully built — 3,100+ lines between them — but they lived in
-   * SAAS_NAV_ITEMS only, and this deployment runs app_mode "oss", so nothing
-   * ever linked to them. A customer had no way to see what they had spent, cap
-   * it, or manage their keys from inside the product.
-   *
-   * They are per-user surfaces, not org-admin ones, so there is nothing
-   * SaaS-specific about them.
+   * Usage-monitoring and Budgets are deliberately NOT added. They are also
+   * listed in ADMIN_ONLY_SETTINGS_PATHS — usage-monitoring's own label is
+   * SETTINGS$NAV_ADMIN_DASHBOARD — so they are org-admin views, and surfacing
+   * them to every customer risks showing one customer another's usage. Per-
+   * customer spend belongs on a per-customer page, not by un-gating an admin
+   * dashboard.
    */
-  {
-    icon: <FiBarChart2 size={22} />,
-    to: "/settings/usage-monitoring",
-    text: "SETTINGS$NAV_ADMIN_DASHBOARD",
-  },
-  {
-    icon: <FiDollarSign size={22} />,
-    to: "/settings/budgets",
-    text: "SETTINGS$NAV_BUDGETS",
-  },
   {
     icon: <KeyIcon width={22} height={22} />,
     to: "/settings/api-keys",

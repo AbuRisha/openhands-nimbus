@@ -34,7 +34,9 @@ const SAAS_ONLY_PATHS = [
   "/settings/user",
   "/settings/billing",
   "/settings/credits",
-  "/settings/api-keys",
+  // "/settings/api-keys" — per-user surface, intentionally reachable in OSS
+  // mode. Left in SAAS_ONLY_PATHS it redirected to /settings, so the nav entry
+  // pointed at a page that bounced.
   "/settings/team",
   "/settings/org",
   "/settings/org-defaults",
