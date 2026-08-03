@@ -211,3 +211,47 @@ def test_display_names_are_unique_across_the_catalog():
     """Profiles are keyed by name — a collision would silently drop a model."""
     names = [display_name(m) for m in NIMBUS_CHAT_MODELS]
     assert len(set(names)) == len(names), 'duplicate display name in catalog'
+
+
+def test_prunes_a_seeded_profile_whose_model_left_the_catalog():
+    """Withdrawing a model must withdraw its picker entry.
+
+    alibaba/qwen3.8-max was pulled because it 404s through our own gateway;
+    accounts seeded beforehand kept offering it, which is the exact failure the
+    withdrawal was meant to prevent.
+    """
+    from openhands.app_server.settings.nimbus_catalog_profiles import (
+        prune_retired_catalog_profiles,
+    )
+
+    retired = LLM(model='alibaba/qwen3.8-max', base_url=GATEWAY)
+    settings = _Settings(LLMProfiles(profiles={'Qwen3.8 Max': retired}))
+
+    assert prune_retired_catalog_profiles(settings) is True
+    assert 'Qwen3.8 Max' not in settings.llm_profiles.profiles
+
+
+def test_pruning_spares_a_user_configured_profile():
+    """A BYOR profile is the user's, even when its model is not in the catalog."""
+    from openhands.app_server.settings.nimbus_catalog_profiles import (
+        prune_retired_catalog_profiles,
+    )
+
+    mine = LLM(model='openai/gpt-4o', base_url='https://byo.example.com')
+    settings = _Settings(LLMProfiles(profiles={'My Own': mine}))
+
+    assert prune_retired_catalog_profiles(settings) is False
+    assert 'My Own' in settings.llm_profiles.profiles
+
+
+def test_pruning_leaves_the_live_catalog_intact():
+    from openhands.app_server.settings.nimbus_catalog_profiles import (
+        prune_retired_catalog_profiles,
+    )
+
+    settings = _Settings()
+    seed_catalog_profiles(settings)
+    count = len(settings.llm_profiles.profiles)
+
+    assert prune_retired_catalog_profiles(settings) is False
+    assert len(settings.llm_profiles.profiles) == count

@@ -157,6 +157,60 @@ def seed_catalog_profiles(settings: Any) -> bool:
     return changed
 
 
+def prune_retired_catalog_profiles(settings: Any) -> bool:
+    """Remove seeded profiles whose model has left the catalog.
+
+    Seeding only ever ADDS, which leaves a hole: a model withdrawn from
+    NIMBUS_CHAT_MODELS keeps its profile forever, so the picker goes on offering
+    something that cannot answer. That is exactly the failure the withdrawal was
+    meant to prevent — alibaba/qwen3.8-max was pulled because it 404s through our
+    own gateway, and every account seeded before the pull still had it listed.
+
+    Only removes profiles this module could have created: no API key of its own
+    and a base_url equal to the gateway. A profile the user made, or edited to
+    point elsewhere, or gave a key to, is left alone even if its model is not in
+    the catalog — that is a deliberate BYOR choice and not ours to delete.
+
+    The active profile is cleared if it pointed at a pruned entry, so the picker
+    falls back rather than showing a selection that no longer exists.
+    """
+    base_url = gateway_base_url()
+    if not base_url:
+        return False
+
+    profiles = getattr(settings, 'llm_profiles', None)
+    if profiles is None:
+        return False
+
+    catalog = set(NIMBUS_CHAT_MODELS)
+    removed: list[str] = []
+    for name, llm in list(profiles.profiles.items()):
+        if getattr(llm, 'model', None) in catalog:
+            continue
+        if getattr(llm, 'base_url', None) != base_url:
+            continue  # points somewhere else — the user's, not ours
+        key = getattr(llm, 'api_key', None)
+        plain = key.get_secret_value() if hasattr(key, 'get_secret_value') else key
+        if plain:
+            continue  # carries its own credential — user-configured
+        removed.append(name)
+
+    if not removed:
+        return False
+
+    for name in removed:
+        profiles.profiles.pop(name, None)
+    if profiles.active in removed:
+        profiles.active = None
+
+    logger.info(
+        'nimbus_catalog_profiles: pruned %d retired profile(s): %s',
+        len(removed),
+        ', '.join(removed),
+    )
+    return True
+
+
 def repair_catalog_profile_base_urls(settings: Any) -> bool:
     """Re-point seeded profiles at the CURRENT gateway.
 

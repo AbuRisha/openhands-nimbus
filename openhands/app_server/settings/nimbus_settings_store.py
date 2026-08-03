@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from openhands.app_server.settings.file_settings_store import FileSettingsStore
 from openhands.app_server.settings.nimbus_catalog_profiles import (
+    prune_retired_catalog_profiles,
     repair_catalog_profile_base_urls,
     seed_catalog_profiles,
 )
@@ -172,13 +173,16 @@ class NimbusSettingsStore(FileSettingsStore):
         try:
             added = seed_catalog_profiles(settings)
             repaired = repair_catalog_profile_base_urls(settings)
+            # Withdrawing a model from the catalog has to withdraw it from the
+            # picker too, or the seed leaves behind an entry that 404s.
+            pruned = prune_retired_catalog_profiles(settings)
         except Exception as e:  # noqa: BLE001
             # A broken picker is a degraded chat; a raised exception here is no
             # chat at all, because every settings load goes through this.
             logger.warning('nimbus_settings: catalog profile seed failed: %s', e)
             return settings
 
-        if not (added or repaired):
+        if not (added or repaired or pruned):
             return settings
 
         try:
