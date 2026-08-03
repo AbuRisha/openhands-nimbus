@@ -43,10 +43,23 @@ from openhands.app_server.utils.paging_utils import paginate_results
 # ---------------------------------------------------------------------------
 # Nimbus catalog — SS-native chat models only.
 #
-# Ordering here is the ordering the UI will render. Founder-preferred
-# defaults land at the top. Keep this list in sync with the proxy's
-# ``anthropic/*``, ``openai/*``, ``google/*``, ``deepseek/*``,
-# ``moonshotai/*`` deployment aliases (see api.nimbusapi.net roster).
+# Ordering here is the ordering the UI will render: grouped by MAKER, and
+# within a maker, newest first.
+#
+# GENERATED, not hand-maintained. Derived from nimbus-v2's SELLABLE_MODELS by
+# dropping anything flagged `unavailable` or `deprecated`, dropping non-chat
+# modalities (image/video/tts/embedding/rerank — those need their own
+# surfaces), and sorting with `compareByListingRank` — the same ordering
+# /models, /pricing and the docs roster already use.
+#
+# Hand-maintaining it is what broke it: the list drifted to 15 entries that
+# omitted the entire qwen and z-ai families and every gpt-5.6-*, while still
+# OFFERING three ids that cannot answer — claude-fable-5 (flagged unavailable
+# in the catalog), kimi-k2.7-code (on the gateway's own de-advertise denylist)
+# and gpt-5-codex (absent from the catalog entirely).
+#
+# Before changing this list, run a real completion against every entry. A
+# model picker is a promise that each entry answers.
 # ---------------------------------------------------------------------------
 NIMBUS_CHAT_MODELS: list[str] = [
     'anthropic/claude-opus-5',
