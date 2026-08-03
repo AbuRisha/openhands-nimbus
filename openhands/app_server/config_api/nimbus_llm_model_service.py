@@ -99,6 +99,16 @@ NIMBUS_CHAT_MODELS: list[str] = [
     'moonshotai/kimi-k3',
     'moonshotai/kimi-k2.6',
     # Qwen
+    #
+    # qwen3.8-max ships under the ``alibaba/`` prefix, not ``qwen/`` — the two
+    # sit side by side upstream and the newer model is the one that moved.
+    # Guessing ``qwen/qwen3.8-max`` returns model_not_found, so the prefix is
+    # load-bearing rather than cosmetic.
+    #
+    # Verified 2026-08-03 by a real completion (HTTP 200 with content), not by
+    # presence in /v1/models — see the gpt-5.1-codex-mini note below for why
+    # that distinction is not academic.
+    'alibaba/qwen3.8-max',
     'qwen/qwen3.7-max',
     'qwen/qwen3-coder',
     # Z.ai
@@ -126,6 +136,12 @@ NIMBUS_VERIFIED_PROVIDERS: list[str] = [
     'google',
     'deepseek',
     'moonshotai',
+    # Both Qwen prefixes. Upstream splits the family: qwen3.7-max and
+    # qwen3-coder are 'qwen/', while qwen3.8-max is 'alibaba/'. Listing only
+    # 'qwen' would repeat exactly the bug this list already carries a note
+    # about — the model would load and route, but render outside the verified
+    # group, which reads to a customer as "unsupported".
+    'alibaba',
     'qwen',
     'z-ai',
 ]
