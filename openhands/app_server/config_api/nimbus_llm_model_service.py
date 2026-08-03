@@ -43,39 +43,88 @@ from openhands.app_server.utils.paging_utils import paginate_results
 # ---------------------------------------------------------------------------
 # Nimbus catalog — SS-native chat models only.
 #
-# Ordering here is the ordering the UI will render. Founder-preferred
-# defaults land at the top. Keep this list in sync with the proxy's
-# ``anthropic/*``, ``openai/*``, ``google/*``, ``deepseek/*``,
-# ``moonshotai/*`` deployment aliases (see api.nimbusapi.net roster).
+# Ordering here is the ordering the UI renders: grouped by vendor, newest
+# first inside each group, matching the Builder's picker so the two surfaces
+# agree.
+#
+# Rebuilt 2026-08-03 from the gateway's live /v1/models. The previous list was
+# wrong in both directions at once. Five of its fifteen entries could not
+# route at all — anthropic/claude-fable-5, openai/gpt-5.1, openai/gpt-5-codex,
+# openai/o4-mini and moonshotai/kimi-k2.7-code are not on the gateway, so a
+# third of the picker returned model_not_found. And eighteen models that DO
+# route were missing, including the flagship anthropic/claude-opus-5, the
+# entire GPT-5.6 line, and every Qwen and Z.ai model — a chat customer could
+# not select the best model Nimbus sells.
+#
+# The list is hardcoded rather than fetched so the picker cannot inherit
+# LiteLLM's hundreds of upstream ids. That is the right call, but it means
+# this file goes stale silently: nothing fails until a customer picks a dead
+# model. Re-check it against /v1/models whenever the roster changes.
+#
+# Release dates behind the ordering were sourced from vendor changelogs; see
+# CHAT_CATALOG in bolt-diy-nimbus (app/lib/modules/llm/providers/nimbus.ts),
+# which carries the dates and the two cases where version order and release
+# order genuinely disagree.
 # ---------------------------------------------------------------------------
 NIMBUS_CHAT_MODELS: list[str] = [
+    # Anthropic
+    'anthropic/claude-opus-5',
     'anthropic/claude-sonnet-5',
     'anthropic/claude-opus-4.8',
-    'anthropic/claude-fable-5',
+    'anthropic/claude-opus-4.7',
+    'anthropic/claude-sonnet-4.6',
+    'anthropic/claude-opus-4.6',
     'anthropic/claude-haiku-4.5',
-    'openai/gpt-5.1',
+    # OpenAI
+    'openai/gpt-5.6-sol',
+    'openai/gpt-5.6-terra',
+    'openai/gpt-5.6-luna',
+    'openai/gpt-5.5',
     'openai/gpt-5.4-mini',
-    'openai/gpt-5-codex',
+    'openai/gpt-5.4',
     'openai/gpt-5.3-codex',
-    'openai/o4-mini',
-    'deepseek/deepseek-v4-pro',
-    'deepseek/deepseek-v4-flash',
-    'moonshotai/kimi-k3',
-    'moonshotai/kimi-k2.7-code',
+    'openai/gpt-5.1-codex-max',
+    'openai/gpt-5.1-codex-mini',
+    # Google
+    'google/gemini-3.5-flash',
     'google/gemini-3.1-pro-preview',
     'google/gemini-3-flash-preview',
+    # DeepSeek
+    'deepseek/deepseek-v4-pro',
+    'deepseek/deepseek-v4-flash',
+    # Moonshot
+    'moonshotai/kimi-k3',
+    'moonshotai/kimi-k2.6',
+    # Qwen
+    'qwen/qwen3.7-max',
+    'qwen/qwen3-coder',
+    # Z.ai
+    'z-ai/glm-5.2',
+    'z-ai/glm-5.1',
+    'z-ai/glm-5',
 ]
 
 # ``anthropic/claude-sonnet-5`` is the default per the Nimbus platform brief.
+#
+# Left alone deliberately while the rest of this file was rebuilt. Opus 5 is
+# now available and is the stronger model, but the default is what every new
+# conversation bills against — promoting it would raise the running cost for
+# every chat customer without anyone asking for it. It still routes, so this
+# is a pricing decision, not a correctness one.
 NIMBUS_DEFAULT_MODEL: str = 'anthropic/claude-sonnet-5'
 
 # Providers shown as "verified" in the model selector, in preferred order.
+#
+# qwen and z-ai were missing, so their models — five between them — would have
+# rendered outside the verified group even once the catalog above listed them.
 NIMBUS_VERIFIED_PROVIDERS: list[str] = [
     'anthropic',
     'openai',
     'google',
     'deepseek',
     'moonshotai',
+    'qwen',
+    'z-ai',
 ]
 
 # Providers rendered when computing :meth:`search_providers`. Extracted from
