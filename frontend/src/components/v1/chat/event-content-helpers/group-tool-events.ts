@@ -59,7 +59,46 @@ export function isGroupableToolEvent(event: OpenHandsEvent): boolean {
   if (isStreamingDeltaEvent(event)) return false;
   if (isAgentErrorEvent(event)) return false;
 
+  // An action can BE narration, and that was the hole in the first version of
+  // this: ActionEvent carries a `thought`, which ThoughtEventMessage renders as
+  // an ordinary assistant message, and ThinkAction is nothing but reasoning.
+  // Grouping those folded the assistant's own explanation of what it was doing
+  // into a collapsed "Used N tools" chip — reported as "it says used tools but
+  // hides informative text from the user". The machinery was supposed to fold
+  // away; the talking never was.
+  if (isActionEvent(event) && hasVisibleNarration(event)) return false;
+
   return isActionEvent(event) || isObservationEvent(event);
+}
+
+/**
+ * Does this action say something the user is meant to read?
+ *
+ * Mirrors ThoughtEventMessage's own test — it renders nothing when the joined
+ * text parts are empty — so an action stays groupable when its thought is
+ * absent, blank, or carries no text parts. Anything that WOULD render on its
+ * own must not be hidden behind a click.
+ */
+function hasVisibleNarration(event: OpenHandsEvent): boolean {
+  const action = (event as { action?: { kind?: string; thought?: unknown } })
+    .action;
+
+  // ThinkAction's entire payload is reasoning; event-message.tsx renders it as
+  // a plain chat message rather than a collapsible block.
+  if (action?.kind === "ThinkAction") return true;
+
+  const thought = (event as { thought?: unknown }).thought;
+  if (typeof thought === "string") return thought.trim().length > 0;
+  if (!Array.isArray(thought)) return false;
+
+  return thought.some(
+    (part) =>
+      part &&
+      typeof part === "object" &&
+      (part as { type?: string }).type === "text" &&
+      typeof (part as { text?: unknown }).text === "string" &&
+      ((part as { text: string }).text.trim().length > 0),
+  );
 }
 
 /**
