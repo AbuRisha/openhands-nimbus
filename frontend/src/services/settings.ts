@@ -32,8 +32,12 @@ export const DEFAULT_SETTINGS: Settings = {
   max_budget_per_task: null,
   email: "",
   email_verified: true,
-  git_user_name: "openhands",
-  git_user_email: "openhands@all-hands.dev",
+  // Commits the agent pushes into a CUSTOMER'S repo are authored by
+  // this identity and stay in their history permanently. It defaulted to
+  // openhands <openhands@all-hands.dev> - a vendor the customer has no
+  // relationship with, in their own git log.
+  git_user_name: "nimbus",
+  git_user_email: "agent@nimbusapi.net",
   git_full_clone: false,
   v1_enabled: true,
   sandbox_grouping_strategy: "NO_GROUPING",

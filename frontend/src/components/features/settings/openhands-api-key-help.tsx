@@ -16,7 +16,7 @@ export function OpenHandsApiKeyHelp({ testId }: OpenHandsApiKeyHelpProps) {
         testId={testId}
         text={t(I18nKey.SETTINGS$OPENHANDS_API_KEY_HELP_TEXT)}
         linkText={t(I18nKey.SETTINGS$NAV_API_KEYS)}
-        href="https://app.all-hands.dev/settings/api-keys"
+        href="https://nimbusapi.net/settings/api-keys"
         suffix={` ${t(I18nKey.SETTINGS$OPENHANDS_API_KEY_HELP_SUFFIX)}`}
       />
       <Typography.Paragraph className="text-xs">

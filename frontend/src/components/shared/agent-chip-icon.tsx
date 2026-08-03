@@ -1,4 +1,3 @@
-import OpenHandsLogoWhite from "#/assets/branding/openhands-logo-white.svg?react";
 import ClaudeMark from "#/assets/branding/claude-mark.svg?react";
 import OpenAIMark from "#/assets/branding/openai-mark.svg?react";
 import GeminiMark from "#/assets/branding/gemini-mark.svg?react";
@@ -27,8 +26,17 @@ export function AgentChipIcon({
 }: AgentChipIconProps) {
   switch (kind) {
     case "openhands":
+      // The glyph on EVERY conversation chip in the app — the highest-frequency
+      // brand surface there is. The "openhands" case key is the agent_kind
+      // string the server sends, so it stays; only the mark changes.
       return (
-        <OpenHandsLogoWhite width={SIZE} height={SIZE} className={className} />
+        <img
+          src="/favicon.svg"
+          alt="Nimbus"
+          width={SIZE}
+          height={SIZE}
+          className={className}
+        />
       );
     case "acp-claude-code":
       return <ClaudeMark width={SIZE} height={SIZE} className={className} />;

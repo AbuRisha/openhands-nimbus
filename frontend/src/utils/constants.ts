@@ -34,14 +34,16 @@ export const JSON_VIEW_THEME = {
 export const DOCUMENTATION_URL = {
   MICROAGENTS: {
     MICROAGENTS_OVERVIEW:
-      "https://docs.all-hands.dev/usage/prompting/microagents-overview",
+      "https://docs.nimbusapi.net/prompting/microagents",
     ORGANIZATION_AND_USER_MICROAGENTS:
-      "https://docs.all-hands.dev/usage/prompting/microagents-org",
+      "https://docs.nimbusapi.net/prompting/microagents-org",
   },
 };
 
+// Where "Need a Nimbus Account?" and similar CTAs send the user. This was
+// https://app.all-hands.dev, i.e. signup intent routed to another vendor.
 export const PRODUCT_URL = {
-  PRODUCTION: "https://app.all-hands.dev",
+  PRODUCTION: "https://nimbusapi.net",
 };
 
 export const SETTINGS_FORM = {
