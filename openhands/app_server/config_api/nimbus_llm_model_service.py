@@ -65,6 +65,18 @@ from openhands.app_server.utils.paging_utils import paginate_results
 # CHAT_CATALOG in bolt-diy-nimbus (app/lib/modules/llm/providers/nimbus.ts),
 # which carries the dates and the two cases where version order and release
 # order genuinely disagree.
+#
+# MERGE NOTE (2026-08-03, resolving PR #7's generated list against this one).
+# The other branch generated its 25 entries from nimbus-v2's SELLABLE_MODELS by
+# dropping unavailable/deprecated and non-chat modalities, then sorting with
+# compareByListingRank — a better provenance story than hand-maintenance, and
+# worth moving to. It was kept OUT here only because it is currently a strict
+# subset: it omits anthropic/claude-opus-4.7 and openai/gpt-5.1-codex-max, both
+# of which are live on the gateway (present in /v1/models, and every entry in
+# this list was checked against it on 2026-08-03 with nothing dead). Dropping a
+# routable model from the picker costs a customer the model; generating the list
+# is a refactor. Do the refactor, but reconcile SELLABLE_MODELS first — the
+# generator and the gateway disagreed, and the gateway is the one that answers.
 # ---------------------------------------------------------------------------
 NIMBUS_CHAT_MODELS: list[str] = [
     # Anthropic
@@ -135,6 +147,7 @@ NIMBUS_VERIFIED_PROVIDERS: list[str] = [
     'openai',
     'google',
     'deepseek',
+    'qwen',
     'moonshotai',
     # Both Qwen prefixes. Upstream splits the family: qwen3.7-max and
     # qwen3-coder are 'qwen/', while qwen3.8-max is 'alibaba/'. Listing only

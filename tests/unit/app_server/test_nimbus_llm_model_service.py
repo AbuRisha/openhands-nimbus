@@ -1,8 +1,15 @@
 """Unit tests for the Nimbus SS-native LLM catalog service.
 
 Pins the guarantee that the customer-facing model picker only offers the
-15 curated Nimbus chat models — never the raw LiteLLM/Bedrock/Ollama
+curated Nimbus chat catalog — never the raw LiteLLM/Bedrock/Ollama
 catalogue.
+
+The count is deliberately NOT asserted anywhere here. NIMBUS_CHAT_MODELS is
+generated from nimbus-v2's SELLABLE_MODELS (drop `unavailable`/`deprecated`,
+drop non-chat modalities, sort by compareByListingRank), so it moves whenever
+the product catalog moves. Every assertion below is written against the list
+itself rather than a magic number, which is why widening it from 15 to 25
+required no test edits.
 """
 
 import pytest
@@ -21,7 +28,7 @@ from openhands.app_server.config_api.nimbus_llm_model_service import (
 
 
 class TestNimbusLLMModelServiceCatalog:
-    """The catalog is closed: only the 15 SS-native models are exposed."""
+    """The catalog is closed: only curated SS-native models are exposed."""
 
     @pytest.mark.asyncio
     async def test_search_returns_only_nimbus_models(self):

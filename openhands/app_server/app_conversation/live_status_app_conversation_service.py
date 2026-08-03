@@ -66,6 +66,10 @@ from openhands.app_server.app_conversation.hook_loader import (
 from openhands.app_server.app_conversation.sql_app_conversation_info_service import (
     SQLAppConversationInfoService,
 )
+from openhands.app_server.app_conversation.sticky_model import (
+    STICKY_MODEL_LOOKBACK,
+    pick_last_used_model,
+)
 from openhands.app_server.config import (
     get_event_callback_service,
     resolve_provider_llm_base_url,
@@ -468,6 +472,19 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                     f'Parent conversation not found: {request.parent_conversation_id}'
                 )
             self._inherit_configuration_from_parent(request, parent_info)
+
+        # Sticky model. A conversation started WITHOUT an explicit model used to
+        # fall through to the platform default (anthropic/claude-sonnet-5), so a
+        # customer who deliberately picked a model got silently reset to Sonnet
+        # every time they opened chat. Owner report: "it's always auto on
+        # sonnet 5 ... it should stick to that same model when the person comes
+        # to the chat."
+        #
+        # Runs only when the caller did not ask for a model, so an explicit
+        # choice always wins, and only for non-forks — a fork already inherits
+        # from its parent above, which is a stronger signal than "last used".
+        if not request.llm_model:
+            await self._inherit_last_used_model(request)
 
         self._apply_suggested_task(request)
 
@@ -1199,6 +1216,48 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         # Inherit LLM model from parent if not provided
         if not request.llm_model and parent_info.llm_model:
             request.llm_model = parent_info.llm_model
+
+    async def _inherit_last_used_model(
+        self, request: AppConversationStartRequest
+    ) -> None:
+        """Default a new conversation to the model this user last used.
+
+        The conversation store already records ``llm_model`` per conversation
+        (see the persistence in app_conversation_router), so the user's last
+        choice is already durable — nothing was reading it back. This reads it.
+
+        ``search_app_conversation_info`` goes through ``_secure_select()``,
+        which scopes to the requesting user, so this can only ever see that
+        user's own conversations.
+
+        Scans a small window rather than just the single newest conversation:
+        ``llm_model`` is nullable and older rows predate the column, so the most
+        recent conversation may legitimately have no model recorded. Taking the
+        newest row that HAS one is what "stick to that same model" means.
+
+        Best-effort by construction. Any failure leaves ``request.llm_model``
+        as ``None`` and the caller falls back to the platform default — a
+        lookup for a convenience feature must never be able to block starting
+        a conversation.
+        """
+        try:
+            page = (
+                await self.app_conversation_info_service.search_app_conversation_info(
+                    sort_order=AppConversationSortOrder.CREATED_AT_DESC,
+                    limit=STICKY_MODEL_LOOKBACK,
+                )
+            )
+        except Exception:
+            _logger.warning(
+                'Could not read last-used model; falling back to the default',
+                exc_info=True,
+            )
+            return
+
+        model = pick_last_used_model(page.items)
+        if model:
+            request.llm_model = model
+            _logger.debug('Inherited last-used llm_model %s', model)
 
     def _apply_suggested_task(self, request: AppConversationStartRequest) -> None:
         """Apply suggested task defaults to the start request."""

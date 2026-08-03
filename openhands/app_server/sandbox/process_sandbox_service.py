@@ -22,9 +22,9 @@ import base62
 import httpx
 import psutil
 from fastapi import Request
+from openhands.agent_server.utils import utc_now
 from pydantic import BaseModel, ConfigDict, Field
 
-from openhands.agent_server.utils import utc_now
 from openhands.app_server.errors import SandboxError
 from openhands.app_server.sandbox.nimbus_uid_allocator import (
     can_isolate,
@@ -49,9 +49,6 @@ from openhands.app_server.sandbox.sandbox_spec_service import (
     resolve_sandbox_spec,
 )
 from openhands.app_server.services.injector import InjectorState
-from openhands.app_server.utils.docker_utils import (
-    replace_localhost_hostname_for_docker,
-)
 
 _logger = logging.getLogger(__name__)
 
@@ -371,9 +368,7 @@ class ProcessSandboxService(SandboxService):
         if status == SandboxStatus.RUNNING:
             # Check if server is actually responding
             try:
-                url = _local_agent_url(
-                    process_info.port, self.health_check_path
-                )
+                url = _local_agent_url(process_info.port, self.health_check_path)
                 response = await self.httpx_client.get(url, timeout=5.0)
                 if response.status_code == 200:
                     exposed_urls = [
