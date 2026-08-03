@@ -258,7 +258,9 @@ export function ChatInterface() {
         <div
           ref={scrollRef}
           onScroll={(e) => onChatBodyScroll(e.currentTarget)}
-          className="custom-scrollbar-always flex flex-col grow overflow-y-auto overflow-x-hidden px-4 pt-4 gap-2"
+          // pb-8: the transcript had pt-4 and no bottom padding, so the last
+          // line sat flush against the composer and under its glow underlay.
+          className="custom-scrollbar-always flex flex-col grow overflow-y-auto overflow-x-hidden px-4 pt-4 pb-8 gap-2"
         >
           {isChatLoading && isReturningToConversation && (
             <ChatMessagesSkeleton />

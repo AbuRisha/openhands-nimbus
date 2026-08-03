@@ -97,7 +97,16 @@ html, body { background: #05070E; color-scheme: dark; }
 .nimbus-composer-wrap::before {
   content: "";
   position: absolute;
-  inset: -32px -24px -24px -24px;
+  /*
+   * Do not bleed UPWARD over the transcript.
+   *
+   * This was `-32px -24px -24px -24px`, so the glow PNG extended 32px above
+   * the composer and sat at opacity .65 over the newest message — reported as
+   * "there is black hovering over the latest messages in the chat". The
+   * bottom/side bleed is the intended effect and is kept; only the top edge
+   * is pulled back to the composer.
+   */
+  inset: 0 -24px -24px -24px;
   pointer-events: none;
   background-image: url("https://nimbusapi.net/brand/composer-glow-underlay.png");
   background-size: 100% 100%;
