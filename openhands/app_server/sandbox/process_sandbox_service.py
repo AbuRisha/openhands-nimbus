@@ -54,6 +54,127 @@ from openhands.app_server.services.injector import InjectorState
 _logger = logging.getLogger(__name__)
 
 
+# Environment the agent-server child is allowed to inherit.
+#
+# ALLOWLIST, NOT DENYLIST, AND THAT CHOICE IS THE WHOLE POINT.
+#
+# RUNTIME=process means the sandbox is a child of the app container, and this
+# used to be `os.environ.copy()` — so it inherited the container's environment
+# wholesale, and agent-authored code could simply read it. That handed every
+# sandbox four real secrets (DB_PASS, LLM_API_KEY, NIMBUS_API_KEY,
+# NIMBUS_SSO_SHARED_SECRET) plus the complete DB connection details around them.
+#
+# The SSO shared secret is the worst of the four. A database password reads and
+# writes data; a shared signing secret forges identity, so it is customer
+# impersonation across the whole product and it leaves nothing behind in an
+# audit log.
+#
+# A denylist would have failed open the next time somebody added a secret to the
+# Container App — which is exactly how this happened. Anything not named here is
+# dropped, so a new variable is invisible to the sandbox until someone
+# deliberately adds it.
+_SANDBOX_ENV_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # POSIX basics: the interpreter and shell tooling need these to run at
+        # all, and none of them carry credentials.
+        'PATH',
+        'HOME',
+        'PWD',
+        'SHELL',
+        'TERM',
+        'USER',
+        'LOGNAME',
+        'HOSTNAME',
+        'TMPDIR',
+        'TZ',
+        'LANG',
+        'LANGUAGE',
+        # Python runtime.
+        'PYTHONPATH',
+        'PYTHONUNBUFFERED',
+        'PYTHONDONTWRITEBYTECODE',
+        'PYTHONIOENCODING',
+        'PYTHONHASHSEED',
+        'VIRTUAL_ENV',
+        # Agent-server behaviour. Non-secret switches and paths the child
+        # genuinely reads.
+        'ENABLE_BROWSER',
+        'OH_ENABLE_BROWSER',
+        'OH_PERSISTENCE_DIR',
+        'OH_PUBLIC_BASE_URL',
+        'OPENHANDS_CONFIG_CLS',
+        'OPENHANDS_BUILD_VERSION',
+        'RUNTIME',
+        'HIDE_LLM_SETTINGS',
+        'NIMBUS_ONLY',
+        # Base URLs, not credentials. The child needs to know where the site
+        # and API live; neither value authenticates anything.
+        'NIMBUS_API_BASE_URL',
+        'NIMBUS_SITE_BASE_URL',
+        # Set by the IMAGE rather than the Container App, and every one of these
+        # is load-bearing at RUNTIME rather than at import.
+        #
+        # This is where the first version of this allowlist went wrong: it was
+        # built from the 24 variables visible in the Container App config, and
+        # silently dropped the ~15 the Dockerfile sets. The agent server still
+        # IMPORTED cleanly, so a startup check passed — and then conversations
+        # failed with execution_status "error" because the browser had no
+        # binary, the file store had no path, and tiktoken had no cache.
+        # Enumerated from the live container, not from the deployment config.
+        'CHROME_BIN',
+        'CHROMIUM_FLAGS',
+        'PLAYWRIGHT_BROWSERS_PATH',
+        'FILE_STORE',
+        'FILE_STORE_PATH',
+        'WORKSPACE_BASE',
+        'INIT_GIT_IN_EMPTY_WORKSPACE',
+        'RUN_AS_OPENHANDS',
+        'OPENHANDS_USER_ID',
+        'SANDBOX_USER_ID',
+        'SANDBOX_LOCAL_RUNTIME_URL',
+        'USE_HOST_NETWORK',
+        # Without this tiktoken tries to DOWNLOAD its encoding at first use,
+        # which is a network call on the hot path of every token count.
+        'TIKTOKEN_CACHE_DIR',
+        # Interpreter provenance from the base image; harmless and kept so the
+        # child's runtime matches the parent's exactly.
+        'PYTHON_VERSION',
+        'PYTHON_SHA256',
+        'GPG_KEY',
+        # Model routing WITHOUT the credential: the agent needs to know which
+        # gateway and model to talk to, but its API key arrives in the
+        # conversation payload (the customer's own sk-nim-live- key, resolved
+        # per request), never from this environment. LLM_API_KEY is
+        # deliberately absent.
+        'LLM_BASE_URL',
+        'LLM_MODEL',
+    }
+)
+
+# Prefixes kept alongside the names above. LC_* is locale only.
+_SANDBOX_ENV_PREFIXES: tuple[str, ...] = ('LC_',)
+
+
+def _sandbox_base_env() -> dict[str, str]:
+    """The parent environment, filtered to what the sandbox legitimately needs.
+
+    Deliberately excludes DB_* (the agent server never talks to Postgres — it
+    POSTs events to the app server's webhook), NIMBUS_SSO_* and NIMBUS_API_KEY
+    (app-server auth concerns), and LLM_API_KEY (supplied per conversation).
+
+    Everything operational is kept. The security win here is narrow on purpose:
+    remove the credentials, change nothing else. An allowlist that also strips
+    working configuration is not a safer sandbox, it is a broken one — which is
+    exactly what the first attempt shipped.
+    """
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key in _SANDBOX_ENV_ALLOWLIST
+        or key.startswith(_SANDBOX_ENV_PREFIXES)
+    }
+
+
 def _local_agent_url(port: int, path: str = '') -> str:
     """URL for reaching a ProcessSandbox child from the same container.
 
@@ -178,7 +299,7 @@ class ProcessSandboxService(SandboxService):
         """Start the agent server process."""
 
         # Prepare environment variables
-        env = os.environ.copy()
+        env = _sandbox_base_env()
         env.update(sandbox_spec.initial_env)
         env['SESSION_API_KEY'] = session_api_key
 
