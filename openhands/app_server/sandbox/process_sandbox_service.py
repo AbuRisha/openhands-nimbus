@@ -5,6 +5,7 @@ each running within a dedicated directory.
 """
 
 import asyncio
+import json
 import logging
 import os
 import socket
@@ -209,6 +210,23 @@ class ProcessSandboxService(SandboxService):
             f'http://127.0.0.1:{os.getenv("PORT", "3000")}'
         )
         env[WEBHOOK_CALLBACK_VARIABLE] = f'{webhook_base}/api/v1/webhooks'
+
+        # ...and how to authenticate when it gets there.
+        #
+        # The base URL alone is not enough. /api/v1/webhooks authenticates on
+        # X-Session-API-Key (valid_sandbox -> get_sandbox_record_by_session_
+        # api_key), and WebhookSpec carries its own `headers` dict for exactly
+        # this. Without it the agent server posts anonymously and every event
+        # comes back 401 Unauthorized — observed on production 2026-08-03 after
+        # the callback URL alone was added: the POSTs finally appeared in the
+        # log, and every one of them was rejected.
+        #
+        # This is the same key the child already uses to authenticate INBOUND
+        # requests, so it needs no new secret, and the lookup it feeds resolves
+        # only to this sandbox's own record.
+        env['OH_WEBHOOKS_0_HEADERS'] = json.dumps(
+            {'X-Session-API-Key': session_api_key}
+        )
 
         # Prepare command arguments
         cmd = [
