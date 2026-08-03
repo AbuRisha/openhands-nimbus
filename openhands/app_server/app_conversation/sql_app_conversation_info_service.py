@@ -474,13 +474,45 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         if existing_created_at is not None:
             created_at = existing_created_at
 
+        # Ownership is written ONCE, at creation, and never re-derived on update.
+        #
+        # Exactly the same trap as created_at above, and it cost a great deal
+        # more. This is an upsert, so the value assigned below is written on
+        # every save — and most saves do not come from the customer. The
+        # webhook router calls this on conversation update, on an agent-driven
+        # model switch, and on terminal status; those run under the ADMIN /
+        # sandbox context, where _nimbus_user_id() resolves to None. So a
+        # conversation was stamped correctly at creation and then had its owner
+        # overwritten with NULL by the next lifecycle event.
+        #
+        # _secure_select filters on nimbus_user_id, so a NULL owner does not
+        # degrade gracefully — the row becomes invisible to the very customer
+        # who created it. Observed as: send a message and get thrown out,
+        # background the tab and the conversation vanishes, switch model
+        # mid-chat and it reports "does not exist, or you do not have
+        # permission to access it". One cause, four symptoms, and the
+        # transcript survives the whole time because events live in a
+        # different store — which is what made it look like data loss when it
+        # was really an ownership wipe.
+        #
+        # Only fall back to the request context when there is no stored owner
+        # (genuine creation). An existing owner always wins, so an admin-context
+        # save can no longer take a conversation away from its customer.
+        nimbus_user_id = await self.db_session.scalar(
+            select(StoredConversationMetadata.nimbus_user_id).where(
+                StoredConversationMetadata.conversation_id == str(info.id)
+            )
+        )
+        if nimbus_user_id is None:
+            nimbus_user_id = await self._nimbus_user_id()
+
         # Stamp the owning customer at creation. Without this the column stays
         # NULL and _secure_select's filter would hide every conversation from
         # the very customer who made it — isolation and ownership have to be
         # written by the same change or the feature is worse than not having it.
         stored = StoredConversationMetadata(
             conversation_id=str(info.id),
-            nimbus_user_id=await self._nimbus_user_id(),
+            nimbus_user_id=nimbus_user_id,
             selected_repository=info.selected_repository,
             selected_branch=info.selected_branch,
             git_provider=info.git_provider.value if info.git_provider else None,
