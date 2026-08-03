@@ -151,6 +151,63 @@ from openhands.tools.preset.planning import (
 _conversation_info_type_adapter = TypeAdapter(list[ConversationInfo | None])
 _logger = logging.getLogger(__name__)
 
+
+def _add_nimbus_extra_tools(tools: list) -> list:
+    """Add SDK tools the default preset leaves out.
+
+    get_default_tools() ships four things: terminal, file_editor, task_tracker
+    and the browser set. The SDK actually installs more than that — running
+    pkgutil over openhands.tools lists glob, grep and apply_patch alongside
+    them — they are simply not in the preset.
+
+    The omission is expensive for a coding agent. Without grep/glob the model
+    navigates a repository by shelling out through the terminal tool: it pipes
+    grep into head, guesses at flags, re-runs when output is truncated, and
+    burns turns and tokens doing by hand what a structured search tool returns
+    in one call. Verified against the live agent before this change: it
+    reported exactly 21 tools — terminal, file_editor, task_tracker, 14
+    browser_* and the housekeeping ones — with no search tool among them.
+
+    Additive and defensive on purpose. Each import is guarded so that an SDK
+    upgrade which renames or drops a module degrades to the previous tool set
+    rather than failing every conversation start, and anything already present
+    is skipped so this cannot double-register.
+    """
+    from openhands.sdk import Tool
+
+    existing = {getattr(t, 'name', None) for t in tools}
+    extras: list = []
+
+    def _try(import_path: str, attr: str) -> None:
+        try:
+            module = __import__(import_path, fromlist=[attr])
+            tool_cls = getattr(module, attr)
+            name = tool_cls.name
+            if name not in existing:
+                extras.append(Tool(name=name))
+                existing.add(name)
+        except Exception as e:  # noqa: BLE001
+            _logger.warning(
+                'nimbus_tools: %s.%s unavailable (%s) - continuing without it',
+                import_path,
+                attr,
+                type(e).__name__,
+            )
+
+    # Structured code search — the two that matter most.
+    _try('openhands.tools.grep', 'GrepTool')
+    _try('openhands.tools.glob', 'GlobTool')
+    # Patch application, so multi-file edits do not have to go through the
+    # editor one hunk at a time.
+    _try('openhands.tools.apply_patch', 'ApplyPatchTool')
+
+    if extras:
+        _logger.info(
+            'nimbus_tools: added %s to the default set',
+            ', '.join(str(getattr(t, 'name', t)) for t in extras),
+        )
+    return tools + extras
+
 _EXPORT_LOCK_KEY_PREFIX = 'app_conversation_export'
 
 
@@ -2061,6 +2118,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 enable_browser=True,
                 enable_sub_agents=user.agent_settings.enable_sub_agents,
             )
+            tools = _add_nimbus_extra_tools(tools)
             if user.agent_settings.enable_sub_agents:
                 agent_definitions = list(get_registered_agent_definitions())
 
