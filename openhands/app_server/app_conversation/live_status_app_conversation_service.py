@@ -168,38 +168,61 @@ def _add_nimbus_extra_tools(tools: list) -> list:
     reported exactly 21 tools — terminal, file_editor, task_tracker, 14
     browser_* and the housekeeping ones — with no search tool among them.
 
-    Additive and defensive on purpose. Each import is guarded so that an SDK
-    upgrade which renames or drops a module degrades to the previous tool set
-    rather than failing every conversation start, and anything already present
-    is skipped so this cannot double-register.
+    CRITICAL — only names the AGENT SERVER has registered may be added.
+
+    Registration is per-process and happens on import. The app server and the
+    agent server are separate processes: under RUNTIME=process the agent is
+    spawned as `python -m <agent_server_module>`, and it registers only the
+    default preset. Importing a tool module HERE registers it in the app
+    server and does nothing for the child.
+
+    Learned the hard way. A previous version of this function imported
+    openhands.tools.{grep,glob,apply_patch} and appended them. The app server
+    was satisfied - list_registered_tools() showed all three - and every
+    conversation then died on the agent side with
+
+        ToolDefinition 'apply_patch' is not registered
+
+    So the gate below is the default registry, captured BEFORE any extra
+    import, which is exactly what the child will have. grep/glob/apply_patch
+    ship with the SDK but are not in that set, so wiring them up needs
+    registration on the agent-server side (an image-level import), not a list
+    entry here.
+
+    What IS safely available: the default registry already contains
+    workflow / workflow_tool_set alongside terminal, file_editor,
+    task_tracker, browser_tool_set and task_tool_set.
     """
     from openhands.sdk import Tool
+    from openhands.sdk.tool import list_registered_tools
+
+    try:
+        # The child registers exactly this set. Anything outside it is a name
+        # the agent server cannot resolve, however happily this process
+        # imports it.
+        agent_side_registry = set(list_registered_tools())
+    except Exception as e:  # noqa: BLE001
+        _logger.warning(
+            'nimbus_tools: could not read the tool registry (%s) - '
+            'leaving the default tool set untouched',
+            type(e).__name__,
+        )
+        return tools
 
     existing = {getattr(t, 'name', None) for t in tools}
     extras: list = []
 
-    def _try(import_path: str, attr: str) -> None:
-        try:
-            module = __import__(import_path, fromlist=[attr])
-            tool_cls = getattr(module, attr)
-            name = tool_cls.name
-            if name not in existing:
-                extras.append(Tool(name=name))
-                existing.add(name)
-        except Exception as e:  # noqa: BLE001
-            _logger.warning(
-                'nimbus_tools: %s.%s unavailable (%s) - continuing without it',
-                import_path,
-                attr,
-                type(e).__name__,
+    for name in ('workflow_tool_set',):
+        if name in existing:
+            continue
+        if name not in agent_side_registry:
+            _logger.info(
+                'nimbus_tools: %s is not in the agent-side registry - skipping',
+                name,
             )
-
-    # Structured code search — the two that matter most.
-    _try('openhands.tools.grep', 'GrepTool')
-    _try('openhands.tools.glob', 'GlobTool')
-    # Patch application, so multi-file edits do not have to go through the
-    # editor one hunk at a time.
-    _try('openhands.tools.apply_patch', 'ApplyPatchTool')
+            continue
+        extras.append(Tool(name=name))
+        existing.add(name)
 
     if extras:
         _logger.info(
