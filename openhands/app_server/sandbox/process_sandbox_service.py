@@ -38,6 +38,7 @@ from openhands.app_server.sandbox.sandbox_models import (
     SandboxStatus,
 )
 from openhands.app_server.sandbox.sandbox_service import (
+    WEBHOOK_CALLBACK_VARIABLE,
     SandboxService,
     SandboxServiceInjector,
 )
@@ -181,6 +182,33 @@ class ProcessSandboxService(SandboxService):
         env = os.environ.copy()
         env.update(sandbox_spec.initial_env)
         env['SESSION_API_KEY'] = session_api_key
+
+        # Tell the agent server where to POST its events, or nothing is ever
+        # persisted.
+        #
+        # Events reach durable storage exactly one way in this runtime: the
+        # agent server POSTs them to the app server's /api/v1/webhooks, which
+        # calls event_service.save_event(). remote_sandbox_service sets this
+        # variable; THIS service never did. So with RUNTIME=process the child
+        # had no callback address, sent nothing, and every conversation's
+        # history lived only in that process's memory.
+        #
+        # Measured on production 2026-08-03 before this fix: three
+        # conversations, all with completed multi-step agent runs, and
+        # /conversation/{id}/events/count returned 0 for every one. Any restart
+        # - a deploy, a scale event, a crash - left customers looking at "This
+        # conversation is archived and read-only / No conversation history
+        # available" with the transcript gone for good. The Azure Files mount
+        # at OH_PERSISTENCE_DIR had been configured correctly the whole time;
+        # nothing was ever handed to it.
+        #
+        # Loopback by default: the agent server is a child process on this same
+        # host, so the callback never needs to leave the box. Overridable for
+        # deployments where the app server is fronted differently.
+        webhook_base = os.getenv('OH_APP_SERVER_WEBHOOK_BASE_URL') or (
+            f'http://127.0.0.1:{os.getenv("PORT", "3000")}'
+        )
+        env[WEBHOOK_CALLBACK_VARIABLE] = f'{webhook_base}/api/v1/webhooks'
 
         # Prepare command arguments
         cmd = [
