@@ -85,12 +85,34 @@ function AppContent() {
     // Wait for data to be fetched
     if (!isFetched || !isAuthed) return;
 
+    /*
+     * A conversation that is still STARTING is not a missing conversation.
+     *
+     * Sending the first message routes to /conversations/task-<uuid> while the
+     * start task provisions a sandbox. During that window the real
+     * conversation genuinely does not exist yet — the start task reports
+     * status WORKING and app_conversation_id null — so this query resolves
+     * empty, isFetched flips true, and the guard below fired: an
+     * "either does not exist, or you do not have permission" toast and a
+     * redirect to the home screen, thrown at the user seconds after they sent
+     * their first message and while the agent was booting normally.
+     *
+     * Reported as "the conversation does not exist immediately after sending
+     * first message and when waiting for model to reply it kicks you out".
+     *
+     * A start task that has genuinely failed still redirects: taskStatus
+     * ERROR falls through, and effect 2 above has already surfaced the real
+     * reason. Only the in-flight window is exempt.
+     */
+    const isStarting = isTask && taskStatus !== "ERROR" && !conversation;
+    if (isStarting) return;
+
     // Handle conversation not found
     if (!conversation) {
       displayErrorToast(t(I18nKey.CONVERSATION$NOT_EXIST_OR_NO_PERMISSION));
       navigate("/");
     }
-  }, [conversation, isFetched, isAuthed, navigate, t]);
+  }, [conversation, isFetched, isAuthed, navigate, t, isTask, taskStatus]);
 
   // Check if this is an archived conversation (sandbox no longer exists)
   const isArchived = conversation?.sandbox_status === "MISSING";
