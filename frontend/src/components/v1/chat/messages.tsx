@@ -7,6 +7,11 @@ import { ModelMessages } from "../../features/chat/model-messages";
 import { useOptimisticUserMessageStore } from "#/stores/optimistic-user-message-store";
 import { useModelStore } from "#/stores/model-store";
 import { usePlanPreviewEvents } from "./hooks/use-plan-preview-events";
+import { GenericEventMessage } from "../../features/chat/generic-event-message";
+import {
+  groupToolEvents,
+  groupLabel,
+} from "./event-content-helpers/group-tool-events";
 // TODO: Implement microagent functionality for V1 when APIs support V1 event IDs
 // import { AgentState } from "#/types/agent-state";
 // import MemoryIcon from "#/icons/memory_icon.svg?react";
@@ -46,31 +51,65 @@ export const Messages: React.FC<MessagesProps> = React.memo(
     // TODO: Implement microagent functionality for V1 if needed
     // For now, we'll skip microagent features
 
+    /*
+     * Collapse runs of consecutive tool calls into one expandable chip.
+     *
+     * A single agent turn can emit twenty-plus action/observation rows, which
+     * buries the actual conversation between walls of machinery. Grouping is
+     * pure and unit-tested (group-tool-events.ts): narration, streaming prose
+     * and agent errors always break a run, so nothing a user needs to read
+     * ends up hidden behind a click.
+     */
+    const renderPlan = React.useMemo(() => groupToolEvents(messages), [messages]);
+
+    const renderEvent = (message: OpenHandsEvent, index: number) => {
+      const messageId = String(message.id);
+      return (
+        <React.Fragment key={message.id}>
+          <EventMessage
+            event={message}
+            messages={allEvents}
+            isLastMessage={messages.length - 1 === index}
+            isInLast10Actions={messages.length - 1 - index < 10}
+            planPreviewEventIds={planPreviewEventIds}
+          />
+          {modelAnchorIds?.has(messageId) && (
+            <ModelMessages
+              conversationId={conversationId}
+              anchorEventId={messageId}
+            />
+          )}
+        </React.Fragment>
+      );
+    };
+
+
     return (
       <>
-        {messages.map((message, index) => {
-          const messageId = String(message.id);
+        {renderPlan.map((item) => {
+          if (item.type === "single") {
+            return renderEvent(item.event, item.index);
+          }
+          /*
+           * Collapsed by default. Each child keeps its REAL index so
+           * isLastMessage still resolves correctly inside the group — that
+           * flag drives the confirmation buttons, and losing it would strand
+           * an agent waiting on approval behind a closed chip.
+           */
           return (
-            <React.Fragment key={message.id}>
-              <EventMessage
-                event={message}
-                messages={allEvents}
-                isLastMessage={messages.length - 1 === index}
-                isInLast10Actions={messages.length - 1 - index < 10}
-                planPreviewEventIds={planPreviewEventIds}
-                // Microagent props - not implemented yet for V1
-                // microagentStatus={undefined}
-                // microagentConversationId={undefined}
-                // microagentPRUrl={undefined}
-                // actions={undefined}
-              />
-              {modelAnchorIds?.has(messageId) && (
-                <ModelMessages
-                  conversationId={conversationId}
-                  anchorEventId={messageId}
-                />
-              )}
-            </React.Fragment>
+            <GenericEventMessage
+              key={`group-${item.startIndex}`}
+              title={groupLabel(item.events)}
+              chevronPosition="before"
+              initiallyExpanded={false}
+              details={
+                <div className="flex flex-col w-full">
+                  {item.events.map((e, i) =>
+                    renderEvent(e, item.startIndex + i),
+                  )}
+                </div>
+              }
+            />
           );
         })}
 
