@@ -22,21 +22,39 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    with op.get_context().autocommit_block():
-        op.create_index(
-            'ix_event_callback_conversation_id_status_event_kind',
-            'event_callback',
-            ['conversation_id', 'status', 'event_kind'],
-            postgresql_concurrently=True,
-            if_not_exists=True,
-        )
+    # 2026-08-02: CREATE INDEX CONCURRENTLY inside op.get_context()
+    # .autocommit_block() cannot run on this stack. Alembic's autocommit_block
+    # asks the driver to leave the transaction; pg8000 (the SYNC driver this
+    # project uses for migrations - see db_session_injector, which picks
+    # postgresql+pg8000 for Alembic and postgresql+asyncpg for the app) does not
+    # honour that, so PostgreSQL refuses the statement and every following
+    # statement fails with:
+    #
+    #   sqlalchemy.exc.InterfaceError: (pg8000.exceptions.InterfaceError)
+    #     in failed transaction block
+    #   ERROR:    Application startup failed. Exiting.
+    #
+    # CONCURRENTLY exists to avoid locking a live table during deployment. A
+    # migration that cannot run at all does not avoid anything - and on any
+    # database reaching this revision for the first time, event_callback is
+    # empty or near-empty, so the plain form takes a lock nobody can perceive.
+    # If this ever needs to run against a large populated table, do it by hand
+    # outside Alembic with psql, which can issue a genuine out-of-transaction
+    # CREATE INDEX CONCURRENTLY.
+    #
+    # if_not_exists is kept so a hand-built index does not break the migration.
+    op.create_index(
+        'ix_event_callback_conversation_id_status_event_kind',
+        'event_callback',
+        ['conversation_id', 'status', 'event_kind'],
+        if_not_exists=True,
+    )
 
 
 def downgrade() -> None:
-    with op.get_context().autocommit_block():
-        op.drop_index(
-            'ix_event_callback_conversation_id_status_event_kind',
-            table_name='event_callback',
-            postgresql_concurrently=True,
-            if_exists=True,
-        )
+    # Mirror of upgrade(): no autocommit_block, no CONCURRENTLY.
+    op.drop_index(
+        'ix_event_callback_conversation_id_status_event_kind',
+        table_name='event_callback',
+        if_exists=True,
+    )

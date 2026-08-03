@@ -79,6 +79,13 @@ _EXEMPT_PREFIXES: Final[tuple[str, ...]] = (
     '/api/vscode',
     '/api/file',
     '/sockets',
+    # Event webhook. The agent server POSTs its event stream here and it is
+    # the ONLY path by which a conversation transcript reaches durable
+    # storage. It carries no browser cookie — it authenticates on
+    # X-Session-API-Key resolved to a sandbox record, which is narrower than a
+    # session cookie, not weaker. Gating it on the cookie would 401 every
+    # event and silently return us to conversations that vanish on restart.
+    '/api/v1/webhooks',
     # OAuth/OIDC callbacks. Not under /api, so these only matter for the
     # signed-out page redirect — a callback arrives with no session by
     # definition, and bouncing it to the dashboard would discard the code it

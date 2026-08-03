@@ -26,6 +26,10 @@ from openhands.app_server.middleware import (
 from openhands.app_server.nimbus_sso.nimbus_sso_router import (
     router as nimbus_sso_router,
 )
+from openhands.app_server.sandbox.agent_proxy_router import agent_proxy_router
+from openhands.app_server.nimbus_sso.nimbus_auth_gate import (
+    NimbusAuthGateMiddleware,
+)
 from openhands.app_server.static import SPAStaticFiles
 from openhands.app_server.status.status_router import router as health_router
 from openhands.app_server.version import get_version
@@ -78,6 +82,15 @@ app.include_router(health_router)
 # the catch-all frontend.
 app.include_router(nimbus_sso_router)
 
+# Reverse proxy to the in-container agent server. Registered here for the SAME
+# reason as nimbus_sso_router above: Starlette matches in registration order and
+# the SPA mount at "/" below is a catch-all. Before this router existed, every
+# agent path (/api/conversations/*, /api/git/*, /api/vscode/*, /api/file/*,
+# /sockets/events/*) fell through to the frontend and returned index.html with a
+# 200 — a "successful" response containing HTML where the client expected JSON.
+# See agent_proxy_router.py for why the browser could not reach the agent at all.
+app.include_router(agent_proxy_router)
+
 # Middleware and static file setup (merged from listen.py)
 if os.getenv('SERVE_FRONTEND', 'true').lower() == 'true':
     if os.path.isdir('./frontend/build'):
@@ -85,6 +98,10 @@ if os.getenv('SERVE_FRONTEND', 'true').lower() == 'true':
             '/', SPAStaticFiles(directory='./frontend/build', html=True), name='dist'
         )
 
+# Default-deny on /api. Added last so it runs FIRST — Starlette applies
+# middleware in reverse registration order, and an auth gate that runs after
+# anything else is an auth gate that something else already answered past.
+app.add_middleware(NimbusAuthGateMiddleware)
 app.add_middleware(LocalhostCORSMiddleware)
 app.add_middleware(CacheControlMiddleware)
 app.add_middleware(
