@@ -25,6 +25,7 @@ from openhands.agent_server.models import (
 from openhands.app_server.app_conversation.app_conversation_info_service import (
     AppConversationInfoService,
 )
+from openhands.app_server.app_conversation.nimbus_memory import memory_block
 from openhands.app_server.app_conversation.app_conversation_models import (
     ACP_SERVER_TAG_KEY,
     AGENT_PROFILE_ID_TAG_KEY,
@@ -367,6 +368,31 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 system_message_suffix, GIT_SHALLOW_CLONE_CONTEXT
             )
         return system_message_suffix
+
+    async def _maybe_append_memory(
+        self, system_message_suffix: str | None
+    ) -> str | None:
+        """Carry the customer's durable notes into this conversation.
+
+        Every conversation otherwise starts from nothing: the agent
+        rediscovers the stack, the deploy command and the decisions already
+        made, and the customer re-explains them. This is the one document that
+        crosses that boundary.
+
+        Failure is swallowed on purpose. Losing recall degrades a conversation;
+        raising here would stop it starting at all, and that trade is not
+        close.
+        """
+        try:
+            user_id = await self.user_context.get_user_id()
+            block = memory_block(user_id)
+        except Exception:  # noqa: BLE001
+            logger.warning('nimbus_memory: could not load memory', exc_info=True)
+            return system_message_suffix
+
+        if not block:
+            return system_message_suffix
+        return append_system_context(system_message_suffix, block)
 
     async def _get_sandbox_grouping_strategy(self) -> SandboxGroupingStrategy:
         """Get the sandbox grouping strategy from user settings."""
@@ -2162,6 +2188,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         system_message_suffix = self._maybe_append_shallow_clone_context(
             user, selected_repository, system_message_suffix
         )
+        system_message_suffix = await self._maybe_append_memory(system_message_suffix)
 
         # --- LLM + MCP -----------------------------------------------------
         llm, mcp_config = await self._configure_llm_and_mcp(
@@ -2522,6 +2549,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         system_message_suffix = self._maybe_append_shallow_clone_context(
             user, selected_repository, system_message_suffix
         )
+        system_message_suffix = await self._maybe_append_memory(system_message_suffix)
 
         # --- build the ACP agent ------------------------------------------
         acp_settings = user.agent_settings  # already verified to be ACPAgentSettings
