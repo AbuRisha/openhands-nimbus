@@ -83,7 +83,18 @@ NIMBUS_MODEL_CAPS: dict[str, tuple[bool, int | None]] = {
     # refusal into a failed request, which is worse.
     'deepseek/deepseek-v4-pro': (False, 1_048_576),
     'deepseek/deepseek-v4-flash': (False, 1_048_576),
-    'qwen/qwen3.7-max': (False, None),
+    # Qwen. The gateway reports no `architecture.input_modalities` for this
+    # family at all (checked 2026-08-04 against GET /v1/models: the key is
+    # absent, not empty), so "text-only" here is the safe reading of missing
+    # data rather than a published capability. If a Qwen model does gain vision,
+    # this table is what has to change — nothing will fail loudly first.
+    #
+    # qwen3.8-max needs an entry even though its answer is False: without one
+    # _vision_for falls through to litellm, which has never heard of the id and
+    # also returns False. Same answer today, but by accident — and the accident
+    # breaks the moment litellm ships a mapping for it.
+    'alibaba/qwen3.8-max': (False, 1_000_000),
+    'qwen/qwen3.7-max': (False, 1_000_000),
     'qwen/qwen3-coder': (False, 1_048_576),
     'z-ai/glm-5.2': (False, None),
     'z-ai/glm-5.1': (False, None),
