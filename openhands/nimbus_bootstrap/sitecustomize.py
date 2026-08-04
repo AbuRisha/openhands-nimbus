@@ -26,26 +26,53 @@ capability flag into a total outage.
 
 import os
 
-if os.environ.get("NIMBUS_AGENT_BOOTSTRAP"):
+# Prove the hook ran, in a way that does not depend on logging.
+#
+# sitecustomize executes BEFORE the application configures logging, so a
+# logger.info() here is dropped by Python's lastResort handler (WARNING and
+# above only) whether or not this file executed. That made "no log line" look
+# like "never ran" — an absence of evidence that reads exactly like evidence of
+# absence, and it nearly cost a fourth wrong diagnosis.
+#
+# stderr is unconditional and lands in container logs, and a file marker
+# survives for inspection. Both are cheap and run once per process.
+def _nimbus_mark(status: str) -> None:
+    import sys
+
+    try:
+        print(f'NIMBUS_BOOTSTRAP {status}', file=sys.stderr, flush=True)
+    except Exception:
+        pass
+    try:
+        with open('/tmp/nimbus_bootstrap.log', 'a', encoding='utf-8') as fh:
+            fh.write(status + '\n')
+    except Exception:
+        pass
+
+
+if not os.environ.get("NIMBUS_AGENT_BOOTSTRAP"):
+    _nimbus_mark('skipped:flag-not-set')
+else:
+    _nimbus_mark('start')
     try:
         from nimbus_model_caps import register_nimbus_model_caps
 
-        register_nimbus_model_caps()
-    except Exception:  # noqa: BLE001 - never break interpreter start
-        pass
+        _nimbus_mark(f'vision:{register_nimbus_model_caps()}')
+    except Exception as e:  # noqa: BLE001 - never break interpreter start
+        _nimbus_mark(f'vision:FAILED:{type(e).__name__}')
 
     try:
         from nimbus_nudge_cap import install_nudge_cap
 
-        install_nudge_cap()
-    except Exception:  # noqa: BLE001
-        pass
+        _nimbus_mark(f'nudge:{install_nudge_cap()}')
+    except Exception as e:  # noqa: BLE001
+        _nimbus_mark(f'nudge:FAILED:{type(e).__name__}')
 
     try:
         # Separate try for the same reason as the others: these are unrelated
         # repairs sharing the only hook that reaches the agent process.
         from nimbus_provider_fallback import install_provider_fallback
 
-        install_provider_fallback()
-    except Exception:  # noqa: BLE001
-        pass
+        _nimbus_mark(f'provider:{install_provider_fallback()}')
+    except Exception as e:  # noqa: BLE001
+        _nimbus_mark(f'provider:FAILED:{type(e).__name__}')
