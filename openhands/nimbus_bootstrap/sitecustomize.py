@@ -76,3 +76,13 @@ else:
         _nimbus_mark(f'provider:{install_provider_fallback()}')
     except Exception as e:  # noqa: BLE001
         _nimbus_mark(f'provider:FAILED:{type(e).__name__}')
+
+    try:
+        # Must run in THIS process: cost is computed by the agent's Telemetry
+        # when the response comes back, and only reaches the app server as an
+        # already-summed number on the metrics snapshot.
+        from nimbus_gateway_cost import install_gateway_cost
+
+        _nimbus_mark(f'cost:{install_gateway_cost()}')
+    except Exception as e:  # noqa: BLE001
+        _nimbus_mark(f'cost:FAILED:{type(e).__name__}')
