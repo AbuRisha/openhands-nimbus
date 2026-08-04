@@ -72,20 +72,24 @@ def _is_ours(model: str | None) -> bool:
 
 
 def install_provider_fallback() -> bool:
-    """Answer "openai" for our prefixes, on the LLM class itself.
+    """Inject custom_llm_provider into the kwargs litellm actually receives.
 
-    Patches ``LLM._infer_litellm_provider`` rather than
-    ``litellm.get_llm_provider``. The first attempt patched the litellm module
-    attribute and had NO EFFECT: llm.py does
-    ``from openhands.sdk.llm.utils.litellm_provider import infer_litellm_provider``
-    at import time, and that helper closes over litellm's original function, so
-    rebinding the module attribute afterwards changes nothing. The error text
-    after that "fix" was byte-identical to before it, which is what gave it away.
+    Three earlier attempts missed because I guessed where provider inference
+    happens instead of reading it:
 
-    A method on the class is immune to that: every call goes through the class
-    dict, whoever holds the reference. The SDK feeds this result straight into
-    ``custom_llm_provider``, which makes litellm skip inference entirely — so
-    the model id reaches the gateway unchanged, which is what it keys on.
+      1. litellm_provider:'openai' via register_model — broke Anthropic routing.
+      2. Patching litellm.get_llm_provider (module attribute) — llm.py binds its
+         helper at import, so the patch was never consulted.
+      3. Patching LLM._infer_litellm_provider — that feeds TELEMETRY, not the
+         request. The bootstrap marker file proved the patch installed
+         (provider:True) while the error stayed byte-identical, which is what
+         finally ruled the method out.
+
+    The request is built by LLM._prepare_transport_kwargs and handed straight to
+    litellm_completion(**kwargs). Setting custom_llm_provider there makes
+    litellm skip inference entirely, so the full model id reaches the gateway —
+    which is what it keys on. A method on the class, so import bindings cannot
+    route around it.
 
     Never raises: this runs from sitecustomize, where an exception would break
     every interpreter start in the image.
@@ -98,30 +102,23 @@ def install_provider_fallback() -> bool:
     if getattr(LLM, '_nimbus_provider_fallback_installed', False):
         return True
 
-    original = getattr(LLM, '_infer_litellm_provider', None)
+    original = getattr(LLM, '_prepare_transport_kwargs', None)
     if original is None:
         return False
 
-    def _infer_litellm_provider(self):  # type: ignore[no-untyped-def]
+    def _prepare_transport_kwargs(self, **kwargs):  # type: ignore[no-untyped-def]
+        prepared = original(self, **kwargs)
         try:
-            inferred = original(self)
-        except Exception:  # noqa: BLE001
-            inferred = None
+            # Only for OUR prefixes, and never overriding an explicit value.
+            # anthropic/* and deepseek/* must keep their native wire formats.
+            if _is_ours(prepared.get('model')) and not prepared.get(
+                'custom_llm_provider'
+            ):
+                prepared['custom_llm_provider'] = 'openai'
+        except Exception:  # noqa: BLE001 - a failed hint must not fail the call
+            pass
+        return prepared
 
-        # litellm's own answer always wins. anthropic/* and deepseek/* must keep
-        # their native wire formats; this must never intercept a model litellm
-        # can already place.
-        if inferred:
-            return inferred
-
-        if _is_ours(getattr(self, 'model', None)):
-            return 'openai'
-        return inferred
-
-    LLM._infer_litellm_provider = _infer_litellm_provider  # type: ignore[assignment]
+    LLM._prepare_transport_kwargs = _prepare_transport_kwargs  # type: ignore[assignment]
     LLM._nimbus_provider_fallback_installed = True  # type: ignore[attr-defined]
-    logger.info(
-        'nimbus: provider fallback installed for prefixes %s',
-        ', '.join(sorted(NIMBUS_OPENAI_COMPATIBLE_PREFIXES)),
-    )
     return True
