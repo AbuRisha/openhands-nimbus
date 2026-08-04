@@ -93,7 +93,7 @@ NIMBUS_MODEL_CAPS: dict[str, tuple[bool, int | None]] = {
     # _vision_for falls through to litellm, which has never heard of the id and
     # also returns False. Same answer today, but by accident — and the accident
     # breaks the moment litellm ships a mapping for it.
-    'alibaba/qwen3.8-max': (False, 1_000_000),
+    'qwen/qwen3.8-max': (False, 1_000_000),
     'qwen/qwen3.7-max': (False, 1_000_000),
     'qwen/qwen3-coder': (False, 1_048_576),
     'z-ai/glm-5.2': (False, None),

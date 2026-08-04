@@ -26,11 +26,14 @@ const profileItemClassName = "cursor-pointer p-0 h-auto hover:bg-transparent";
 /**
  * Display names for the vendor prefix in a model id.
  *
- * `alibaba` deliberately maps to Qwen. Upstream splits that family across two
- * prefixes — qwen3.7-max and qwen3-coder are `qwen/`, while qwen3.8-max is
- * `alibaba/` — and grouping on the raw prefix would show a customer two vendors
- * for one family, with the newest model filed under a name they would not think
- * to look for.
+ * `alibaba` maps to Qwen, and is kept even though the catalog no longer ships
+ * any `alibaba/` id. It used to: qwen3.8-max was listed under the prefix it
+ * carries upstream until we confirmed the gateway resolves `qwen/qwen3.8-max`
+ * to the same model at the same rate. Profiles seeded before that change, and
+ * conversations already pinned to the old id, still hold `alibaba/qwen3.8-max`
+ * and still route — so without this entry they would render under a bare
+ * "alibaba" heading, which is the supplier's name and not something a customer
+ * should ever see.
  */
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic",

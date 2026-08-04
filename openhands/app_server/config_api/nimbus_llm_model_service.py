@@ -112,14 +112,19 @@ NIMBUS_CHAT_MODELS: list[str] = [
     'moonshotai/kimi-k2.6',
     # Qwen
     #
-    # Re-added 2026-08-04 after the gateway side landed. It needed THREE
-    # things, not one: a routing_table entry, a pricing row, and 'alibaba' in
-    # PROVIDER_PREFIXES — qwen ships under two vendor prefixes upstream and only
-    # 'qwen/' was listed, so the request never reached the routing lookup. That
-    # is why it answered 200 direct to SpiderSense while 404ing through us, and
-    # why "verified with a real completion" was not enough on its own: it
-    # verified the supplier, not the product.
-    'alibaba/qwen3.8-max',
+    # qwen3.8-max is listed under the qwen/ prefix, NOT the alibaba/ prefix it
+    # carries upstream. Both reach the same model: the gateway strips any known
+    # provider prefix before looking up the bare id, and prices it through a
+    # flat-key fallback that ignores the prefix too. Verified against the live
+    # gateway on 2026-08-04 rather than inferred from the code — both ids return
+    # 200 with a real completion and bill an identical rate per token.
+    #
+    # So the supplier's prefix never has to appear in our namespace. That was
+    # worth checking before asking anyone to add an alias: the alias already
+    # existed implicitly, and the Settings/BYOK selector — which builds ids as
+    # `${provider}/${model}` from NIMBUS_VERIFIED_PROVIDERS — can offer this
+    # model now that its prefix is one we list.
+    'qwen/qwen3.8-max',
     'qwen/qwen3.7-max',
     'qwen/qwen3-coder',
     # Z.ai
@@ -151,34 +156,14 @@ NIMBUS_VERIFIED_PROVIDERS: list[str] = [
     'z-ai',
 ]
 
-# NOT in the list above, deliberately: 'alibaba'.
+# 'alibaba' is deliberately absent, and no model needs it: qwen3.8-max is listed
+# under 'qwen/'. The prefix is SpiderSense's name for the upstream they source
+# that model from, and a customer of Nimbus is buying Qwen from us. Founder's
+# rule, 2026-08-04: models are listed under the vendor that made them, not the
+# supplier we source them through.
 #
-# alibaba/qwen3.8-max routes and is offered in the chat picker, where it is
-# grouped under Qwen like the rest of the family. But 'alibaba' is SpiderSense's
-# name for the upstream it buys that model from, and a customer of Nimbus should
-# never see it — they are buying Qwen from us. Founder's rule, 2026-08-04:
-# models are listed under the vendor that made them, not the supplier we source
-# them through.
-#
-# Two things follow from leaving it out, and the second is a real gap:
-#   - The chat picker is unaffected. It groups on its own label map
-#     (PROVIDER_LABELS in switch-profile-context-menu.tsx), which already folds
-#     'alibaba' into Qwen, and it reads profiles seeded from NIMBUS_CHAT_MODELS
-#     rather than this list.
-#   - The Advanced/BYOK selector in Settings builds its id as
-#     `${provider}/${model}` from this list, so with no 'alibaba' entry
-#     qwen3.8-max cannot be picked THERE. It is reachable from the chat picker,
-#     which is the primary surface, but that is a gap and not a fix.
-#
-# The gap closes properly at the gateway, not here: give the proxy an alias so
-# `qwen/qwen3.8-max` routes to the same upstream as `alibaba/qwen3.8-max`. Then
-# the supply-chain prefix disappears from our namespace entirely and three
-# workarounds can be deleted — this note, the 'alibaba' entry in
-# NIMBUS_OPENAI_COMPATIBLE_PREFIXES, and the 'alibaba' key in PROVIDER_LABELS.
-# Requested from the gateway session on 2026-08-04.
-
 # Providers rendered when computing :meth:`search_providers`. Extracted from
-# :data:`NIMBUS_CHAT_MODELS` so the two never drift.
+# :data:`NIMBUS_VERIFIED_PROVIDERS` so the two never drift.
 _NIMBUS_PROVIDERS: list[str] = list(NIMBUS_VERIFIED_PROVIDERS)
 
 
