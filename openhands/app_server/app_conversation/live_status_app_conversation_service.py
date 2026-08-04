@@ -2661,17 +2661,33 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
 
         _logger.info(f'task_id={task_id_str} conversation_id={conversation_id_str}')
 
-        # First, update any messages that were queued with the task_id
-        updated_count = await self.pending_message_service.update_conversation_id(
-            old_conversation_id=task_id_str,
-            new_conversation_id=conversation_id_str,
-        )
-        _logger.info(f'updated_count={updated_count} ')
-        if updated_count > 0:
-            _logger.info(
-                f'Updated {updated_count} pending messages from task_id={task_id_str} '
-                f'to conversation_id={conversation_id_str}'
+        # Collect messages queued under EVERY id the frontend may have used.
+        #
+        # There are three, and only the first was handled before:
+        #   task-<hex>  while the start task is still polling
+        #   <hex>       after navigating to /conversations/<hex> but before the
+        #               WebSocket opens - the route param is the hex form
+        #   <hyphenated> the canonical id this drain reads by
+        #
+        # The middle one is the gap that lost messages. The frontend posts to
+        # /conversations/{conversation_id}/pending-messages using whatever is in
+        # the URL, and the URL carries the HEX id; str(UUID) is hyphenated. So a
+        # message sent in the window between navigation and the socket opening
+        # was written under a key nothing ever read, and sat in the table
+        # forever. Reported as "the conversation does not exist immediately
+        # after sending the first message".
+        for legacy_id in (task_id_str, conversation_id.hex):
+            if legacy_id == conversation_id_str:
+                continue
+            moved = await self.pending_message_service.update_conversation_id(
+                old_conversation_id=legacy_id,
+                new_conversation_id=conversation_id_str,
             )
+            if moved > 0:
+                _logger.info(
+                    f'Moved {moved} pending message(s) from {legacy_id} '
+                    f'to {conversation_id_str}'
+                )
 
         # Get all pending messages for this conversation
         pending_messages = await self.pending_message_service.get_pending_messages(
@@ -2687,6 +2703,8 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         )
 
         # Process messages sequentially to preserve order
+        delivered = 0
+        failed = 0
         for msg in pending_messages:
             try:
                 # Serialize content objects to JSON-compatible dicts
@@ -2703,19 +2721,35 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                     timeout=30.0,
                 )
                 response.raise_for_status()
+                delivered += 1
                 _logger.debug(f'Delivered pending message {msg.id}')
             except Exception as e:
-                _logger.warning(f'Failed to deliver pending message {msg.id}: {e}')
+                failed += 1
+                # ERROR, not WARNING: this is the user's message disappearing.
+                # It used to be logged at warning level and then deleted anyway,
+                # so a failed delivery was indistinguishable from a successful
+                # one and unrecoverable either way.
+                _logger.error(f'Failed to deliver pending message {msg.id}: {e}')
 
-        # Delete all pending messages after processing (regardless of success/failure)
+        if failed:
+            # Leave EVERYTHING in place when any delivery failed. Deleting
+            # "regardless of success or failure" is what turned a transient
+            # agent-server hiccup into permanently lost user input; a row that
+            # survives can be retried, and the next drain will find it.
+            _logger.error(
+                f'{failed} of {len(pending_messages)} pending message(s) failed for '
+                f'conversation {conversation_id_str}; retaining them for retry'
+            )
+            return
+
         deleted_count = (
             await self.pending_message_service.delete_messages_for_conversation(
                 conversation_id_str
             )
         )
         _logger.info(
-            f'Finished processing pending messages for conversation {conversation_id_str}. '
-            f'Deleted {deleted_count} messages.'
+            f'Delivered {delivered} pending message(s) for conversation '
+            f'{conversation_id_str}; deleted {deleted_count}.'
         )
 
     async def update_agent_server_conversation_title(
