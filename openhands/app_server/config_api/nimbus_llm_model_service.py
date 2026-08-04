@@ -148,15 +148,34 @@ NIMBUS_VERIFIED_PROVIDERS: list[str] = [
     'deepseek',
     'qwen',
     'moonshotai',
-    # Both Qwen prefixes. Upstream splits the family: qwen3.7-max and
-    # qwen3-coder are 'qwen/', while qwen3.8-max is 'alibaba/'. Listing only
-    # 'qwen' would repeat exactly the bug this list already carries a note
-    # about — the model would load and route, but render outside the verified
-    # group, which reads to a customer as "unsupported".
-    'alibaba',
-    'qwen',
     'z-ai',
 ]
+
+# NOT in the list above, deliberately: 'alibaba'.
+#
+# alibaba/qwen3.8-max routes and is offered in the chat picker, where it is
+# grouped under Qwen like the rest of the family. But 'alibaba' is SpiderSense's
+# name for the upstream it buys that model from, and a customer of Nimbus should
+# never see it — they are buying Qwen from us. Founder's rule, 2026-08-04:
+# models are listed under the vendor that made them, not the supplier we source
+# them through.
+#
+# Two things follow from leaving it out, and the second is a real gap:
+#   - The chat picker is unaffected. It groups on its own label map
+#     (PROVIDER_LABELS in switch-profile-context-menu.tsx), which already folds
+#     'alibaba' into Qwen, and it reads profiles seeded from NIMBUS_CHAT_MODELS
+#     rather than this list.
+#   - The Advanced/BYOK selector in Settings builds its id as
+#     `${provider}/${model}` from this list, so with no 'alibaba' entry
+#     qwen3.8-max cannot be picked THERE. It is reachable from the chat picker,
+#     which is the primary surface, but that is a gap and not a fix.
+#
+# The gap closes properly at the gateway, not here: give the proxy an alias so
+# `qwen/qwen3.8-max` routes to the same upstream as `alibaba/qwen3.8-max`. Then
+# the supply-chain prefix disappears from our namespace entirely and three
+# workarounds can be deleted — this note, the 'alibaba' entry in
+# NIMBUS_OPENAI_COMPATIBLE_PREFIXES, and the 'alibaba' key in PROVIDER_LABELS.
+# Requested from the gateway session on 2026-08-04.
 
 # Providers rendered when computing :meth:`search_providers`. Extracted from
 # :data:`NIMBUS_CHAT_MODELS` so the two never drift.

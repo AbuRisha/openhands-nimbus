@@ -26,6 +26,23 @@ export const MAP_PROVIDER = {
   openhands: "Nimbus",
   lemonade: "Lemonade",
   clarifai: "Clarifai",
+  // Vendors in the Nimbus catalog. Without these the Settings provider
+  // dropdown fell through to the raw gateway prefix and showed a customer
+  // "deepseek", "moonshotai", "z-ai" and "qwen" in lowercase, next to
+  // properly-cased names like "Anthropic" — the prefix is a routing key, not
+  // display text.
+  //
+  // "alibaba" is deliberately absent. It is SpiderSense's name for the
+  // upstream they source qwen3.8-max from, and no customer-facing surface
+  // should render it; the chat picker files that model under Qwen with the
+  // rest of the family. See the note beside NIMBUS_VERIFIED_PROVIDERS in
+  // nimbus_llm_model_service.py — adding it here would put the supplier back
+  // on screen, and as a SECOND "Qwen" entry in the same dropdown.
+  google: "Google",
+  deepseek: "DeepSeek",
+  moonshotai: "Moonshot",
+  qwen: "Qwen",
+  "z-ai": "Z.ai",
 };
 
 export const mapProvider = (provider: string) =>
