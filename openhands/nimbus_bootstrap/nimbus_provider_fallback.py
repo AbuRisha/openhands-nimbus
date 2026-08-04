@@ -72,47 +72,54 @@ def _is_ours(model: str | None) -> bool:
 
 
 def install_provider_fallback() -> bool:
-    """Wrap litellm.get_llm_provider with an OpenAI-compatible fallback.
+    """Answer "openai" for our prefixes, on the LLM class itself.
+
+    Patches ``LLM._infer_litellm_provider`` rather than
+    ``litellm.get_llm_provider``. The first attempt patched the litellm module
+    attribute and had NO EFFECT: llm.py does
+    ``from openhands.sdk.llm.utils.litellm_provider import infer_litellm_provider``
+    at import time, and that helper closes over litellm's original function, so
+    rebinding the module attribute afterwards changes nothing. The error text
+    after that "fix" was byte-identical to before it, which is what gave it away.
+
+    A method on the class is immune to that: every call goes through the class
+    dict, whoever holds the reference. The SDK feeds this result straight into
+    ``custom_llm_provider``, which makes litellm skip inference entirely — so
+    the model id reaches the gateway unchanged, which is what it keys on.
 
     Never raises: this runs from sitecustomize, where an exception would break
     every interpreter start in the image.
     """
     try:
-        import litellm
+        from openhands.sdk.llm.llm import LLM
     except Exception:  # noqa: BLE001
         return False
 
-    if getattr(litellm, '_nimbus_provider_fallback_installed', False):
+    if getattr(LLM, '_nimbus_provider_fallback_installed', False):
         return True
 
-    original = getattr(litellm, 'get_llm_provider', None)
+    original = getattr(LLM, '_infer_litellm_provider', None)
     if original is None:
         return False
 
-    def get_llm_provider(*args, **kwargs):  # type: ignore[no-untyped-def]
-        model = kwargs.get('model')
-        if model is None and args:
-            model = args[0]
-
+    def _infer_litellm_provider(self):  # type: ignore[no-untyped-def]
         try:
-            # litellm's own answer always wins. anthropic/* and deepseek/* must
-            # keep their native wire formats, and this must never intercept a
-            # model litellm can already place.
-            return original(*args, **kwargs)
-        except Exception:
-            if not _is_ours(model):
-                raise
-            # (model, provider, dynamic_api_key, api_base) — the id is passed
-            # through UNCHANGED because the gateway keys on the full name.
-            api_base = kwargs.get('api_base')
-            api_key = kwargs.get('api_key')
-            logger.debug(
-                'nimbus: resolving %s as openai-compatible gateway traffic', model
-            )
-            return model, 'openai', api_key, api_base
+            inferred = original(self)
+        except Exception:  # noqa: BLE001
+            inferred = None
 
-    litellm.get_llm_provider = get_llm_provider
-    litellm._nimbus_provider_fallback_installed = True
+        # litellm's own answer always wins. anthropic/* and deepseek/* must keep
+        # their native wire formats; this must never intercept a model litellm
+        # can already place.
+        if inferred:
+            return inferred
+
+        if _is_ours(getattr(self, 'model', None)):
+            return 'openai'
+        return inferred
+
+    LLM._infer_litellm_provider = _infer_litellm_provider  # type: ignore[assignment]
+    LLM._nimbus_provider_fallback_installed = True  # type: ignore[attr-defined]
     logger.info(
         'nimbus: provider fallback installed for prefixes %s',
         ', '.join(sorted(NIMBUS_OPENAI_COMPATIBLE_PREFIXES)),
