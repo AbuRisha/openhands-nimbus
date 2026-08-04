@@ -13,6 +13,11 @@ from pydantic import BaseModel, PrivateAttr, SecretStr, model_validator
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from openhands.app_server.services.nimbus_entra_db import (
+    attach_token_provider,
+    entra_db_auth_enabled,
+)
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
@@ -61,8 +66,20 @@ class DbSessionInjector(BaseModel, Injector[AsyncSession]):
         if self.name is None:
             self.name = os.getenv('DB_NAME', 'openhands')
         if self.user is None:
-            self.user = os.getenv('DB_USER', 'postgres')
+            # Under Entra auth the login name IS the database role created for
+            # the managed identity, which is not the same as the password-auth
+            # admin. NIMBUS_DB_ENTRA_USER names it so both can coexist and the
+            # flag alone decides which is used.
+            entra_user = (os.getenv('NIMBUS_DB_ENTRA_USER') or '').strip()
+            if entra_db_auth_enabled() and entra_user:
+                self.user = entra_user
+            else:
+                self.user = os.getenv('DB_USER', 'postgres')
         if self.password is None:
+            # Still read, and deliberately: password auth remains enabled on the
+            # server, so a failed token mint degrades to this rather than taking
+            # the database offline. The do_connect listener overrides it per
+            # connection whenever a token is available.
             self.password = SecretStr(os.getenv('DB_PASS', 'postgres').strip())
         if self.gcp_db_instance is None:
             self.gcp_db_instance = os.getenv('GCP_DB_INSTANCE')
@@ -218,6 +235,10 @@ class DbSessionInjector(BaseModel, Injector[AsyncSession]):
                     pool_pre_ping=True,
                 )
         assert async_engine is not None  # Always assigned in either branch above
+        # Only for a real Postgres host: the SQLite fallback has no password and
+        # no identity to present.
+        if self.host and entra_db_auth_enabled():
+            attach_token_provider(async_engine)
         self._async_engine = async_engine
         return async_engine
 
@@ -257,6 +278,11 @@ class DbSessionInjector(BaseModel, Injector[AsyncSession]):
                 pool_use_lifo=self.pool_use_lifo,
             )
         assert engine is not None  # Always assigned in either branch above
+        # Alembic runs on the SYNC engine, so this path needs the token provider
+        # too — without it migrations would be the one thing still relying on
+        # the password.
+        if self.host and entra_db_auth_enabled():
+            attach_token_provider(engine)
         self._engine = engine
         return engine
 
