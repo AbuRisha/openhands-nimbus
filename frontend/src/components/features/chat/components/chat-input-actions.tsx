@@ -8,6 +8,7 @@ import { ChangeAgentButton } from "../change-agent-button";
 import { SwitchAcpModelButton } from "../switch-acp-model-button";
 import { SwitchProfileButton } from "../switch-profile-button";
 import { EffortSliderButton } from "../effort-slider-popover";
+import { ContextUsageRing } from "../context-usage-ring";
 
 interface ChatInputActionsProps {
   disabled: boolean;
@@ -44,13 +45,17 @@ export function ChatInputActions({ disabled }: ChatInputActionsProps) {
           <EffortSliderButton />
         </div>
       </div>
-      <AgentStatus
-        className="ml-2 md:ml-3"
-        handleStop={handlePauseAgent}
-        handleResumeAgent={handleResumeAgentClick}
-        disabled={disabled}
-        isPausing={isPausing}
-      />
+      {/* Sits beside the run status, which is where the eye already goes when
+          a turn is in flight — and the moment context pressure matters. */}
+      <div className="flex items-center gap-3 ml-2 md:ml-3">
+        <ContextUsageRing />
+        <AgentStatus
+          handleStop={handlePauseAgent}
+          handleResumeAgent={handleResumeAgentClick}
+          disabled={disabled}
+          isPausing={isPausing}
+        />
+      </div>
     </div>
   );
 }
