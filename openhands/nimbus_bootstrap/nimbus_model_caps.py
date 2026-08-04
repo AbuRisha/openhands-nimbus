@@ -117,13 +117,26 @@ def register_nimbus_model_caps() -> int:
 
     registered = 0
     for model_id, (vision, max_input) in NIMBUS_MODEL_CAPS.items():
+        # ONLY capability flags. Nothing here may describe transport.
+        #
+        # The first version also set `litellm_provider: 'openai'` and
+        # `mode: 'chat'`, and that broke every Anthropic call in production:
+        #
+        #   litellm.InternalServerError: AnthropicException -
+        #   AsyncCompletions.create() got an unexpected keyword argument 'system'
+        #
+        # litellm picks its CLIENT from litellm_provider, so declaring 'openai'
+        # for anthropic/claude-* routed those requests through the OpenAI SDK,
+        # which has no `system` parameter. The intent was only ever to answer
+        # "can this model see images"; instead it silently re-plumbed the call
+        # path. Provider inference already worked from the model prefix, so
+        # stating it added nothing and cost everything.
+        #
+        # supports_function_calling stays because it is a capability, and every
+        # model in this catalog is called with tools.
         info: dict[str, object] = {
             'supports_vision': vision,
-            # Declared so tool-using models are not silently downgraded; every
-            # model in this catalog is called with tools by the agent.
             'supports_function_calling': True,
-            'litellm_provider': 'openai',
-            'mode': 'chat',
         }
         if max_input is not None:
             info['max_input_tokens'] = max_input
