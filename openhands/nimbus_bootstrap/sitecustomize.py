@@ -40,3 +40,12 @@ if os.environ.get("NIMBUS_AGENT_BOOTSTRAP"):
         install_nudge_cap()
     except Exception:  # noqa: BLE001
         pass
+
+    try:
+        # Separate try for the same reason as the others: these are unrelated
+        # repairs sharing the only hook that reaches the agent process.
+        from nimbus_provider_fallback import install_provider_fallback
+
+        install_provider_fallback()
+    except Exception:  # noqa: BLE001
+        pass
