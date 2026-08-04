@@ -26,6 +26,9 @@ from openhands.app_server.middleware import (
 from openhands.app_server.nimbus_sso.nimbus_sso_router import (
     router as nimbus_sso_router,
 )
+from openhands.app_server.nimbus_github_oauth.github_oauth_router import (
+    router as github_oauth_router,
+)
 from openhands.app_server.sandbox.agent_proxy_router import agent_proxy_router
 from openhands.app_server.nimbus_sso.nimbus_auth_gate import (
     NimbusAuthGateMiddleware,
@@ -90,6 +93,17 @@ app.include_router(nimbus_sso_router)
 # 200 — a "successful" response containing HTML where the client expected JSON.
 # See agent_proxy_router.py for why the browser could not reach the agent at all.
 app.include_router(agent_proxy_router)
+
+# GitHub OAuth. Registered before the SPA catch-all for the same reason as the
+# two routers above: Starlette matches in registration order, so a route added
+# after the "/" mount would return index.html with a 200 instead of running.
+#
+# This half did not exist. _get_configured_providers() lights up a "Connect
+# GitHub" button from GITHUB_APP_CLIENT_ID alone, but upstream implements the
+# flow in its enterprise layer behind AUTH_URL/Keycloak, which is not part of
+# this deployment. Setting the client id without this router would have shipped
+# a button that goes nowhere.
+app.include_router(github_oauth_router)
 
 # Middleware and static file setup (merged from listen.py)
 if os.getenv('SERVE_FRONTEND', 'true').lower() == 'true':
