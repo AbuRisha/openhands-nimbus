@@ -12,8 +12,39 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from openhands.app_server.nimbus_sso.nimbus_auth_gate import _EXEMPT_PREFIXES
 from openhands.app_server.nimbus_voice import internal_ai
 from openhands.app_server.nimbus_voice.nimbus_voice_router import router
+
+
+class TestVoiceRoutesAreAuthenticated:
+    """These routes spend money, so being reachable anonymously is the worst
+    possible bug — and it would look exactly like working correctly.
+
+    NimbusAuthGateMiddleware default-denies everything under /api/ that is not
+    explicitly exempt. That is the whole protection: the router carries no auth
+    dependency of its own, deliberately, because adding one would imply the
+    middleware is optional. So the guarantee worth pinning is that no exemption
+    ever grows to cover these paths — a new entry like '/api/n' or a stray
+    '/api/' would silently open them.
+    """
+
+    @pytest.mark.parametrize(
+        'path',
+        ['/api/nimbus/voice/transcribe', '/api/nimbus/voice/speak'],
+    )
+    def test_not_covered_by_an_auth_exemption(self, path):
+        matched = [prefix for prefix in _EXEMPT_PREFIXES if path.startswith(prefix)]
+        assert matched == [], (
+            f'{path} is exempt from the auth gate via {matched} — it would be '
+            f'callable without a Nimbus session, and it costs money per call.'
+        )
+
+    def test_routes_live_under_the_guarded_api_prefix(self):
+        # The gate only inspects paths starting with /api. A router mounted
+        # anywhere else would bypass it entirely.
+        for route in router.routes:
+            assert route.path.startswith('/api/'), route.path
 
 
 @pytest.fixture
