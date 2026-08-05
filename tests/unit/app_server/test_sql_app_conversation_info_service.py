@@ -176,6 +176,52 @@ class TestSQLAppConversationInfoService:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_customer_conversations_are_scoped_and_cannot_be_claimed(
+        self,
+        async_session: AsyncSession,
+        sample_conversation_info: AppConversationInfo,
+    ):
+        customer_a = SQLAppConversationInfoService(
+            db_session=async_session,
+            user_context=SpecifyUserContext(user_id='customer-a'),
+        )
+        customer_b = SQLAppConversationInfoService(
+            db_session=async_session,
+            user_context=SpecifyUserContext(user_id='customer-b'),
+        )
+
+        await customer_a.save_app_conversation_info(sample_conversation_info)
+
+        assert await customer_a.get_app_conversation_info(sample_conversation_info.id)
+        assert (
+            await customer_b.get_app_conversation_info(sample_conversation_info.id)
+            is None
+        )
+        assert await customer_a.count_app_conversation_info() == 1
+        assert await customer_b.count_app_conversation_info() == 0
+
+        with pytest.raises(PermissionError):
+            await customer_b.save_app_conversation_info(sample_conversation_info)
+
+    @pytest.mark.asyncio
+    async def test_legacy_unowned_conversation_fails_closed_for_customer(
+        self,
+        service: SQLAppConversationInfoService,
+        service_with_user: SQLAppConversationInfoService,
+        sample_conversation_info: AppConversationInfo,
+    ):
+        await service.save_app_conversation_info(sample_conversation_info)
+
+        assert (
+            await service_with_user.get_app_conversation_info(
+                sample_conversation_info.id
+            )
+            is None
+        )
+        with pytest.raises(PermissionError):
+            await service_with_user.save_app_conversation_info(sample_conversation_info)
+
+    @pytest.mark.asyncio
     async def test_round_trip_with_all_fields(
         self, service: SQLAppConversationInfoService
     ):
