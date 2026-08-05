@@ -316,10 +316,18 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         updated_at__lt: datetime | None = None,
         sandbox_id__eq: str | None = None,
     ) -> int:
-        """Count sandboxed conversations matching the given filters."""
-        query = select(func.count(StoredConversationMetadata.conversation_id)).where(
-            StoredConversationMetadata.conversation_version == 'V1'
-        )
+        """Count sandboxed conversations matching the given filters.
+
+        Built on ``_secure_select`` like every other read path. It was not,
+        until 2026-08-05: this method assembled its own query from scratch,
+        which silently skipped the owner predicate — so any customer's count
+        included every customer's conversations. A count is not content, but it
+        is still a cross-tenant read, and it was the one query in this file that
+        dodged "the single place isolation is enforced". Caught by
+        test_sql_app_conversation_info_service.py (landed from PR #6), which
+        asserts customer B counts zero of customer A's rows.
+        """
+        query = await self._secure_select()
 
         query = self._apply_filters(
             query=query,
@@ -331,7 +339,8 @@ class SQLAppConversationInfoService(AppConversationInfoService):
             sandbox_id__eq=sandbox_id__eq,
         )
 
-        result = await self.db_session.execute(query)
+        count_query = select(func.count()).select_from(query.subquery())
+        result = await self.db_session.execute(count_query)
         count = result.scalar()
         return count or 0
 
@@ -503,8 +512,31 @@ class SQLAppConversationInfoService(AppConversationInfoService):
                 StoredConversationMetadata.conversation_id == str(info.id)
             )
         )
+
+        # Preserving the stored owner stops an admin-context save from taking a
+        # conversation away from its customer. It does NOT stop the opposite:
+        # a customer writing over a row that is not theirs. The upsert simply
+        # kept the old owner and applied the new title, sandbox id and status —
+        # a silent cross-tenant write that no read path could reveal, because
+        # _secure_select would then hide the row from the writer.
+        #
+        # Fail closed instead. Only when the request carries a customer id:
+        # admin and sandbox contexts resolve to None and must keep working,
+        # since that is how the webhook router records lifecycle events.
+        #
+        # A NULL stored owner on an EXISTING row is refused too. Those are
+        # pre-migration-015 rows, and _secure_select already hides them from
+        # every customer — so a customer reaching one is not a legitimate
+        # update, it is a claim on an unowned record.
+        requesting_user_id = await self._nimbus_user_id()
+        if existing_created_at is not None and requesting_user_id is not None:
+            if nimbus_user_id != requesting_user_id:
+                raise PermissionError(
+                    f'conversation {info.id} does not belong to the requesting customer'
+                )
+
         if nimbus_user_id is None:
-            nimbus_user_id = await self._nimbus_user_id()
+            nimbus_user_id = requesting_user_id
 
         # Stamp the owning customer at creation. Without this the column stays
         # NULL and _secure_select's filter would hide every conversation from

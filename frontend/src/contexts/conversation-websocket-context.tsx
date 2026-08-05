@@ -48,6 +48,7 @@ import type {
 } from "#/api/conversation-service/v1-conversation-service.types";
 import EventService from "#/api/event-service/event-service.api";
 import PendingMessageService from "#/api/pending-message-service/pending-message-service.api";
+import V1ConversationService from "#/api/conversation-service/v1-conversation-service.api";
 import { useConversationStore } from "#/stores/conversation-store";
 import { classifyBudgetOrCreditError, trackError } from "#/utils/error-handler";
 import { useReadConversationFile } from "#/hooks/mutation/use-read-conversation-file";
@@ -902,7 +903,9 @@ export function ConversationWebSocketProvider({
   );
 
   // V1 send message function via WebSocket
-  // Falls back to REST API queue when WebSocket is not connected
+  // Uses the app-server REST proxy for an already-running conversation when
+  // the browser cannot reach its private runtime WebSocket. Only conversations
+  // that are still starting use the pending-message queue.
   const sendMessage = useCallback(
     async (message: V1SendMessageRequest): Promise<SendMessageResult> => {
       const currentMode = useConversationStore.getState().conversationMode;
@@ -919,6 +922,14 @@ export function ConversationWebSocketProvider({
         }
 
         try {
+          if (wsUrl) {
+            await V1ConversationService.sendMessageViaAppServer(
+              conversationId,
+              message,
+            );
+            return { queued: false };
+          }
+
           await PendingMessageService.queueMessage(conversationId, {
             role: "user",
             content: message.content,
@@ -947,7 +958,7 @@ export function ConversationWebSocketProvider({
         throw error;
       }
     },
-    [mainSocket, planningAgentSocket, setErrorMessage, conversationId],
+    [mainSocket, planningAgentSocket, setErrorMessage, conversationId, wsUrl],
   );
 
   // Track main socket state changes

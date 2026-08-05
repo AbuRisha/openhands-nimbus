@@ -66,6 +66,9 @@ from openhands.app_server.config import (
     depends_user_context,
     get_app_conversation_service,
 )
+from openhands.app_server.nimbus_sso.nimbus_execution_gate import (
+    require_customer_metering_ready,
+)
 from openhands.app_server.sandbox.sandbox_models import (
     AGENT_SERVER,
     SandboxInfo,
@@ -372,6 +375,7 @@ async def start_app_conversation(
         app_conversation_service_dependency
     ),
 ) -> AppConversationStartTask:
+    require_customer_metering_ready()
     # Because we are processing after the request finishes, keep the db connection open
     set_db_session_keep_open(request.state, True)
     set_httpx_client_keep_open(request.state, True)
@@ -490,6 +494,8 @@ async def send_message_to_conversation(
     Returns:
         AppSendMessageResponse with success status and sandbox state
     """
+    require_customer_metering_ready()
+
     # Get conversation info
     conversation = await app_conversation_service.get_app_conversation(conversation_id)
     if not conversation:
@@ -1037,6 +1043,7 @@ async def stream_app_conversation_start(
     """Start an app conversation start task and stream updates from it.
     Leaves the connection open until either the conversation starts or there was an error
     """
+    require_customer_metering_ready()
     response = StreamingResponse(
         _stream_app_conversation_start(request, user_context),
         media_type='application/json',
@@ -1703,6 +1710,7 @@ async def _stream_app_conversation_start(
     user_context: UserContext,
 ) -> AsyncGenerator[str, None]:
     """Stream a json list, item by item."""
+    require_customer_metering_ready()
     # Because the original dependencies are closed after the method returns, we need
     # a new dependency context which will continue intil the stream finishes.
     state = InjectorState()

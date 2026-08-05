@@ -1,6 +1,7 @@
 import React from "react";
 import { cn } from "#/utils/utils";
 import { CopyToClipboardButton } from "#/components/shared/buttons/copy-to-clipboard-button";
+import { ReadAloudButton } from "./read-aloud-button";
 import { OpenHandsSourceType } from "#/types/core/base";
 import { StyledTooltip } from "#/components/shared/buttons/styled-tooltip";
 import { MarkdownRenderer } from "../markdown/markdown-renderer";
@@ -91,6 +92,12 @@ export function ChatMessage({
             </button>
           ),
         )}
+
+        {/* Agent replies only: reading your own message back is not a
+            feature. Hidden until hover, like copy. */}
+        {type === "agent" && message ? (
+          <ReadAloudButton text={message} isHidden={!isHovering} />
+        ) : null}
 
         <CopyToClipboardButton
           isHidden={!isHovering}

@@ -8,6 +8,9 @@ from fastapi.security import APIKeyHeader
 
 from openhands.agent_server.models import Success
 from openhands.app_server.config import depends_sandbox_service, depends_user_context
+from openhands.app_server.nimbus_sso.nimbus_execution_gate import (
+    require_customer_metering_ready,
+)
 from openhands.app_server.sandbox.sandbox_models import (
     SandboxInfo,
     SandboxPage,
@@ -77,6 +80,7 @@ async def start_sandbox(
     sandbox_spec_id: str | None = None,
     sandbox_service: SandboxService = sandbox_service_dependency,
 ) -> SandboxInfo:
+    require_customer_metering_ready()
     info = await sandbox_service.start_sandbox(sandbox_spec_id)
     return info
 
@@ -98,6 +102,7 @@ async def resume_sandbox(
     user_context: UserContext = user_context_dependency,
     sandbox_service: SandboxService = sandbox_service_dependency,
 ) -> Success:
+    require_customer_metering_ready()
     exists = await sandbox_service.resume_sandbox(sandbox_id)
     if not exists:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
