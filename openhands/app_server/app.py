@@ -26,6 +26,9 @@ from openhands.app_server.middleware import (
 from openhands.app_server.nimbus_sso.nimbus_sso_router import (
     router as nimbus_sso_router,
 )
+from openhands.app_server.nimbus_voice.nimbus_voice_router import (
+    router as nimbus_voice_router,
+)
 from openhands.app_server.nimbus_github_oauth.github_oauth_router import (
     router as github_oauth_router,
 )
@@ -84,6 +87,9 @@ app.include_router(health_router)
 # Registered before the SPA static mount at "/" so the route wins over
 # the catch-all frontend.
 app.include_router(nimbus_sso_router)
+# Dictation + read-aloud on Nimbus' own deployments. Under /api/, so
+# NimbusAuthGateMiddleware default-denies it without a session.
+app.include_router(nimbus_voice_router)
 
 # Reverse proxy to the in-container agent server. Registered here for the SAME
 # reason as nimbus_sso_router above: Starlette matches in registration order and

@@ -9,6 +9,7 @@ import { SwitchAcpModelButton } from "../switch-acp-model-button";
 import { SwitchProfileButton } from "../switch-profile-button";
 import { EffortSliderButton } from "../effort-slider-popover";
 import { ContextUsageRing } from "../context-usage-ring";
+import { VoiceInputButton } from "../voice-input-button";
 
 interface ChatInputActionsProps {
   disabled: boolean;
@@ -43,6 +44,7 @@ export function ChatInputActions({ disabled }: ChatInputActionsProps) {
           <SwitchProfileButton />
           <SwitchAcpModelButton />
           <EffortSliderButton />
+          <VoiceInputButton disabled={disabled} />
         </div>
       </div>
       {/* Sits beside the run status, which is where the eye already goes when
