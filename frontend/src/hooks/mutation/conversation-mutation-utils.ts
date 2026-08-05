@@ -82,7 +82,7 @@ export const resumeV1ConversationSandbox = async (conversationId: string) => {
 export const resumeV1Conversation = async (conversationId: string) => {
   const { conversationUrl, sessionApiKey } =
     await fetchV1ConversationData(conversationId);
-  return V1ConversationService.resumeConversation(
+  return V1ConversationService.resumeConversationRuntime(
     conversationId,
     conversationUrl,
     sessionApiKey,

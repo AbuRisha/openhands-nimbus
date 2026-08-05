@@ -312,15 +312,30 @@ class V1ConversationService {
   }
 
   /**
-   * Resume a V1 conversation
-   * Uses the custom runtime URL from the conversation
+   * Tell a RUNNING runtime to resume its agent loop.
+   *
+   * Renamed from `resumeConversation` on 2026-08-05. It shared that name with
+   * the sandbox-resume method above, and a class cannot have two members with
+   * one name — the later definition (this one) silently won, so every call to
+   * the 1-argument form landed here instead:
+   *
+   *   useResumeConversation calls resumeConversation(conversationId), meaning
+   *   "attach a fresh sandbox to this archived conversation". It arrived here
+   *   with conversationUrl undefined, buildHttpBaseUrl fell back to the page
+   *   host, and the POST went to the agent-proxy path with no session key. The
+   *   Resume button on an archived conversation could not have worked, and the
+   *   implementation written for it was unreachable.
+   *
+   * The two are genuinely different operations, so they get different names
+   * rather than an overload: this one talks to a live runtime, the other asks
+   * the app server for a new sandbox.
    *
    * @param conversationId The conversation ID
    * @param conversationUrl The conversation URL (e.g., "http://localhost:54928/api/conversations/...")
    * @param sessionApiKey Session API key for authentication (required for V1)
    * @returns Success response
    */
-  static async resumeConversation(
+  static async resumeConversationRuntime(
     conversationId: string,
     conversationUrl: string | null | undefined,
     sessionApiKey?: string | null,
