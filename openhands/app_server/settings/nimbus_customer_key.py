@@ -66,13 +66,24 @@ async def _lock_for(customer_id: str) -> asyncio.Lock:
         return lock
 
 
-async def fetch_customer_api_key(customer_id: str | None) -> str | None:
+async def fetch_customer_api_key(
+    customer_id: str | None, current_key: str | None = None
+) -> str | None:
     """Mint/return an API key owned by ``customer_id``, or None.
 
     Returns None rather than raising on every failure path. A customer whose key
     cannot be fetched must fall back to the deployment default rather than lose
     chat entirely — a hard failure here would turn a billing-attribution problem
     into an outage.
+
+    Pass ``current_key`` whenever one is already stored. The server confirms it
+    instead of rotating, which matters more than it sounds: asking for a key
+    used to REVOKE the one the caller was already using. We only mint when
+    nothing is stored and never re-mint afterwards, so any second call for the
+    same customer — a cold start, the Builder minting for the same person, or
+    someone diagnosing the problem — permanently broke that customer's chat with
+    an auth error. Sending the held key turns the call into a confirmation, and
+    a rotation now only happens when the held key really is dead.
     """
     if not customer_id:
         return None
@@ -80,10 +91,12 @@ async def fetch_customer_api_key(customer_id: str | None) -> str | None:
     # Serialise per customer. Without this, two concurrent settings loads each
     # mint a key and each revokes the other's.
     async with await _lock_for(customer_id):
-        return await _fetch_customer_api_key_locked(customer_id)
+        return await _fetch_customer_api_key_locked(customer_id, current_key)
 
 
-async def _fetch_customer_api_key_locked(customer_id: str) -> str | None:
+async def _fetch_customer_api_key_locked(
+    customer_id: str, current_key: str | None = None
+) -> str | None:
     secret = os.getenv('NIMBUS_SSO_SHARED_SECRET') or ''
     if not secret:
         logger.warning(
@@ -101,7 +114,11 @@ async def _fetch_customer_api_key_locked(customer_id: str) -> str | None:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
                 url,
-                json={'customerId': customer_id},
+                json=(
+                    {'customerId': customer_id, 'currentKey': current_key}
+                    if current_key
+                    else {'customerId': customer_id}
+                ),
                 headers={'x-nimbus-chat-sig': sig},
             )
     except httpx.RequestError as e:
@@ -126,5 +143,18 @@ async def _fetch_customer_api_key_locked(customer_id: str) -> str | None:
     if not isinstance(key, str) or not key.startswith('sk-nim-'):
         logger.warning('nimbus_customer_key: response did not contain a usable key')
         return None
-    logger.info('nimbus_customer_key: obtained a per-customer key for %s', customer_id)
+    try:
+        reused = bool((resp.json() or {}).get('reused'))
+    except Exception:  # noqa: BLE001
+        reused = False
+    if reused:
+        logger.debug(
+            'nimbus_customer_key: existing key confirmed for %s', customer_id
+        )
+    else:
+        logger.info(
+            'nimbus_customer_key: minted a new per-customer key for %s%s',
+            customer_id,
+            ' (the previous one was no longer valid)' if current_key else '',
+        )
     return key

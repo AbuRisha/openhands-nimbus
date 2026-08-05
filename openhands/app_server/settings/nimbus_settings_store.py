@@ -274,7 +274,11 @@ class NimbusSettingsStore(FileSettingsStore):
             return await self._upgrade_shared_key_locked(settings)
 
     async def _upgrade_shared_key_locked(self, settings):
-        """Move a customer off the shared deployment key onto their own.
+        """Make sure the stored key is the customer's own AND still valid.
+
+        Two jobs, because they share the same lock and the same write path:
+        migrate a customer off the shared deployment key, and confirm a key they
+        already own has not been revoked underneath them.
 
         Customers seeded before per-customer keys existed hold the deployment's
         LLM_API_KEY in their settings, so their usage bills to the deployment
@@ -297,20 +301,53 @@ class NimbusSettingsStore(FileSettingsStore):
                 if hasattr(current, 'get_secret_value')
                 else current
             )
-            if plain != shared:
-                return settings
+            holds_shared = plain == shared
         except Exception:  # noqa: BLE001 - never break a load over this
             return settings
 
-        own = await fetch_customer_api_key(self.nimbus_user_id)
-        if not own:
-            logger.error(
-                'nimbus_settings: %s still holds the shared deployment key and a '
-                'per-customer key could not be minted - their usage is billing to '
-                'the deployment, not to them',
+        if holds_shared:
+            own = await fetch_customer_api_key(self.nimbus_user_id)
+            if not own:
+                logger.error(
+                    'nimbus_settings: %s still holds the shared deployment key '
+                    'and a per-customer key could not be minted - their usage is '
+                    'billing to the deployment, not to them',
+                    self.nimbus_user_id,
+                )
+                return settings
+        else:
+            # The customer holds their OWN key. Confirm it is still live rather
+            # than assuming it is.
+            #
+            # Nothing here ever re-minted once a key was stored, and the mint
+            # endpoint revoked-and-replaced on every call. So one extra call for
+            # this customer from anywhere — a cold start, the Builder, someone
+            # investigating — revoked the key still sitting in these settings,
+            # and every conversation afterwards failed to authenticate with no
+            # path back. Permanent, per customer, and invisible from here.
+            #
+            # Sending the held key makes the server confirm it instead of
+            # rotating, so the normal answer is "same key, nothing changed". A
+            # different key comes back only when the stored one is genuinely
+            # dead, and that is exactly when it should be replaced.
+            if not isinstance(plain, str) or not plain.startswith('sk-nim-'):
+                return settings
+            own = await fetch_customer_api_key(
+                self.nimbus_user_id, current_key=plain
+            )
+            if not own:
+                # Could not reach the site, or the customer is inactive. Keep
+                # what is stored: it may well still work, and discarding a
+                # possibly-good key over a transport failure would cause the
+                # outage this is meant to prevent.
+                return settings
+            if own == plain:
+                return settings
+            logger.warning(
+                'nimbus_settings: the stored chat key for %s was no longer '
+                'valid and has been replaced',
                 self.nimbus_user_id,
             )
-            return settings
 
         try:
             # SecretStr, not a plain str. `api_key` is typed SecretStr | None and
