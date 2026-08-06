@@ -55,7 +55,11 @@ const conversation = (
   // resume path the default experience instead of the exception.
   sandbox_status: "RUNNING",
   execution_status: V1ExecutionStatus.IDLE,
-  conversation_url: `http://localhost:3010/conversations/${id}`,
+  // Derived from the page, not hardcoded. buildWebSocketUrl takes its host
+  // from this field, so a hardcoded port meant the app could be served on 3011
+  // and still open its event socket against 3010 — silently, with an empty
+  // transcript as the only symptom.
+  conversation_url: `${window.location.origin}/conversations/${id}`,
   session_api_key: "mock-session-key",
   public: false,
   sub_conversation_ids: [],

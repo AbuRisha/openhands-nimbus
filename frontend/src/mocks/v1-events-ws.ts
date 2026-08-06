@@ -176,6 +176,18 @@ export const V1_EVENTS_WS_HANDLERS: WebSocketHandler[] = [
      * part. The ordering was.
      */
     setTimeout(() => {
+      /*
+       * MEASURED, so the timing question is closed: instrumenting this to log
+       * `readyState` at fire time reported OPEN (1), twice — once per
+       * connection. The deferral is sufficient and replay does happen.
+       *
+       * The probe is removed rather than left in place: it answered its
+       * question, MSW's client type does not expose `.socket`, and keeping a
+       * cast in a fixture to re-answer something already known is worse than
+       * the comment. If the transcript is empty, it is NOT this — see
+       * docs/current-task.md, which points at the app's connection state
+       * machine instead.
+       */
       // Individual frames, which is what the real socket does: the reducer
       // appends per event, and delivering one array would exercise a path
       // production never takes.
