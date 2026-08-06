@@ -307,3 +307,104 @@ class TestSQLPendingMessageService:
         assert len(messages2) == 1
         assert messages1[0].content[0].text == 'Conv1 msg'
         assert messages2[0].content[0].text == 'Conv2 msg'
+
+
+class TestCancelOnePendingMessage:
+    """Cancelling a single queued message.
+
+    Queuing shipped without any way to see or cancel the queue, so a message
+    typed while the agent was busy left no trace until it was delivered — and
+    the composer had already been cleared, so the only reading available to the
+    user was that it was lost.
+    """
+
+    @pytest.mark.asyncio
+    async def test_removes_only_the_named_message(
+        self,
+        service: SQLPendingMessageService,
+        sample_content: list[TextContent],
+    ):
+        conversation_id = f'task-{uuid4().hex}'
+        first = await service.add_message(
+            conversation_id=conversation_id, content=sample_content
+        )
+        second = await service.add_message(
+            conversation_id=conversation_id, content=sample_content
+        )
+
+        assert await service.delete_message(conversation_id, first.id) is True
+
+        remaining = await service.get_pending_messages(conversation_id)
+        assert [m.id for m in remaining] == [second.id]
+
+    @pytest.mark.asyncio
+    async def test_cannot_cancel_a_message_in_another_conversation(
+        self,
+        service: SQLPendingMessageService,
+        sample_content: list[TextContent],
+    ):
+        """The id is the only thing a client holds, so it cannot be the only key.
+
+        Matching on id alone would let anyone holding one cancel a message in a
+        conversation that is not theirs.
+        """
+        mine = f'task-{uuid4().hex}'
+        theirs = f'task-{uuid4().hex}'
+        queued = await service.add_message(
+            conversation_id=theirs, content=sample_content
+        )
+
+        assert await service.delete_message(mine, queued.id) is False
+
+        # Still there, untouched.
+        assert [m.id for m in await service.get_pending_messages(theirs)] == [queued.id]
+
+    @pytest.mark.asyncio
+    async def test_reports_false_for_a_message_that_is_already_gone(
+        self,
+        service: SQLPendingMessageService,
+    ):
+        """Not an error. The queue drains itself the moment the agent is ready,
+        so losing that race is the ordinary outcome of clicking cancel late."""
+        conversation_id = f'task-{uuid4().hex}'
+
+        assert await service.delete_message(conversation_id, str(uuid4())) is False
+
+    @pytest.mark.asyncio
+    async def test_cancelling_does_not_disturb_queue_order(
+        self,
+        service: SQLPendingMessageService,
+        sample_content: list[TextContent],
+    ):
+        """Delivery order is what the user is reasoning about when they cancel."""
+        conversation_id = f'task-{uuid4().hex}'
+        first = await service.add_message(
+            conversation_id=conversation_id, content=sample_content
+        )
+        second = await service.add_message(
+            conversation_id=conversation_id, content=sample_content
+        )
+        third = await service.add_message(
+            conversation_id=conversation_id, content=sample_content
+        )
+
+        await service.delete_message(conversation_id, second.id)
+
+        remaining = await service.get_pending_messages(conversation_id)
+        assert [m.id for m in remaining] == [first.id, third.id]
+
+    @pytest.mark.asyncio
+    async def test_cancelling_frees_a_slot_against_the_ten_message_cap(
+        self,
+        service: SQLPendingMessageService,
+        sample_content: list[TextContent],
+    ):
+        """Otherwise cancelling would look like it worked and still block sends."""
+        conversation_id = f'task-{uuid4().hex}'
+        queued = await service.add_message(
+            conversation_id=conversation_id, content=sample_content
+        )
+
+        assert await service.count_pending_messages(conversation_id) == 1
+        await service.delete_message(conversation_id, queued.id)
+        assert await service.count_pending_messages(conversation_id) == 0

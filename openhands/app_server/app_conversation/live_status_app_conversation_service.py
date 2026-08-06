@@ -334,6 +334,25 @@ The selected repository was cloned as a shallow clone. Git history may be incomp
 </GIT_WORKSPACE_CONTEXT>"""
 
 
+SELF_VERIFICATION_CONTEXT = """<VERIFICATION_WORKFLOW>
+After editing code that runs in a browser, verify it works before saying it does. Do not ask the user to check manually — check, then show them what you found.
+
+You have browser tools and the workspace is reachable from them. When a dev server is running in this workspace you can open it directly on its localhost port.
+
+1. Find the port. If you started the server, you know it; otherwise check the command you ran.
+2. Open the page and read it — the accessibility tree and page text, not a screenshot, for anything about content or structure.
+3. Read the console and network requests for errors your change introduced.
+4. If something is broken, fix the source and check again. Use JavaScript evaluation for diagnosis, never to implement a fix.
+5. When it works, show proof: a screenshot for a visual change, the network requests for an API change, the console for a logging change.
+
+Skip this entirely when the change is not observable in a browser — a different runtime, tests, types, tooling, or work that is not ready to run. Starting a server that cannot demonstrate anything wastes the user's time and yours.
+
+Do not claim something renders, or that an error is gone, on the strength of having edited the file. Say what you actually observed, and say plainly when you could not observe it.
+</VERIFICATION_WORKFLOW>"""
+
+ENV_SELF_VERIFICATION = 'NIMBUS_AGENT_SELF_VERIFY'
+
+
 def _exception_detail(exc: Exception) -> str:
     """HTTPException.__str__ prepends '<status>: '; prefer its clean .detail."""
     detail = getattr(exc, 'detail', None)
@@ -407,6 +426,35 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 system_message_suffix, GIT_SHALLOW_CLONE_CONTEXT
             )
         return system_message_suffix
+
+    def _maybe_append_self_verification(
+        self, system_message_suffix: str | None
+    ) -> str | None:
+        """Ask the agent to check its own browser-visible work before claiming it.
+
+        The single highest-value thing this product can tell an agent, and it is
+        prompt text rather than machinery: the browser tools already exist, and
+        under RUNTIME=process a dev server the agent started is on localhost in
+        the same container, so it can already open the page it just changed.
+        Nothing was asking it to.
+
+        The failure this addresses is not a crash. It is an agent editing a
+        component and reporting that the button now works, having never rendered
+        it — which is indistinguishable from success until a customer looks.
+
+        OFF BY DEFAULT, and that is a cost decision rather than caution: opening
+        a page, reading the console and screenshotting it spends tokens on every
+        turn that touches previewable code, and on a metered product that is the
+        customer's money. A deployment opts in.
+        """
+        if os.getenv(ENV_SELF_VERIFICATION, '').strip().lower() not in (
+            '1',
+            'true',
+            'yes',
+            'on',
+        ):
+            return system_message_suffix
+        return append_system_context(system_message_suffix, SELF_VERIFICATION_CONTEXT)
 
     async def _maybe_append_memory(
         self, system_message_suffix: str | None
@@ -1745,11 +1793,35 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             return
 
         try:
-            count = len(user_mcp)
-            _logger.info(
-                f'Loading custom MCP config from user settings: {count} servers'
+            # Deployment policy, applied to CUSTOMER servers only — the
+            # system-generated ones above are ours and are never filtered.
+            #
+            # An MCP server is arbitrary local process execution by design, so
+            # merging whatever is in user settings gave a deployment no way to
+            # say which servers are acceptable. Rejections are logged by name:
+            # a server that silently fails to appear is indistinguishable from
+            # one that was never configured, which turns a policy decision into
+            # a support ticket about a broken feature.
+            from openhands.app_server.mcp.mcp_policy import (  # noqa: PLC0415
+                filter_servers,
+                load_policy,
             )
-            mcp_servers.update(user_mcp)
+
+            policy = load_policy()
+            permitted, rejected = filter_servers(user_mcp, policy)
+            if rejected:
+                _logger.warning(
+                    'mcp_policy: refused %d customer MCP server(s) for user %s: %s',
+                    len(rejected),
+                    user.id,
+                    ', '.join(rejected),
+                )
+
+            _logger.info(
+                f'Loading custom MCP config from user settings: '
+                f'{len(permitted)} servers'
+            )
+            mcp_servers.update(permitted)
 
         except Exception:
             _logger.exception(
@@ -2231,6 +2303,9 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         system_message_suffix = self._maybe_append_shallow_clone_context(
             user, selected_repository, system_message_suffix
         )
+        system_message_suffix = self._maybe_append_self_verification(
+            system_message_suffix
+        )
         system_message_suffix = await self._maybe_append_memory(system_message_suffix)
 
         # --- LLM + MCP -----------------------------------------------------
@@ -2591,6 +2666,9 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
 
         system_message_suffix = self._maybe_append_shallow_clone_context(
             user, selected_repository, system_message_suffix
+        )
+        system_message_suffix = self._maybe_append_self_verification(
+            system_message_suffix
         )
         system_message_suffix = await self._maybe_append_memory(system_message_suffix)
 
