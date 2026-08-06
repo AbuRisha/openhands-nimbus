@@ -55,10 +55,9 @@ logger = logging.getLogger(__name__)
 
 # model id -> (supports_vision, max_input_tokens or None)
 NIMBUS_MODEL_CAPS: dict[str, tuple[bool, int | None]] = {
-    # Weekly Free. Text-only is PUBLISHED, not inferred: /v1/free/models
-    # reports architecture.input_modalities == ["text"]. Context window is not
-    # published, hence None.
-    'nimbus/weekly-free': (False, None),
+    # weekly-free's caps entry goes with it (removed 2026-08-06) — the coverage
+    # check compares this table against NIMBUS_CHAT_MODELS, and an entry for a
+    # model nobody can select is exactly the drift it exists to catch.
     # Anthropic - every model takes text+image+file
     'anthropic/claude-opus-5': (True, 1_000_000),
     'anthropic/claude-sonnet-5': (True, 1_000_000),

@@ -79,18 +79,26 @@ from openhands.app_server.utils.paging_utils import paginate_results
 # generator and the gateway disagreed, and the gateway is the one that answers.
 # ---------------------------------------------------------------------------
 NIMBUS_CHAT_MODELS: list[str] = [
-    # SpiderSense Weekly Free — free for every key holder, rotates weekly.
+    # SpiderSense Weekly Free is DELIBERATELY ABSENT (removed 2026-08-06).
     #
-    # The id is STABLE. What changes each week is the model behind it, so
-    # nothing here names Qwen3.5: the display name comes from the gateway's
-    # own /v1/free/models at runtime (see nimbus_catalog_profiles), which is
-    # what makes next week's rotation need no release.
+    # It is fully wired — a routing entry with upstream_path, an explicit
+    # {input: 0, output: 0} price row, a /v1/free/models passthrough on the
+    # gateway, and a runtime label that reads the current model name so a weekly
+    # rotation needs no release. All of that stays; none of it costs anything
+    # while no traffic flows.
     #
-    # Listed as nimbus/weekly-free rather than bare: the gateway strips the
-    # 'nimbus/' prefix (verified — lookupRoute resolves both forms), and the
-    # prefix keeps this file's invariant that every model's prefix is an
-    # offered provider, instead of a provider-less special case.
-    'nimbus/weekly-free',
+    # What does not work is the supplier. Every completion returns
+    # 502 "Weekly free upstream is unavailable" — verified three times in a row
+    # DIRECT to spiderssense.com with our gateway out of the path entirely, so
+    # it is not our routing. Their catalogue endpoint is simultaneously healthy
+    # and still advertises the model, which is how it stayed plausible for so
+    # long that it was worth shipping.
+    #
+    # Owner's call: out of the picker until it works. A model that fails every
+    # single turn is a trap for whoever selects it — the same standard already
+    # applied to gpt-5.1-codex-mini and gpt-5.1-codex-max. Re-adding is one line
+    # here plus the caps entry and the 'nimbus' provider below; nothing else has
+    # to be rebuilt.
     # Anthropic
     'anthropic/claude-opus-5',
     'anthropic/claude-sonnet-5',
@@ -168,8 +176,8 @@ NIMBUS_DEFAULT_MODEL: str = 'anthropic/claude-sonnet-5'
 # qwen and z-ai were missing, so their models — five between them — would have
 # rendered outside the verified group even once the catalog above listed them.
 NIMBUS_VERIFIED_PROVIDERS: list[str] = [
-    # Our own namespace — currently just the Weekly Free passthrough.
-    'nimbus',
+    # 'nimbus' is not listed: the only model that used it (weekly-free) is out
+    # of the catalog, and an empty provider group renders as a dead filter chip.
     'anthropic',
     'openai',
     'google',
