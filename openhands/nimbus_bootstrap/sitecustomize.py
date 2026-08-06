@@ -78,6 +78,15 @@ else:
         _nimbus_mark(f'provider:FAILED:{type(e).__name__}')
 
     try:
+        # Endpoint SHAPE only — see the module docstring for why this registry
+        # edit is different in kind from the three that broke routing.
+        from nimbus_responses_mode import install_chat_mode_overrides
+
+        _nimbus_mark(f'chatmode:{install_chat_mode_overrides()}')
+    except Exception as e:  # noqa: BLE001
+        _nimbus_mark(f'chatmode:FAILED:{type(e).__name__}')
+
+    try:
         # Must run in THIS process: cost is computed by the agent's Telemetry
         # when the response comes back, and only reaches the app server as an
         # already-summed number on the metrics snapshot.

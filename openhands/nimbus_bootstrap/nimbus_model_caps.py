@@ -70,7 +70,8 @@ NIMBUS_MODEL_CAPS: dict[str, tuple[bool, int | None]] = {
     'openai/gpt-5.5': (True, 1_050_000),
     'openai/gpt-5.4-mini': (True, 400_000),
     'openai/gpt-5.4': (True, 1_050_000),
-    # gpt-5.3-codex / gpt-5.1-codex-max: removed from the catalog 2026-08-05
+    'openai/gpt-5.3-codex': (True, 400_000),
+    # gpt-5.1-codex-max: still out of the catalog 2026-08-06
     # (litellm routes them to POST /responses, which the gateway does not
     # serve). Their entries go too — a caps table listing models nobody can
     # select drifts silently, and the coverage check that keeps this file honest

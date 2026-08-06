@@ -94,33 +94,21 @@ NIMBUS_CHAT_MODELS: list[str] = [
     'openai/gpt-5.5',
     'openai/gpt-5.4-mini',
     'openai/gpt-5.4',
-    # gpt-5.3-codex and gpt-5.1-codex-max removed 2026-08-05. Both fail EVERY
-    # chat turn with:
-    #   litellm.BadRequestError: OpenAIException - not_found: POST /responses
+    # gpt-5.3-codex is back (2026-08-06). It failed every turn with
+    # "not_found: POST /responses" because litellm reports mode "responses" for
+    # it and bridges the call to an endpoint our gateway does not serve. The
+    # gateway itself always answered 200 over /chat/completions.
     #
-    # Not a gateway gap in the usual sense: both answer 200 over
-    # /chat/completions when called directly (verified with a customer key), so
-    # the models are there and routable. litellm refuses to use that path —
-    # get_model_info reports mode "responses" for these two and "chat" for every
-    # other OpenAI model we sell, so litellm bridges the call to the Responses
-    # API, which our gateway does not implement.
+    # nimbus_responses_mode.py now flips that one registry field to "chat" in
+    # the agent process. Verified in a running container BEFORE re-adding this:
+    # with the flip, a real completion comes back.
+    'openai/gpt-5.3-codex',
     #
-    # The likely fix is to flip that one registry field back to "chat" for these
-    # ids from the agent bootstrap. It is NOT shipped, because it could not be
-    # tested — container exec was unavailable — and mutating litellm's model
-    # registry is precisely what broke routing three separate times before (see
-    # nimbus_model_caps and nimbus_provider_fallback). An untested registry
-    # change on the routing path is worse than two missing models.
-    #
-    # So they are out until either that flip is verified in a running container,
-    # or the gateway implements POST /responses. Same standard as
-    # gpt-5.1-codex-mini above: presence in the catalog is not proof of
-    # routability, and a model that fails every single turn is a trap for the
-    # customer who picks it.
-    # gpt-5.1-codex-mini removed 2026-08-03: advertised by /v1/models but a
-    # real completion returns 404 upstream_error "upstream-H unavailable".
-    # Presence in the catalog is NOT proof of routability - only a
-    # completion is.
+    # gpt-5.1-codex-max stays OUT. The same flip stops it erroring, but it then
+    # returns an empty body — 0 prompt tokens, 0 completion tokens, no content.
+    # Silently returning nothing is worse than failing loudly, and re-adding it
+    # on the strength of "no exception" would have shipped exactly that. It
+    # comes back when the gateway returns something for it.
     # Google
     'google/gemini-3.5-flash',
     'google/gemini-3.1-pro-preview',
