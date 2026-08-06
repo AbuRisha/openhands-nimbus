@@ -34,6 +34,7 @@ const SECTION_HEADERS: Partial<Record<SettingsNavSection, I18nKey>> = {
   personal: I18nKey.SETTINGS$PERSONAL_SETTINGS_HEADER,
   workspace: I18nKey.SETTINGS$NAV_WORKSPACE_HEADER,
   customize: I18nKey.SETTINGS$NAV_CUSTOMIZE_HEADER,
+  developer: I18nKey.SETTINGS$NAV_DEVELOPER_HEADER,
 };
 
 /**

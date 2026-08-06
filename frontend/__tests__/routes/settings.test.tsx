@@ -39,6 +39,15 @@ vi.mock("react-i18next", async () => {
       t: (key: string) => {
         const translations: Record<string, string> = {
           SETTINGS$NAV_INTEGRATIONS: "Integrations",
+          SETTINGS$NAV_CONNECTORS: "Connectors",
+          SCHEMA$GENERAL$SECTION_LABEL: "General",
+          ORG$ACCOUNT: "Account",
+          SETTINGS$NAV_CAPABILITIES: "Capabilities",
+          SCHEMA$LLM$MODEL$LABEL: "Model",
+          SETTINGS$NAV_EXTENSIONS: "Extensions",
+          SETTINGS$NAV_MEMORY: "Memory",
+          SETTINGS$NAV_SKILLS: "Skills",
+          SETTINGS$NAV_VERIFICATION: "Verification",
           SETTINGS$NAV_APPLICATION: "Application",
           SETTINGS$NAV_CREDITS: "Credits",
           SETTINGS$NAV_API_KEYS: "API Keys",
@@ -168,7 +177,7 @@ describe("Settings Screen", () => {
   it("should render the navbar", async () => {
     // "connectors", not "integrations": the page is the same, the label is the
     // word customers actually arrive looking for.
-    const sectionsToInclude = ["llm", "connectors", "application", "secrets"];
+    const sectionsToInclude = ["model", "connectors", "general", "secrets"];
     // "api keys" is NOT excluded: OSS deliberately lists it (see the comment on
     // OSS_NAV_ITEMS — without it the page was reachable only by hand-typing the
     // URL, so a customer could not manage their own keys from inside the
@@ -269,7 +278,7 @@ describe("Settings Screen", () => {
 
     // Verify we're in OSS mode by checking the navbar
     const navbar = await screen.findByTestId("settings-navbar");
-    expect(within(navbar).getByText("LLM")).toBeInTheDocument();
+    expect(within(navbar).getByText("Model")).toBeInTheDocument();
     expect(
       within(navbar).queryByText("credits", { exact: false }),
     ).not.toBeInTheDocument();
@@ -863,11 +872,13 @@ describe("Settings Screen", () => {
         within(navbar).queryByText("Integrations", { exact: false }),
       ).not.toBeInTheDocument();
       // Other OSS pages should still be visible
+      // The OSS nav speaks the product's vocabulary now: "Model", not "LLM";
+      // "General", not "Application".
       expect(
-        within(navbar).getByText("LLM", { exact: false }),
+        within(navbar).getByText("Model", { exact: false }),
       ).toBeInTheDocument();
       expect(
-        within(navbar).getByText("Application", { exact: false }),
+        within(navbar).getByText("General", { exact: false }),
       ).toBeInTheDocument();
     });
   });

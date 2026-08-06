@@ -162,12 +162,15 @@ describe("useSettingsNavItems", () => {
 
       const { result } = renderHook(() => useSettingsNavItems(), { wrapper });
 
-      // Wait for config to load (check that any SAAS item is present)
+      // Wait for the SaaS config to load.
+      //
+      // This waits on an org route rather than "/settings/user", which used to
+      // stand in for "SaaS has loaded" and no longer can: /settings/user is in
+      // the OSS nav too, so the gate opened while the config was still the OSS
+      // default and every assertion below ran against the wrong list.
       await waitFor(() => {
         expect(result.current.length).toBeGreaterThan(0);
-        expect(
-          findItemByPath(result.current, "/settings/user"),
-        ).toBeDefined();
+        expect(findItemByPath(result.current, "/settings/org")).toBeDefined();
       });
 
       // Org routes should be included for team org admin
@@ -302,11 +305,12 @@ describe("useSettingsNavItems", () => {
 
       const { result } = renderHook(() => useSettingsNavItems(), { wrapper });
 
-      // Wait for config to load
+      // Wait on billing itself rather than "/settings/user", which is in the
+      // OSS nav too and so no longer proves the SaaS config has arrived.
       await waitFor(() => {
         expect(result.current.length).toBeGreaterThan(0);
         expect(
-          findItemByPath(result.current, "/settings/user"),
+          findItemByPath(result.current, "/settings/billing"),
         ).toBeDefined();
       });
 

@@ -27,7 +27,8 @@ export type SettingsNavSection =
   // it (skills, connectors, and — once P7/P5 land — plugins and extensions).
   // A flat list of ten items had no such reading order; these two do.
   | "workspace"
-  | "customize";
+  | "customize"
+  | "developer";
 
 export interface SettingsNavItem {
   icon: React.ReactElement;
@@ -45,6 +46,14 @@ export interface SettingsNavItem {
   disabledByAcp?: boolean;
 }
 
+/*
+ * SaaS keeps upstream's labels on purpose.
+ *
+ * This deployment runs app_mode "oss", so OSS_NAV_ITEMS below is the nav our
+ * customers actually see and the only one renamed for Nimbus. Renaming this
+ * list too would mean rewriting a batch of SaaS-only tests for a surface we do
+ * not ship, and any real divergence shows up the moment we do.
+ */
 export const SAAS_NAV_ITEMS: SettingsNavItem[] = [
   {
     icon: <FiBriefcase size={22} />,
@@ -179,49 +188,35 @@ export const OSS_NAV_ITEMS: SettingsNavItem[] = [
    * dashboard.
    */
   // ── Settings ──────────────────────────────────────────────────────────
+  // Who you are and how the product behaves.
   {
     icon: <SettingsGearIcon width={22} height={22} />,
     to: "/settings/app",
-    text: "SETTINGS$NAV_APPLICATION",
+    text: "SCHEMA$GENERAL$SECTION_LABEL",
+    section: "workspace",
+  },
+  {
+    icon: <UserIcon width={22} height={22} />,
+    to: "/settings/user",
+    text: "ORG$ACCOUNT",
     section: "workspace",
   },
   {
     icon: <RobotIcon width={22} height={22} />,
     to: "/settings/agent",
-    text: "SETTINGS$AGENT",
+    // "Capabilities", not "Agent": this page is what the assistant is allowed
+    // to DO. "Agent" is an implementation noun that means nothing to a
+    // customer deciding whether to let it run commands.
+    text: "SETTINGS$NAV_CAPABILITIES",
     section: "workspace",
   },
   {
     icon: <CircuitIcon width={22} height={22} />,
     to: "/settings",
-    text: "SETTINGS$NAV_LLM",
+    // "Model", not "LLM". Nobody outside this industry says LLM.
+    text: "SCHEMA$LLM$MODEL$LABEL",
     section: "workspace",
     disabledByAcp: true,
-  },
-  {
-    icon: <MemoryIcon width={22} height={22} />,
-    to: "/settings/condenser",
-    text: "SETTINGS$NAV_CONDENSER",
-    section: "workspace",
-    disabledByAcp: true,
-  },
-  {
-    icon: <LockIcon width={22} height={22} />,
-    to: "/settings/verification",
-    text: "SETTINGS$NAV_VERIFICATION",
-    section: "workspace",
-  },
-  {
-    icon: <KeyIcon width={22} height={22} />,
-    to: "/settings/api-keys",
-    text: "SETTINGS$NAV_API_KEYS",
-    section: "workspace",
-  },
-  {
-    icon: <KeyIcon width={22} height={22} />,
-    to: "/settings/secrets",
-    text: "SETTINGS$NAV_SECRETS",
-    section: "workspace",
   },
 
   // ── Customize ─────────────────────────────────────────────────────────
@@ -235,15 +230,49 @@ export const OSS_NAV_ITEMS: SettingsNavItem[] = [
   {
     icon: <PuzzlePieceIcon width={22} height={22} />,
     to: "/settings/integrations",
-    // "Connectors" is what this is called everywhere else in the market, and
-    // what customers arrive looking for. "Integrations" is the same page.
+    // "Connectors" is what the rest of the market calls this and what
+    // customers arrive looking for. Same page as "Integrations" was.
     text: "SETTINGS$NAV_CONNECTORS",
     section: "customize",
   },
   {
     icon: <ServerProcessIcon width={22} height={22} />,
     to: "/settings/mcp",
-    text: "SETTINGS$NAV_MCP",
+    // "Extensions". MCP is a protocol name; a customer installing one is
+    // adding an extension, and that is what every comparable product calls it.
+    text: "SETTINGS$NAV_EXTENSIONS",
     section: "customize",
+  },
+  {
+    icon: <MemoryIcon width={22} height={22} />,
+    to: "/settings/condenser",
+    // "Memory". A condenser compacts conversation context so a long session
+    // survives — which is what memory means to the person using it. The word
+    // "condenser" describes the mechanism to the people who built it.
+    text: "SETTINGS$NAV_MEMORY",
+    section: "customize",
+    disabledByAcp: true,
+  },
+
+  // ── Developer ─────────────────────────────────────────────────────────
+  // Credentials and machinery. Real, and not what most customers came for, so
+  // it sits below the two sections that are.
+  {
+    icon: <KeyIcon width={22} height={22} />,
+    to: "/settings/api-keys",
+    text: "SETTINGS$NAV_API_KEYS",
+    section: "developer",
+  },
+  {
+    icon: <KeyIcon width={22} height={22} />,
+    to: "/settings/secrets",
+    text: "SETTINGS$NAV_SECRETS",
+    section: "developer",
+  },
+  {
+    icon: <LockIcon width={22} height={22} />,
+    to: "/settings/verification",
+    text: "SETTINGS$NAV_VERIFICATION",
+    section: "developer",
   },
 ];
