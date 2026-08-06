@@ -151,6 +151,33 @@ invalid MCP allowlist becomes *empty*, an invalid managed-only flag becomes
 
 ---
 
+## 5a. Resolved (2026-08-06, second pass)
+
+The first pass read a derived method index. The second read the **actual bundles**
+plus 1421 extracted react-intl messages, whose `description` fields are written
+for translators and state intent plainly. That settled nearly everything below.
+
+**A caveat that explains every remaining gap:** the desktop app is a *shell*. Its
+main window loads the vendor's web app remotely and exposes all 68 IPC
+interfaces to it. So this material proves contracts, state machines, gating and
+model-facing prompts — but **not button labels**, because the UI is served
+remotely and is not in the bundles.
+
+| Subsystem | What it actually is | Verdict for us |
+|---|---|---|
+| `GrandPrix` | **Password-manager / credential autofill partner integration.** Partners are locally installed macOS apps reached over attested Mach XPC keyed by Apple Team ID; partner list is server-delivered and HMAC-signed. macOS-only by construction. | **Skip** — not web-implementable. But copy the *pattern*: partner integrations exposed as dynamic MCP tools injected into the agent's toolset. |
+| `Buddy` | A **DIY Bluetooth-LE desk pet** — hobbyist hardware that shows permission prompts and lets you approve with a physical button. The app itself says it "isn't an officially supported product feature". | **Skip the hardware.** Take the portable idea: **approve pending tool prompts from your phone** — websocket + mobile browser, S–M, no hardware. |
+| `launchUltrareview` | **Not** "a deeper review pass". It spawns a **separate cloud agent session with its own URL**, behind two-phase consent showing a `billingNote`, and can be `blocked` behind an entitlement. The only feature in the bundle carrying a billing note. | Backend product (L). But its sibling `reviewDiff` — one model call over a raw diff, "HIGH SIGNAL issues only", posted as inline comments — is **S and worth copying**. |
+| `Clarkdown` | **Document round-trip.** In: `.docx/.md/.txt/.cd`. Out: those plus **PDF (export only)**. A doc is converted to an editable plain-text working copy the model edits in place, then re-rendered **against hash-verified original bytes** so untouched formatting survives. | **M, web-implementable.** Three ideas worth stealing: never let the model touch the binary; keep the original bytes as a verified baseline; export via an opaque single-use handle, never a caller-supplied path. |
+| Auto mode | A **permission mode** peer to ask/acceptEdits/plan. A safety classifier judges each action and only prompts on risky ones. The "proposal file" is a proposed **permission policy**, not a plan or a diff. | L overall. **Take the 20% now:** destructive tools re-prompt *even when always-allowed*. That inversion is the real insight and needs no classifier. |
+| Refusal fallback | **Automatic model failover when a model refuses.** Exactly three outcomes — retry on a fallback model, edit the prompt, cancel — auto-cancelling after 300s, with `retry` / `revert` / `sticky` directions. | **S–M, fully web-implementable. Best effort-to-value in the whole inventory.** Copy `revert-after-turn` so one refusal doesn't silently downgrade the rest of the session. |
+| `getAutoVerify` | Neither a build check nor a gate. A **prompt-injection nudge**: when on, the agent must open the preview itself, exercise it, fix what it finds, and post proof. Enforced by a once-per-turn hook on source-file edits. | **S if you have browser-side agent tools, which we do.** Highest perceived-quality jump per line of code here, and *easier* on web than desktop because the preview is an iframe we control. |
+| `Epitaxy` | The route name for their **entire Code surface** (`/code` → `/epitaxy` on desktop). `isEpitaxyPreviewEnabled` is an in-app file viewer within it. | Naming only. |
+| `YukonSilver` | The **local Linux micro-VM** their sessions run in. | Our equivalent is the server-side sandbox. |
+| `ForgeState` | A live **pull-request tracker** (state, refs, draft, mergeable, review decision, check counts). Its `setVisibleKeys` is a neat backpressure trick — the renderer tells the main process which PRs are on screen so only those refresh. | **M, web-implementable.** This is the "CI monitoring with checkboxes" ask. |
+| `NestDev` | Dev-only, and a **hardcoded stub in the shipped build**. | No value. |
+| Two scheduled-task interfaces | **One shared class, two runners**: one runs in the micro-VM, one runs natively via the CLI against a real `cwd`. Watchers are fully designed and **inert in this build** for both. Remote dispatch provably merges them into one list. | **M, and easier for us** — with no desktop there is no VM/host split and no wake problem. Steal: task-as-versioned-markdown, cron XOR one-shot with auto-disable, **deterministic per-task jitter** (stops a thundering herd at `0 9 * * *`), and approvals granted during a run persisting to later runs. |
+
 ## 5. Unresolved — research, not features
 
 The source notes name these without defining them. Do not build against a guess.
