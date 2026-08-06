@@ -2,6 +2,7 @@ import { setupWorker } from "msw/browser";
 import { handlers as wsHandlers } from "./handlers.ws";
 import { handlers, resetTestHandlersMockSettings } from "./handlers";
 import { V1_CONVERSATION_HANDLERS } from "./v1-conversation-handlers";
+import { V1_EVENTS_WS_HANDLERS } from "./v1-events-ws";
 
 /**
  * Seed the browser mock as a CONFIGURED user.
@@ -37,6 +38,7 @@ resetTestHandlersMockSettings();
  */
 export const worker = setupWorker(
   ...V1_CONVERSATION_HANDLERS,
+  ...V1_EVENTS_WS_HANDLERS,
   ...handlers,
   ...wsHandlers,
 );

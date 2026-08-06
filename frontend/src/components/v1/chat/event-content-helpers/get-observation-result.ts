@@ -28,15 +28,20 @@ export const getObservationResult = (
   switch (observationType) {
     case "ExecuteBashObservation": {
       const exitCode = observation.exit_code;
-      const { metadata } = observation;
+      // `metadata?`, not `metadata.` — this function runs during render, so an
+      // observation missing it threw a TypeError that unmounted the ENTIRE
+      // transcript to an error boundary. One malformed event should cost one
+      // row, not the whole conversation, and version skew between the app and
+      // a stored transcript is enough to produce one.
+      const metadataExitCode = observation.metadata?.exit_code;
 
-      if (exitCode === -1 || metadata.exit_code === -1) return "timeout"; // Command timed out
-      if (exitCode === 0 || metadata.exit_code === 0) return "success"; // Command executed successfully
+      if (exitCode === -1 || metadataExitCode === -1) return "timeout"; // Command timed out
+      if (exitCode === 0 || metadataExitCode === 0) return "success"; // Command executed successfully
       return "error"; // Command failed
     }
     case "TerminalObservation": {
       const exitCode =
-        observation.exit_code ?? observation.metadata.exit_code ?? null;
+        observation.exit_code ?? observation.metadata?.exit_code ?? null;
 
       if (observation.timeout || exitCode === -1) return "timeout";
       if (exitCode === 0) return "success";

@@ -80,8 +80,17 @@ export const V1_CONVERSATION_HANDLERS = [
     await delay();
     const ids = new URL(request.url).searchParams.getAll("ids");
     if (ids.length === 0) return HttpResponse.json(page(CONVERSATIONS));
+    // A bare ARRAY when ids are supplied, not a page: batchGetAppConversations
+    // is typed `(V1AppConversation | null)[]` and reads data[0] directly.
+    // Returning {items} here left every lookup undefined, which the
+    // conversation route reads as "does not exist" and redirects home — the
+    // exact symptom that made the chat unreachable under mocks.
     return HttpResponse.json(
-      page(CONVERSATIONS.filter((c) => ids.includes(c.id))),
+      ids.map(
+        (id) =>
+          CONVERSATIONS.find((c) => c.id === id) ??
+          conversation(id, "Mock conversation"),
+      ),
     );
   }),
 
