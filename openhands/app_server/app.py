@@ -23,19 +23,20 @@ from openhands.app_server.middleware import (
     LocalhostCORSMiddleware,
     RateLimitMiddleware,
 )
+from openhands.app_server.nimbus_github_oauth.github_oauth_router import (
+    router as github_oauth_router,
+)
+from openhands.app_server.nimbus_sso.nimbus_auth_gate import (
+    NimbusAuthGateMiddleware,
+)
 from openhands.app_server.nimbus_sso.nimbus_sso_router import (
     router as nimbus_sso_router,
 )
 from openhands.app_server.nimbus_voice.nimbus_voice_router import (
     router as nimbus_voice_router,
 )
-from openhands.app_server.nimbus_github_oauth.github_oauth_router import (
-    router as github_oauth_router,
-)
 from openhands.app_server.sandbox.agent_proxy_router import agent_proxy_router
-from openhands.app_server.nimbus_sso.nimbus_auth_gate import (
-    NimbusAuthGateMiddleware,
-)
+from openhands.app_server.sandbox.preview_proxy_router import preview_proxy_router
 from openhands.app_server.static import SPAStaticFiles
 from openhands.app_server.status.status_router import router as health_router
 from openhands.app_server.version import get_version
@@ -99,6 +100,9 @@ app.include_router(nimbus_voice_router)
 # 200 — a "successful" response containing HTML where the client expected JSON.
 # See agent_proxy_router.py for why the browser could not reach the agent at all.
 app.include_router(agent_proxy_router)
+# Before the SPA mount below, for the same reason the agent proxy is: the SPA
+# catch-all would otherwise answer /preview/* with index.html.
+app.include_router(preview_proxy_router)
 
 # GitHub OAuth. Registered before the SPA catch-all for the same reason as the
 # two routers above: Starlette matches in registration order, so a route added
