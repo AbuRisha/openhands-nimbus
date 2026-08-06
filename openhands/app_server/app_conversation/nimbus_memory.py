@@ -48,17 +48,29 @@ _HEADER = (
 _FOOTER = '\n</NIMBUS_MEMORY>'
 
 
-def memory_path(user_id: str | None) -> str:
+def memory_path(user_id: str | None) -> str | None:
     """``users/<id>/memory.md``, mirroring how settings are scoped.
 
     The id arrives from a cookie, so it is sanitised the same way
     ``user_scoped_path`` sanitises it: a user id must never be able to walk out
     of its own directory.
+
+    Returns None when there is no usable id. This used to fall back to a
+    top-level ``memory.md`` — a SHARED document. Any session whose identity
+    failed to resolve would read AND write the same file as every other such
+    session, and memory holds private notes about a customer's stack, deploys
+    and decisions. One identity failure would have crossed those between
+    accounts. No such file exists in production (checked before changing this),
+    so nothing leaked; this removes the path that could have caused it.
+
+    No id therefore means NO memory. That is the safe direction: a customer
+    losing recall is a degraded conversation, a customer seeing someone
+    else's notes is a breach.
     """
     if not user_id:
-        return 'memory.md'
+        return None
     safe = ''.join(c if (c.isalnum() or c in '-_') else '_' for c in user_id)
-    return f'users/{safe}/memory.md' if safe else 'memory.md'
+    return f'users/{safe}/memory.md' if safe else None
 
 
 def load_memory(user_id: str | None) -> str:
@@ -68,10 +80,14 @@ def load_memory(user_id: str | None) -> str:
     losing recall degrades the experience, but failing here would stop the chat
     entirely, and that trade is not close.
     """
+    path = memory_path(user_id)
+    if path is None:
+        # Unidentified session: no memory rather than shared memory.
+        return ''
     try:
         from openhands.app_server.config import get_global_config
 
-        raw = get_global_config().file_store.read(memory_path(user_id))
+        raw = get_global_config().file_store.read(path)
     except Exception:  # noqa: BLE001 - absent file is the common case, not an error
         return ''
 
@@ -92,9 +108,18 @@ def load_memory(user_id: str | None) -> str:
 def save_memory(user_id: str | None, text: str) -> str:
     """Persist the memory document, truncated to the cap. Returns what was stored."""
     trimmed = (text or '').strip()[:MAX_MEMORY_CHARS]
+    path = memory_path(user_id)
+    if path is None:
+        # Never persist to a shared document. Dropping the write loses one
+        # session's notes; writing them somewhere every other unidentified
+        # session can read is the failure this guards against.
+        logger.warning(
+            'nimbus_memory: refusing to save memory for an unidentified session'
+        )
+        return ''
     from openhands.app_server.config import get_global_config
 
-    get_global_config().file_store.write(memory_path(user_id), trimmed)
+    get_global_config().file_store.write(path, trimmed)
     logger.info(
         'nimbus_memory: stored %d chars for %s',
         len(trimmed),
