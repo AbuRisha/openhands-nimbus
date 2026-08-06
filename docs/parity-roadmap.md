@@ -1,0 +1,192 @@
+# Parity roadmap
+
+What a mature competitor's desktop assistant ships, what we ship, and the order
+to close the distance.
+
+## Where this came from, and how much to trust it
+
+Two independent audits, run 2026-08-06:
+
+1. **Competitor feature inventory** — derived from documentation tooling the
+   owner ran over a licensed local install. The load-bearing artifact is
+   `electron/reports/ipc-methods.json`: **780 named IPC methods across 68
+   interfaces**. A method name is strong evidence a capability is wired into the
+   UI layer. It is **not** proof of the UX around it. Everything below that
+   cites an IPC name is "this capability exists", not "it looks like this".
+2. **Our own gap audit** — read directly from `frontend/src`, every claim
+   carrying a `path:line`.
+
+Rules this document keeps:
+
+- Competitor features are described **generically**. Their product names are
+  trademarks and must not appear in Nimbus chrome, code, or UI strings.
+- We copy **behaviour**, never their source, assets, or icons.
+- Where the source notes were ambiguous, it says so instead of guessing. Those
+  live in "Unresolved" at the bottom — they are research tasks, not features.
+
+## The one thing to understand first
+
+**Roughly 75 of ~110 features are web-implementable.** The overwhelming majority
+of that product is not desktop-dependent. A desktop shell buys a specific,
+enumerable list (§8) — not "parity" in general. That reframes the desktop
+question from *blocking* to *optional*.
+
+---
+
+## 1. Already at parity or ahead
+
+Verified in our own code, not assumed.
+
+| Capability | Ours |
+|---|---|
+| One row per tool call, expandable | `components/v1/chat/tool-call-row.tsx` |
+| Model + reasoning effort in one composer pill | `components/features/chat/components/composer-model-chip.tsx` |
+| Context-usage ring | `components/features/chat/context-usage-ring.tsx` |
+| Copy a message | `chat-message.tsx:30-33,102-107` |
+| Drag-drop / paste attachments | `hooks/chat/use-file-handling.ts:70-110`, `use-chat-input-events.ts:39-50` |
+| Draft persistence across reloads | `hooks/chat/use-draft-persistence.ts:20-28` |
+| Composer resize grip | `components/features/chat/components/chat-input-grip.tsx` |
+| Escape interrupts a run | `chat-stop-button.tsx` (fixed 2026-08-06) |
+| Sub-agent delegation on by default | `openhands/app_server/settings/nimbus_settings_store.py` |
+
+**Ahead of them:** voice input and read-aloud. Their inventory has **no**
+speech-to-text or TTS anywhere in 780 methods — searched `voice`, `dictat`,
+`speech`, `audio`, `mic`, all zero. We ship `voice-input-button.tsx` and
+`read-aloud-button.tsx`. Worth protecting; it is a real differentiator.
+
+**Also absent from theirs:** per-message cost display (`cost`/`token`/`billing`
+→ 0 hits; only plan-period usage summaries). For a metered reseller that is an
+open lane, not a gap.
+
+---
+
+## 2. Ordered plan
+
+Sequenced by value ÷ cost, with our own audit's bug findings pulled forward
+because they are cheap and customer-visible.
+
+### Tier 0 — bugs that read as missing features
+
+| # | Item | Size | Where |
+|---|---|---|---|
+| 1 | ~~Escape never interrupted a run~~ **DONE** | S | `chat-stop-button.tsx` |
+| 2 | **Queued messages render nothing.** `chat-interface.tsx:201-203` reads `result.queued` then draws nothing — the user's message silently vanishes until delivered | S | `chat-interface.tsx` |
+| 3 | **Output is amputated, not collapsed.** `MAX_CONTENT_LENGTH = 1000` (`event-content-helpers/shared.ts:3`) does `slice(0,1000) + "..."` at 7 call sites with no "show more" and no full copy | M | `shared.ts` + 7 sites |
+| 4 | `modal-backdrop.tsx:21` has `}, [])` while closing over the `onClose` prop — permanently captures the first-render handler | S | `modal-backdrop.tsx` |
+| 5 | `expandable-message.tsx` exported, imported nowhere — dead | S | delete |
+
+### Tier 1 — highest value ÷ cost
+
+| # | Item | Size | Note |
+|---|---|---|---|
+| 6 | **Inline diffs in the transcript** | L | Biggest visual gap. `FileDiffViewer` already exists but is used only by `routes/changes-tab.tsx`. Reviewing agent output *is* the core loop |
+| 7 | **Queued-message control** — cancel, reorder, promote | S–M | Builds on Tier 0 #2 |
+| 8 | **Cross-session transcript search** | S–M | They built a dedicated worker for it, which says hot path |
+| 9 | **Find-in-conversation (Ctrl/Cmd+F)** | M | Native Ctrl+F is free; a real overlay with next/prev is M |
+| 10 | **@-mention picker over indexed repo files, with content search** | M | Content search, not just filename match, is what makes it feel smart |
+| 11 | **Tool-permission prompts + permission modes + folder trust** | M | The trust substrate for everything unattended later |
+| 12 | **Session fork + rewind/checkpoint** | L | Agentic coding is speculative; getting *back* is the difference between trusting a 40-turn task and babysitting it |
+| 13 | **Server-side PTY terminal** (xterm.js over WebSocket) | M | They ship *two*: the agent's, and a user shell with retained scrollback |
+| 14 | **`/help` and a real built-in command set** | M | We have exactly 3 built-ins (`/new`, `/btw`, `/model`) vs ~20. No `/help` at all |
+| 15 | **Central shortcut registry + `Cmd+K` + `↑` recall** | M | 7 ad-hoc `document` keydown listeners today, no registry, three owners claim Cmd+Enter |
+
+### Tier 2 — high ceiling, honestly large
+
+| # | Item | Size |
+|---|---|---|
+| 16 | **Live preview loop**: preview pane, click-to-select an element, screenshot back to the model, console logs to the model, model-driven navigation | L |
+| 17 | **Git review surface**: diff, per-file patch, dirty-tree warning, commit/stash | M–L |
+| 18 | **Full PR console**: checks, annotations, rerun, review comments, merge (~20 methods on their side) | L |
+| 19 | **Live sub-agent progress + nested tool calls.** `TaskObservation.status` exists (`types/v1/core/base/observation.ts:318-321`) and **no render site reads it** | L |
+| 20 | **Artifacts**: gallery, versions, restore, share, auto-publish, print-to-PDF; artifacts that can call tools and query the model | L |
+| 21 | **Workspaces**: group folders/projects/links, auto-summary, auto-classify sessions, per-workspace memory | M–L |
+| 22 | **Scheduled tasks** with editable task files, trigger history, standing permissions | M |
+| 23 | **Memory**: global + per-account files, editable, resettable | S–M |
+| 24 | **Plugin marketplaces**: multiple sources, paged catalogs, OAuth, env vars, per-shim permissions, org-private catalogs | L |
+| 25 | **MCP management UI**: live status, per-server logs, probe-before-add, in-app OAuth, per-session tool enablement | M |
+| 26 | **Side chat** — scratch sub-conversation beside the main thread | M |
+| 27 | **Session summarize / compact** with a user trigger. Condensation events exist backend-side but `should-render-event.ts:15-80` has no branch, so they never render | M |
+
+### Tier 3 — cheap wins, do when passing
+
+Archive/unarchive, share a session, session pre-warm, theme mode, locale
+switching, incognito-as-ephemeral-session, web notifications, support bundle,
+feedback with screenshot, repo/code stats, project auto-detection, config health
+check.
+
+---
+
+## 3. Requires a desktop shell
+
+Not achievable in a browser. Each is a *product decision*, not a bug.
+
+1. Browser control of the user's real logged-in browser — 22 tools, extension + native messaging host
+2. Computer use / desktop control, including the teach overlay
+3. Local micro-VM sandbox (web equivalent: server-side containers — same UX, different substrate)
+4. Mobile simulator control (install, launch, gesture, screenshot, record)
+5. Reading documents currently open in local office apps
+6. Global hotkey, quick-entry window, launch-at-login, menu-bar residency
+7. Multi-window management and session tear-off
+8. Open-in-local-editor (web can only fire a `vscode://` deep link)
+9. Locally packaged extensions that execute local processes
+10. CLI session import, CLI installation, WSL targets, hardware device attestation, wake scheduler
+11. SSH with local key material (server-side is possible, but the trust model changes materially)
+
+---
+
+## 4. Security positions we deliberately do NOT copy
+
+Their extension signature verifier **pins no vendor trust anchor**, so any
+certificate the OS already trusts for code-signing satisfies "signed" — and
+`extensions.signatureRequired` **defaults to false**. Copying that ships our
+customers a package-install path any signed publisher can walk through, off by
+default.
+
+We ship the identical *feature* — drag a package in, it installs, it appears in
+the list with Configure — pinned to our own key. Same UX, correct from day one.
+
+Worth adopting from them: their managed-policy layer is **fail-closed** — an
+invalid MCP allowlist becomes *empty*, an invalid managed-only flag becomes
+*true*. That is the right default and we should match it.
+
+---
+
+## 5. Unresolved — research, not features
+
+The source notes name these without defining them. Do not build against a guess.
+
+- `GrandPrix` — a verification-code pairing flow with an external peer. Adjacent
+  error strings (`unknownPartner`, `fillFailed`, `autosubmitFailed`,
+  `multipleItemsMatched`) read like partner credential-filling; other evidence
+  ties the name to browser-bridge teardown. **Strategically relevant if it is a
+  partner integration.** Worth a targeted follow-up.
+- `Buddy` / `BuddyBleTransport` / `BuddyRemoteFeed` — pair a Bluetooth-LE device
+  by PIN, pick a folder, preview, install. **What the device is, and what
+  "install" installs, is stated nowhere.**
+- `launchUltrareview` — distinct from ordinary diff review, so a deeper mode.
+  Scope undetermined.
+- `runClarkdownConvert` — a named document-conversion engine. Input/output
+  formats not stated.
+- Auto mode (`writeAutoModeProposalFile`) — writes proposals to a file for
+  review. UX not described.
+- `respondToRefusalFallbackPrompt` — a user-facing prompt when the model
+  refuses. What it offers is not stated.
+- `NestDev`, `ForgeState`, `setYukonSilverConfig`, `isEpitaxyPreviewEnabled` —
+  internal codenames, no descriptions.
+- Preview `getAutoVerify` — plausibly "auto-screenshot and check after each
+  change", but that is inference.
+- Watch-recording (screen + microphone) — the renderer methods exist but the
+  four raw handlers are **hardcoded-false and dead in the audited build**. A
+  roadmap signal on their side, not a shipped feature.
+- Two parallel scheduled-task interfaces with near-identical method sets.
+  Whether users see one surface or two is not stated.
+
+---
+
+## 6. Method
+
+Anything added here cites evidence. A claim about our code carries `path:line`.
+A claim about theirs carries the artifact it came from. "Not found" is written
+as "not found — searched X" so the next person knows the search was run and
+where it stopped. An inventory that quietly mixes observation with inference is
+worse than a shorter honest one, because nobody can tell which rows to trust.

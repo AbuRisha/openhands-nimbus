@@ -193,14 +193,25 @@ export function ChatInterface() {
     const prompt =
       uploadedFiles.length > 0 ? `${content}\n\n${filePrompt}` : content;
 
-    const result = await send(
-      createChatMessage(prompt, imageUrls, uploadedFiles, timestamp),
-    );
-    // Only show optimistic UI if message was sent immediately via WebSocket
-    // If queued for later delivery, the message will appear when actually delivered
-    if (!result.queued) {
-      setOptimisticUserMessage(content);
-    }
+    await send(createChatMessage(prompt, imageUrls, uploadedFiles, timestamp));
+    // Show it whether it went out now or was queued.
+    //
+    // Queued sends used to render nothing at all, on the reasoning that the
+    // message "will appear when actually delivered". But the composer is
+    // cleared on the very next line, so between those two moments the user's
+    // text simply vanished — no bubble, no pending state, nothing — for as long
+    // as the agent stayed busy. The only available reading is that it was lost,
+    // and the natural response is to type it again.
+    //
+    // The optimistic bubble is cleared when the real message echoes back over
+    // the websocket, so this cannot double up: it shows the text until the
+    // thing it stands for exists.
+    //
+    // KNOWN LIMIT: the store holds one message, so queueing a second replaces
+    // the first in the display. Both are still delivered and both appear for
+    // real. Showing every queued message (and letting them be cancelled or
+    // reordered) needs an actual queue store — see docs/parity-roadmap.md.
+    setOptimisticUserMessage(content);
     setMessageToSend("");
   };
 

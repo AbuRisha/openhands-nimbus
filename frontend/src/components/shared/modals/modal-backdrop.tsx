@@ -18,7 +18,13 @@ export function ModalBackdrop({
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, []);
+    // onClose belongs here. The listener closes over it, and callers almost
+    // always pass an inline arrow — so with an empty dependency array the
+    // handler registered on the FIRST render is the one Escape keeps calling
+    // forever, holding whatever state that closure captured. Clicking the
+    // backdrop went through the current prop and Escape did not, which is a
+    // difference nobody would think to look for.
+  }, [onClose]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) onClose?.(); // only close if the click was on the backdrop
