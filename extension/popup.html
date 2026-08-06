@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        font:
+          13px/1.5 system-ui,
+          sans-serif;
+        width: 280px;
+        margin: 0;
+        padding: 14px;
+        color: #e6edf3;
+        background: #0d0f11;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 4px;
+      }
+      p {
+        color: #9299aa;
+        margin: 0 0 12px;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        font:
+          inherit;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        background: #12141c;
+        color: #fff;
+        border: 1px solid #4b505f;
+        border-radius: 6px;
+      }
+      button {
+        width: 100%;
+        margin-top: 8px;
+        padding: 8px;
+        font: inherit;
+        background: #8b5cf6;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .status {
+        margin-top: 10px;
+        font-size: 12px;
+      }
+      .ok {
+        color: #22d3ee;
+      }
+      .err {
+        color: #f59e0b;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Nimbus Bridge</h1>
+    <p id="intro">Enter the code shown in your Nimbus conversation.</p>
+
+    <input
+      id="code"
+      maxlength="8"
+      autocomplete="off"
+      spellcheck="false"
+      placeholder="ABCD2345"
+      aria-label="Pairing code"
+    />
+    <button id="pair">Pair this browser</button>
+    <div class="status" id="status"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
