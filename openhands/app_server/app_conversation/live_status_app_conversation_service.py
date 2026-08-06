@@ -1,9 +1,9 @@
-import os
 import asyncio
 import importlib.metadata
 import io
 import json
 import logging
+import os
 import zipfile
 from collections import defaultdict
 from collections.abc import Mapping
@@ -25,7 +25,6 @@ from openhands.agent_server.models import (
 from openhands.app_server.app_conversation.app_conversation_info_service import (
     AppConversationInfoService,
 )
-from openhands.app_server.app_conversation.nimbus_memory import memory_block
 from openhands.app_server.app_conversation.app_conversation_models import (
     ACP_SERVER_TAG_KEY,
     AGENT_PROFILE_ID_TAG_KEY,
@@ -64,6 +63,7 @@ from openhands.app_server.app_conversation.conversation_secret_enricher import (
 from openhands.app_server.app_conversation.hook_loader import (
     load_hooks_from_agent_server,
 )
+from openhands.app_server.app_conversation.nimbus_memory import memory_block
 from openhands.app_server.app_conversation.sql_app_conversation_info_service import (
     SQLAppConversationInfoService,
 )
@@ -197,9 +197,28 @@ def _add_nimbus_extra_tools(tools: list) -> list:
     What IS safely available: the default registry already contains
     workflow / workflow_tool_set alongside terminal, file_editor,
     task_tracker, browser_tool_set and task_tool_set.
+
+    image_generate / video_generate are ours, and they satisfy the same rule
+    from the other side: openhands.nimbus_bootstrap.nimbus_media_tools is on
+    the agent server's PYTHONPATH and its sitecustomize imports it, so the child
+    registers both names before any conversation exists. Importing it here is
+    not what makes them work in the child — it is what lets the gate below see
+    them, and what gives THIS process the observation classes it needs to
+    validate the events the child posts back through the webhook.
     """
     from openhands.sdk import Tool
     from openhands.sdk.tool import list_registered_tools
+
+    try:
+        # Registers image_generate / video_generate in this process on import,
+        # exactly as every SDK tool definition module does.
+        import openhands.nimbus_bootstrap.nimbus_media_tools  # noqa: F401
+    except Exception as e:  # noqa: BLE001
+        # The default tool set must survive a broken optional module.
+        _logger.warning(
+            'nimbus_tools: media tools unavailable (%s) - continuing without them',
+            type(e).__name__,
+        )
 
     try:
         # The child registers exactly this set. Anything outside it is a name
@@ -217,7 +236,26 @@ def _add_nimbus_extra_tools(tools: list) -> list:
     existing = {getattr(t, 'name', None) for t in tools}
     extras: list = []
 
-    for name in ('workflow_tool_set',):
+    # The registry gate alone no longer covers the media tools, and the reason
+    # is the import above. workflow_tool_set is in the child because the child
+    # imports the SDK; image_generate is in the child because nimbus_bootstrap
+    # is on its PYTHONPATH — and that only happens under the PROCESS sandbox.
+    # Every other RUNTIME spawns a stock ghcr.io/openhands/agent-server image
+    # that has never heard of this repo, while THIS process would still list the
+    # names because it just imported them. So the sandbox choice has to be
+    # checked directly. Mirrors config.py's sandbox selection; anything that is
+    # not local/process/remote falls through to Docker there.
+    candidates = ['workflow_tool_set']
+    if os.getenv('RUNTIME', '') in ('local', 'process'):
+        candidates += ['image_generate', 'video_generate']
+    else:
+        _logger.info(
+            'nimbus_tools: RUNTIME=%r spawns a stock agent-server image - '
+            'skipping the Nimbus media tools',
+            os.getenv('RUNTIME'),
+        )
+
+    for name in candidates:
         if name in existing:
             continue
         if name not in agent_side_registry:
@@ -235,6 +273,7 @@ def _add_nimbus_extra_tools(tools: list) -> list:
             ', '.join(str(getattr(t, 'name', t)) for t in extras),
         )
     return tools + extras
+
 
 _EXPORT_LOCK_KEY_PREFIX = 'app_conversation_export'
 
@@ -387,7 +426,11 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             user_id = await self.user_context.get_user_id()
             block = memory_block(user_id)
         except Exception:  # noqa: BLE001
-            logger.warning('nimbus_memory: could not load memory', exc_info=True)
+            # _logger, not logger: this module never defined a bare `logger`,
+            # so this handler raised NameError instead of swallowing anything —
+            # inverting the behaviour the docstring above promises and taking
+            # conversation startup down with it.
+            _logger.warning('nimbus_memory: could not load memory', exc_info=True)
             return system_message_suffix
 
         if not block:

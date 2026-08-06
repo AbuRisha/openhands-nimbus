@@ -22,6 +22,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from pydantic import SecretStr
+
 from openhands.app_server.settings.file_settings_store import FileSettingsStore
 from openhands.app_server.settings.nimbus_catalog_profiles import (
     prune_retired_catalog_profiles,
@@ -190,9 +192,7 @@ class NimbusSettingsStore(FileSettingsStore):
         except Exception as e:  # noqa: BLE001
             # Serve the request with the in-memory profiles anyway; the next
             # load will try again.
-            logger.warning(
-                'nimbus_settings: could not persist catalog profiles: %s', e
-            )
+            logger.warning('nimbus_settings: could not persist catalog profiles: %s', e)
         return settings
 
     def _repair_base_url(self, settings):
@@ -294,11 +294,21 @@ class NimbusSettingsStore(FileSettingsStore):
             return settings
         try:
             llm = getattr(getattr(settings, 'agent_settings', None), 'llm', None)
+            if llm is None:
+                # There is nothing to upgrade, and every path below dereferences
+                # it. This was already true implicitly — a missing llm gave
+                # plain=None, which is neither the shared key nor an sk-nim-
+                # string, so both branches returned — but only by way of two
+                # separate coincidences several screens apart.
+                return settings
             current = getattr(llm, 'api_key', None)
             # api_key may be a SecretStr; compare the plain value either way.
+            # isinstance rather than hasattr: the field is typed SecretStr|None,
+            # and assignment bypasses coercion (see below), so the only two
+            # things it can hold are a SecretStr and a raw str.
             plain = (
                 current.get_secret_value()
-                if hasattr(current, 'get_secret_value')
+                if isinstance(current, SecretStr)
                 else current
             )
             holds_shared = plain == shared
@@ -332,9 +342,7 @@ class NimbusSettingsStore(FileSettingsStore):
             # dead, and that is exactly when it should be replaced.
             if not isinstance(plain, str) or not plain.startswith('sk-nim-'):
                 return settings
-            own = await fetch_customer_api_key(
-                self.nimbus_user_id, current_key=plain
-            )
+            own = await fetch_customer_api_key(self.nimbus_user_id, current_key=plain)
             if not own:
                 # Could not reach the site, or the customer is inactive. Keep
                 # what is stored: it may well still work, and discarding a
@@ -365,8 +373,6 @@ class NimbusSettingsStore(FileSettingsStore):
             # The seed path was unaffected because Settings(**{...}) goes through
             # the constructor, which DOES validate and coerce. Only assignment
             # skips it, which is exactly why the bug hid: seeding looked fine.
-            from pydantic import SecretStr
-
             llm.api_key = SecretStr(own)
             await self.store(settings)
 
@@ -377,7 +383,7 @@ class NimbusSettingsStore(FileSettingsStore):
             saved_key = getattr(saved, 'api_key', None)
             plain_saved = (
                 saved_key.get_secret_value()
-                if hasattr(saved_key, 'get_secret_value')
+                if isinstance(saved_key, SecretStr)
                 else saved_key
             )
             if plain_saved != own:
