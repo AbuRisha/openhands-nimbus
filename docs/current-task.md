@@ -43,6 +43,55 @@ and roadmap §7). Phase 1 is a ~150-line sibling of
 `sandbox/agent_proxy_router.py`, which already solves HTTP+WS proxying into the
 sandbox.
 
+## Where the two lanes stand (2026-08-06, late)
+
+Isolation is real: the other session moved to a worktree.
+  openhands-nimbus       [land/auth-gates]       <- this lane
+  openhands-lane-queue   [lane/queued-messages]  <- theirs
+
+**Mine, landed:** P17 (all four violation classes, hooks passing).
+**Mine, landed:** P15 CORE only — `src/utils/refusal-failover.ts`, 14 tests
+(`596116e25`). Pure decision logic. The UI is NOT built: the three-option
+prompt, the 300s self-answer, and the post-turn restore wiring are all still to
+do. Do not describe P15 as done.
+
+**Mine, unclaimed and ready:** P13 Phase 1 FRONTEND. Their backend is landed and
+tested — preview proxy (`ba9708c85`) and `GET /preview/{id}/ports`
+(`b44494b49`). Build the tab, an iframe with `sandbox="allow-scripts
+allow-forms"` and deliberately NO `allow-same-origin` so agent-written JS gets
+an opaque origin, and a port picker fed by that endpoint. Design in
+`docs/parity-roadmap.md` §7.
+
+**Mine, unclaimed:** P11 FRONTEND. Their backend is on `lane/queued-messages`
+(`ee7cc2df6`), one commit ahead of this branch and NOT yet merged — merging it
+is this lane's call. Two contracts to honour when building against it:
+  - Cancel is scoped to conversation AND message id, always both. Matching on
+    the id alone would let anyone holding one cancel a message in someone
+    else's conversation.
+  - DELETE answers **204 when the message is already gone**, because the queue
+    drains the moment the agent is ready and losing that race is the ordinary
+    outcome of clicking a fraction too late. **Do not show a failure toast.**
+    Remove the chip and treat 204 as success unconditionally.
+  - Use a SEPARATE list keyed off the GET, not an extension of the
+    optimistic-message store. That store holds one string with a different
+    lifecycle, and conflating them is how the single-slot limitation happened.
+  - Reorder/promote are deliberately NOT implemented: there is no ordering
+    column beyond created_at, so it needs a schema decision nobody has made.
+
+## ATTRIBUTION IS WRONG IN TWO PUSHED COMMITS — do not "fix" it casually
+
+While we shared one working tree, two commits swapped contents:
+  - `3e9fec44a` ("the panel shipped untranslated English") also contains the
+    entire preview proxy: `preview_proxy_router.py` (200), `test_preview_proxy.py`
+    (101), `app.py` (16).
+  - `ba9708c85` ("serve the customer's dev server back into their browser")
+    contains ONLY a 7-line `docs/current-task.md` edit — none of the proxy.
+
+Verified with `git show --stat` on both. Nothing is lost, every file is on the
+branch, tests pass. Rewriting pushed history to fix this trades a cosmetic
+problem for a lost-work one; a note in the PR description carries the same
+information to a reviewer at no risk.
+
 ## Done and verified
 
 | | Verified how |
