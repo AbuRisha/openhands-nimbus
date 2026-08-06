@@ -70,9 +70,24 @@ const REFUSAL_MARKERS = [
  * emits and no hand-written marker list contains — do not silently defeat the
  * whole feature.
  */
+/**
+ * Longest a message can be and still be a refusal.
+ *
+ * A refusal is short: it declines and stops. A LONG message containing the same
+ * phrase is almost always an answer that happens to open with one — "I can't
+ * help with the old API, but here's the new one" is help, not a refusal, and
+ * substring matching alone calls it a refusal and offers to re-run a turn that
+ * already succeeded. Found by a test written to guard the streaming case, which
+ * turned out to be guarding the wrong mechanism.
+ */
+const MAX_REFUSAL_LENGTH = 400;
+
 export function looksLikeRefusal(text: string | null | undefined): boolean {
   if (!text) return false;
   const flat = text.toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, " ");
+  // Length first: it is the cheap check and the one that rejects the common
+  // false positive.
+  if (flat.length > MAX_REFUSAL_LENGTH) return false;
   return REFUSAL_MARKERS.some((marker) => flat.includes(marker));
 }
 
