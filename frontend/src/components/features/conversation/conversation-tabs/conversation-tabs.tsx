@@ -18,6 +18,7 @@ import { ConversationTabsContextMenu } from "./conversation-tabs-context-menu";
 import { useConversationId } from "#/hooks/use-conversation-id";
 import { useSelectConversationTab } from "#/hooks/use-select-conversation-tab";
 import { useTaskList } from "#/hooks/use-task-list";
+import { useUnifiedVSCodeUrl } from "#/hooks/query/use-unified-vscode-url";
 
 export function ConversationTabs() {
   const { conversationId } = useConversationId();
@@ -64,6 +65,7 @@ export function ConversationTabs() {
   }, [isRightPanelShown, selectedTab, onTabChange]);
 
   const { t } = useTranslation();
+  const { data: vscodeUrlResult } = useUnifiedVSCodeUrl();
 
   const tabs = [
     {
@@ -126,10 +128,25 @@ export function ConversationTabs() {
     });
   }
 
-  // Filter out unpinned tabs
-  const visibleTabs = tabs.filter(
-    (tab) => !persistedState.unpinnedTabs.includes(tab.tabValue),
-  );
+  /*
+   * Hide the editor tab when this deployment cannot serve one.
+   *
+   * It resolves its iframe from `sandbox.exposed_urls` where name === "VSCODE",
+   * but under RUNTIME=process the sandbox publishes only an AGENT_SERVER entry
+   * (see process_sandbox_service._process_to_sandbox_info). The lookup always
+   * misses, so the tab was permanently a click that led to "URL not available".
+   *
+   * Gated on the URL rather than on the runtime: a deployment that does expose
+   * one gets the tab back with no further change, and this cannot drift out of
+   * step with how the sandbox is actually configured.
+   */
+  const hasEditorUrl = Boolean(vscodeUrlResult?.url);
+
+  const visibleTabs = tabs.filter((tab) => {
+    if (persistedState.unpinnedTabs.includes(tab.tabValue)) return false;
+    if (tab.tabValue === "vscode" && !hasEditorUrl) return false;
+    return true;
+  });
 
   return (
     <div
