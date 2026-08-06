@@ -14,6 +14,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 
 from openhands.app_server import v1_router
+from openhands.app_server.bridge.bridge_router import bridge_router
 from openhands.app_server.config import get_app_lifespan_service
 from openhands.app_server.integrations.service_types import AuthenticationError
 from openhands.app_server.mcp.mcp_router import init_tavily_proxy, mcp_server
@@ -103,6 +104,8 @@ app.include_router(agent_proxy_router)
 # Before the SPA mount below, for the same reason the agent proxy is: the SPA
 # catch-all would otherwise answer /preview/* with index.html.
 app.include_router(preview_proxy_router)
+# Also before the SPA mount: /bridge/* must not be answered with index.html.
+app.include_router(bridge_router)
 
 # GitHub OAuth. Registered before the SPA catch-all for the same reason as the
 # two routers above: Starlette matches in registration order, so a route added

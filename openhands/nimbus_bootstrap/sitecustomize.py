@@ -109,3 +109,14 @@ else:
         _nimbus_mark(f'media:{",".join(register_nimbus_media_tools())}')
     except Exception as e:  # noqa: BLE001
         _nimbus_mark(f'media:FAILED:{type(e).__name__}')
+
+    try:
+        # Same reasoning as the media tools: per-process registration, and this
+        # is the only hook that reaches the child. These drive the customer's
+        # OWN browser via the bridge, which the sandbox Chromium cannot do
+        # because it is signed into nothing.
+        from nimbus_browser_tools import register_nimbus_browser_tools
+
+        _nimbus_mark(f'browser:{",".join(register_nimbus_browser_tools())}')
+    except Exception as e:  # noqa: BLE001
+        _nimbus_mark(f'browser:FAILED:{type(e).__name__}')
