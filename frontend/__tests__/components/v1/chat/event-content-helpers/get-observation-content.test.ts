@@ -138,7 +138,9 @@ describe("getObservationContent - GlobObservation", () => {
       action_id: "action-id",
       observation: {
         kind: "GlobObservation",
-        content: [{ type: "text", text: "No files found", cache_prompt: false }],
+        content: [
+          { type: "text", text: "No files found", cache_prompt: false },
+        ],
         is_error: false,
         files: [],
         pattern: "**/*.xyz",
@@ -166,7 +168,9 @@ describe("getObservationContent - GlobObservation", () => {
       action_id: "action-id",
       observation: {
         kind: "GlobObservation",
-        content: [{ type: "text", text: "Permission denied", cache_prompt: false }],
+        content: [
+          { type: "text", text: "Permission denied", cache_prompt: false },
+        ],
         is_error: true,
         files: [],
         pattern: "**/*",
@@ -223,7 +227,9 @@ describe("getObservationContent - GrepObservation", () => {
       action_id: "action-id",
       observation: {
         kind: "GrepObservation",
-        content: [{ type: "text", text: "Found 2 matches", cache_prompt: false }],
+        content: [
+          { type: "text", text: "Found 2 matches", cache_prompt: false },
+        ],
         is_error: false,
         matches: ["/workspace/src/api.ts", "/workspace/src/routes.ts"],
         pattern: "fetchData",
@@ -285,7 +291,9 @@ describe("getObservationContent - GrepObservation", () => {
       action_id: "action-id",
       observation: {
         kind: "GrepObservation",
-        content: [{ type: "text", text: "Invalid regex pattern", cache_prompt: false }],
+        content: [
+          { type: "text", text: "Invalid regex pattern", cache_prompt: false },
+        ],
         is_error: true,
         matches: [],
         pattern: "[invalid",
@@ -301,5 +309,119 @@ describe("getObservationContent - GrepObservation", () => {
     // Assert
     expect(result).toContain("**Error:**");
     expect(result).toContain("Invalid regex pattern");
+  });
+});
+
+/**
+ * A file edit renders as a diff, not as the whole new file.
+ *
+ * The previous behaviour printed the entire post-edit file in an untagged code
+ * block, so a two-line change to a four-hundred-line file printed four hundred
+ * lines to hide it. Reviewing the agent's work is the whole point of the
+ * transcript, and that made it the one thing it could not support.
+ */
+describe("getObservationContent - file edits render as a diff", () => {
+  const editEvent = (
+    old_content: string,
+    new_content: string,
+    extra: Record<string, unknown> = {},
+  ) =>
+    ({
+      id: "test-id",
+      timestamp: "2024-01-01T00:00:00Z",
+      source: "environment",
+      tool_name: "str_replace_editor",
+      tool_call_id: "call-id",
+      action_id: "action-id",
+      observation: {
+        kind: "StrReplaceEditorObservation",
+        command: "str_replace",
+        path: "src/app.ts",
+        old_content,
+        new_content,
+        output: "edited",
+        error: null,
+        content: [],
+        ...extra,
+      },
+    }) as unknown as ObservationEvent;
+
+  it("emits a diff-tagged block so it renders coloured", () => {
+    const result = getObservationContent(
+      editEvent("const a = 1;", "const a = 2;"),
+    );
+
+    // ```diff, not ``` — the tag is what makes Prism colour +/- lines.
+    expect(result).toContain("```diff");
+  });
+
+  it("shows the change rather than the file", () => {
+    const result = getObservationContent(
+      editEvent("const a = 1;", "const a = 2;"),
+    );
+
+    expect(result).toContain("-const a = 1;");
+    expect(result).toContain("+const a = 2;");
+  });
+
+  it("names the file in the diff header", () => {
+    const result = getObservationContent(
+      editEvent("const a = 1;", "const a = 2;"),
+    );
+
+    expect(result).toContain("--- a/src/app.ts");
+  });
+
+  it("does not print the whole file for a one-line change", () => {
+    const before = Array.from({ length: 300 }, (_, i) => `line ${i}`).join(
+      "\n",
+    );
+    const after = before.replace("line 150", "line 150 CHANGED");
+
+    const result = getObservationContent(editEvent(before, after));
+
+    expect(result).toContain("+line 150 CHANGED");
+    expect(result.split("\n").length).toBeLessThan(25);
+  });
+
+  it("says so plainly when the edit changed nothing", () => {
+    // An empty diff block renders as an empty grey box, which reads as failure.
+    const result = getObservationContent(editEvent("same", "same"));
+
+    expect(result).not.toContain("```diff");
+    expect(result.toLowerCase()).toContain("no changes");
+  });
+
+  it("still shows a view command as the file, not as a diff", () => {
+    const viewEvent = {
+      id: "test-id",
+      timestamp: "2024-01-01T00:00:00Z",
+      source: "environment",
+      tool_name: "str_replace_editor",
+      tool_call_id: "call-id",
+      action_id: "action-id",
+      observation: {
+        kind: "StrReplaceEditorObservation",
+        command: "view",
+        path: "src/app.ts",
+        output: "const a = 1;",
+        error: null,
+        content: [],
+      },
+    } as unknown as ObservationEvent;
+
+    const result = getObservationContent(viewEvent);
+
+    expect(result).not.toContain("```diff");
+    expect(result).toContain("const a = 1;");
+  });
+
+  it("surfaces an error instead of diffing", () => {
+    const result = getObservationContent(
+      editEvent("a", "b", { error: "permission denied" }),
+    );
+
+    expect(result).toContain("permission denied");
+    expect(result).not.toContain("```diff");
   });
 });
