@@ -55,6 +55,9 @@ logger = logging.getLogger(__name__)
 
 # model id -> (supports_vision, max_input_tokens or None)
 NIMBUS_MODEL_CAPS: dict[str, tuple[bool, int | None]] = {
+    # weekly-free's caps entry goes with it (removed 2026-08-06) — the coverage
+    # check compares this table against NIMBUS_CHAT_MODELS, and an entry for a
+    # model nobody can select is exactly the drift it exists to catch.
     # Anthropic - every model takes text+image+file
     'anthropic/claude-opus-5': (True, 1_000_000),
     'anthropic/claude-sonnet-5': (True, 1_000_000),
@@ -71,7 +74,11 @@ NIMBUS_MODEL_CAPS: dict[str, tuple[bool, int | None]] = {
     'openai/gpt-5.4-mini': (True, 400_000),
     'openai/gpt-5.4': (True, 1_050_000),
     'openai/gpt-5.3-codex': (True, 400_000),
-    'openai/gpt-5.1-codex-max': (True, 400_000),
+    # gpt-5.1-codex-max: still out of the catalog 2026-08-06
+    # (litellm routes them to POST /responses, which the gateway does not
+    # serve). Their entries go too — a caps table listing models nobody can
+    # select drifts silently, and the coverage check that keeps this file honest
+    # compares it against NIMBUS_CHAT_MODELS.
     # Google - text+image+file+audio+video
     'google/gemini-3.5-flash': (True, 1_048_576),
     'google/gemini-3.1-pro-preview': (True, 1_048_576),

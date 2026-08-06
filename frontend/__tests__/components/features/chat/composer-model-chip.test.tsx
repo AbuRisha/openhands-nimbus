@@ -153,7 +153,9 @@ describe("ComposerModelChip", () => {
   it("shows the model matching conversation.llm_model", () => {
     setupHooks({ conversationModel: "openai/gpt-5" });
     renderChip();
-    expect(screen.getByTestId("composer-model-chip")).toHaveTextContent("GPT 5");
+    expect(screen.getByTestId("composer-model-chip")).toHaveTextContent(
+      "GPT 5",
+    );
   });
 
   it("falls back to the placeholder when llm_model matches nothing", () => {
@@ -194,7 +196,9 @@ describe("ComposerModelChip", () => {
       switchedProfile: "Deleted Model",
     });
     renderChip();
-    expect(screen.getByTestId("composer-model-chip")).toHaveTextContent("GPT 5");
+    expect(screen.getByTestId("composer-model-chip")).toHaveTextContent(
+      "GPT 5",
+    );
   });
 
   it("opens and closes the popover", async () => {
@@ -222,7 +226,10 @@ describe("ComposerModelChip", () => {
     await user.click(
       screen.getByTestId("composer-model-option-Claude Sonnet 4.6"),
     );
-    expect(mockSwitchAndLog).toHaveBeenCalledWith("conv-1", "Claude Sonnet 4.6");
+    expect(mockSwitchAndLog).toHaveBeenCalledWith(
+      "conv-1",
+      "Claude Sonnet 4.6",
+    );
   });
 
   it("does not switch when the already-active model is chosen", async () => {
@@ -249,7 +256,9 @@ describe("ComposerModelChip", () => {
 
     const popover = screen.getByTestId("composer-model-popover");
     expect(popover).toHaveTextContent("Anthropic");
-    expect(popover).toHaveTextContent("Openai");
+    // "OpenAI", not "Openai". Title-casing the prefix is not enough and looks
+    // unfinished exactly where someone is choosing what to pay for.
+    expect(popover).toHaveTextContent("OpenAI");
   });
 
   it("carries the effort control in the same popover as the model", async () => {
@@ -270,8 +279,8 @@ describe("ComposerModelChip", () => {
     renderChip();
     await user.click(screen.getByTestId("composer-model-chip"));
 
-    expect(screen.getByTestId("composer-model-popover").textContent).not.toMatch(
-      /profile/i,
-    );
+    expect(
+      screen.getByTestId("composer-model-popover").textContent,
+    ).not.toMatch(/profile/i);
   });
 });

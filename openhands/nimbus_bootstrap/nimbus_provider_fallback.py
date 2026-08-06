@@ -58,6 +58,9 @@ NIMBUS_OPENAI_COMPATIBLE_PREFIXES: frozenset[str] = frozenset(
     {
         'google',
         'moonshotai',
+        # Our own namespace (Weekly Free). litellm has never heard of it, so
+        # without this the completion is refused before a request is sent.
+        'nimbus',
         'z-ai',
         'qwen',
         'alibaba',

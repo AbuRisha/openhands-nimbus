@@ -79,6 +79,26 @@ from openhands.app_server.utils.paging_utils import paginate_results
 # generator and the gateway disagreed, and the gateway is the one that answers.
 # ---------------------------------------------------------------------------
 NIMBUS_CHAT_MODELS: list[str] = [
+    # SpiderSense Weekly Free is DELIBERATELY ABSENT (removed 2026-08-06).
+    #
+    # It is fully wired — a routing entry with upstream_path, an explicit
+    # {input: 0, output: 0} price row, a /v1/free/models passthrough on the
+    # gateway, and a runtime label that reads the current model name so a weekly
+    # rotation needs no release. All of that stays; none of it costs anything
+    # while no traffic flows.
+    #
+    # What does not work is the supplier. Every completion returns
+    # 502 "Weekly free upstream is unavailable" — verified three times in a row
+    # DIRECT to spiderssense.com with our gateway out of the path entirely, so
+    # it is not our routing. Their catalogue endpoint is simultaneously healthy
+    # and still advertises the model, which is how it stayed plausible for so
+    # long that it was worth shipping.
+    #
+    # Owner's call: out of the picker until it works. A model that fails every
+    # single turn is a trap for whoever selects it — the same standard already
+    # applied to gpt-5.1-codex-mini and gpt-5.1-codex-max. Re-adding is one line
+    # here plus the caps entry and the 'nimbus' provider below; nothing else has
+    # to be rebuilt.
     # Anthropic
     'anthropic/claude-opus-5',
     'anthropic/claude-sonnet-5',
@@ -94,12 +114,21 @@ NIMBUS_CHAT_MODELS: list[str] = [
     'openai/gpt-5.5',
     'openai/gpt-5.4-mini',
     'openai/gpt-5.4',
+    # gpt-5.3-codex is back (2026-08-06). It failed every turn with
+    # "not_found: POST /responses" because litellm reports mode "responses" for
+    # it and bridges the call to an endpoint our gateway does not serve. The
+    # gateway itself always answered 200 over /chat/completions.
+    #
+    # nimbus_responses_mode.py now flips that one registry field to "chat" in
+    # the agent process. Verified in a running container BEFORE re-adding this:
+    # with the flip, a real completion comes back.
     'openai/gpt-5.3-codex',
-    'openai/gpt-5.1-codex-max',
-    # gpt-5.1-codex-mini removed 2026-08-03: advertised by /v1/models but a
-    # real completion returns 404 upstream_error "upstream-H unavailable".
-    # Presence in the catalog is NOT proof of routability - only a
-    # completion is.
+    #
+    # gpt-5.1-codex-max stays OUT. The same flip stops it erroring, but it then
+    # returns an empty body — 0 prompt tokens, 0 completion tokens, no content.
+    # Silently returning nothing is worse than failing loudly, and re-adding it
+    # on the strength of "no exception" would have shipped exactly that. It
+    # comes back when the gateway returns something for it.
     # Google
     'google/gemini-3.5-flash',
     'google/gemini-3.1-pro-preview',
@@ -147,6 +176,8 @@ NIMBUS_DEFAULT_MODEL: str = 'anthropic/claude-sonnet-5'
 # qwen and z-ai were missing, so their models — five between them — would have
 # rendered outside the verified group even once the catalog above listed them.
 NIMBUS_VERIFIED_PROVIDERS: list[str] = [
+    # 'nimbus' is not listed: the only model that used it (weekly-free) is out
+    # of the catalog, and an empty provider group renders as a dead filter chip.
     'anthropic',
     'openai',
     'google',

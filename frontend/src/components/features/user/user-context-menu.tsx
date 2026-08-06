@@ -18,6 +18,7 @@ import { useBreakpoint } from "#/hooks/use-breakpoint";
 import { SettingsNavHeader } from "../settings/settings-nav-header";
 import { SettingsNavDivider } from "../settings/settings-nav-divider";
 import { useAppMode } from "#/hooks/use-app-mode";
+import { NimbusAccountPanel } from "./nimbus-account-panel";
 
 // Shared className for context menu list items in the user context menu
 const contextMenuListItemClassName = cn(
@@ -77,6 +78,13 @@ export function UserContextMenu({
         <h3 className="text-lg font-semibold text-white">
           {t(I18nKey.ORG$ACCOUNT)}
         </h3>
+
+        {/* Nimbus balance and chat spend. Sits at the top because it answers
+            the question people open this menu to ask — what am I signed in as,
+            and is this costing me what I think it is. */}
+        <div className="rounded-lg border border-white/10 bg-white/[0.03]">
+          <NimbusAccountPanel />
+        </div>
 
         <div className="flex flex-col items-start gap-0">
           {!shouldHideSelector && (

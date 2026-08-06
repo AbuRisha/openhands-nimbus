@@ -53,16 +53,41 @@ import { EffortSlider } from "../effort-slider";
  * and says "profile" nowhere.
  */
 /**
+ * How each provider writes its own name.
+ *
+ * Carried over from switch-profile-context-menu, which this chip replaced.
+ * Capitalising the first letter is not enough and looks unfinished exactly
+ * where a customer is choosing what to pay for: "openai" becomes "Openai",
+ * "z-ai" becomes "Z-ai", "deepseek" becomes "Deepseek". `nimbus` is our own
+ * namespace (currently the Weekly Free passthrough) and needs the same
+ * treatment so it does not sit lowercase beside properly-cased vendors.
+ */
+const PROVIDER_LABELS: Record<string, string> = {
+  nimbus: "Nimbus",
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  google: "Google",
+  deepseek: "DeepSeek",
+  moonshotai: "Moonshot",
+  qwen: "Qwen",
+  alibaba: "Qwen",
+  "z-ai": "Z.ai",
+  xai: "xAI",
+};
+
+/**
  * Provider label from a model id: `anthropic/claude-sonnet-5` -> "Anthropic".
  *
- * Twenty-nine flat rows is a wall; grouped by maker it is four short lists you
+ * Twenty-nine flat rows is a wall; grouped by maker it is a few short lists you
  * can aim at. A model id with no provider prefix is a real possibility for a
  * user-added entry, so those collect under "Other" rather than vanishing.
  */
 function providerOf(model: string | null | undefined): string {
   if (!model?.includes("/")) return "Other";
   const raw = model.split("/", 1)[0];
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
+  // Unknown providers still get title-cased rather than shown raw: a vendor we
+  // have not met yet should look ordinary, not broken.
+  return PROVIDER_LABELS[raw] ?? raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 export function ComposerModelChip() {
