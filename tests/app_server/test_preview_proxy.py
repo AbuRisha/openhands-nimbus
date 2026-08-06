@@ -188,3 +188,45 @@ class TestListeningPorts:
         monkeypatch.setattr(mod.psutil, 'Process', _boom)
 
         assert mod.listening_ports_for(1) == []
+
+
+class TestCookieBootstrap:
+    """The cookie exists so the iframe src never has to carry a credential.
+
+    If a client authenticated the iframe by putting the session key in `src`,
+    that key would persist in the DOM, in any screenshot of the page, and in
+    browser history. Setting the cookie on the ports call — which a client makes
+    before it can show a preview anyway — means the src can be the bare
+    /preview/{id}/{port}/ with no credential in it at all.
+    """
+
+    def test_sets_a_cookie_scoped_to_this_conversation(self):
+        from fastapi import Response
+
+        response = Response()
+        mod._set_preview_cookie(response, 'conv-1', 'sk-key')
+
+        cookie = response.headers['set-cookie']
+        assert 'nimbus_preview_key=sk-key' in cookie
+        # Path-scoped: a key for one conversation must not ride along on
+        # requests for another.
+        assert 'Path=/preview/conv-1/' in cookie
+
+    def test_cookie_is_httponly(self):
+        """Script in the previewed page must not be able to read it."""
+        from fastapi import Response
+
+        response = Response()
+        mod._set_preview_cookie(response, 'conv-1', 'sk-key')
+
+        assert 'HttpOnly' in response.headers['set-cookie']
+
+    def test_sets_nothing_without_a_key(self):
+        """An unauthenticated request must not plant an empty cookie that then
+        wins over a real one on the next call."""
+        from fastapi import Response
+
+        response = Response()
+        mod._set_preview_cookie(response, 'conv-1', None)
+
+        assert 'set-cookie' not in response.headers

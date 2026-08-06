@@ -165,22 +165,51 @@ def listening_ports_for(pid: int, exclude: set[int] | None = None) -> list[int]:
     return sorted(found)
 
 
+def _set_preview_cookie(
+    response: Response, conversation_id: str, key: str | None
+) -> None:
+    """Scope the session key to this conversation's preview path."""
+    if not key:
+        return
+    response.set_cookie(
+        _COOKIE,
+        key,
+        path=f'/preview/{conversation_id}/',
+        httponly=True,
+        samesite='lax',
+    )
+
+
 @preview_proxy_router.get('/preview/{conversation_id}/ports')
-async def preview_ports(request: Request, conversation_id: str) -> dict:
+async def preview_ports(
+    request: Request, response: Response, conversation_id: str
+) -> dict:
     """Which ports this conversation currently has something listening on.
 
     Declared BEFORE the catch-all below: FastAPI matches in order, and
     `/preview/x/ports` would otherwise try to parse "ports" as the port integer
     and 422.
+
+    THIS ALSO SETS THE PREVIEW COOKIE, and that is not incidental.
+    Without it a client's only way to authenticate the iframe would be to put
+    the session key in the `src` attribute — where it persists in the DOM, in
+    any screenshot of the page, and in the browser's history. Calling this
+    first sets the cookie, so the iframe src can be the bare
+    `/preview/{id}/{port}/` with no credential in it at all. A client asks
+    which ports exist before it can show a preview anyway, so this costs no
+    extra round trip.
     """
-    sandbox = await validate_session_key(_session_key(request))
+    key = _session_key(request)
+    sandbox = await validate_session_key(key)
+    _set_preview_cookie(response, conversation_id, key)
 
     from openhands.app_server.sandbox.process_sandbox_service import _processes
 
     process_info = _processes.get(sandbox.id)
     if process_info is None:
         # A remote runtime has no local process tree to scan. Saying so beats
-        # an empty list, which reads as "your server is not running".
+        # an empty list, which reads as "your server is not running" — those
+        # are different states and deserve different words in the UI.
         return {'ports': [], 'supported': False}
 
     # The agent server's own port is not a preview.
@@ -251,12 +280,7 @@ async def proxy_preview(
 
     # Re-issue on every request carrying an explicit key, so a reload after a
     # conversation switch replaces the previous cookie instead of racing it.
-    if request.query_params.get('session_api_key'):
-        response.set_cookie(
-            _COOKIE,
-            request.query_params['session_api_key'],
-            path=f'/preview/{conversation_id}/',
-            httponly=True,
-            samesite='lax',
-        )
+    _set_preview_cookie(
+        response, conversation_id, request.query_params.get('session_api_key')
+    )
     return response
