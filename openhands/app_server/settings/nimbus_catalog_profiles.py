@@ -134,7 +134,12 @@ def _weekly_free_label() -> str:
                 type(exc).__name__,
             )
 
-    _weekly_free_name_cache['label'] = label
+    # Cache ONLY a real name. Caching the fallback would make a single early
+    # failure — a cold start racing the gateway, a blip — stick for the life of
+    # the process, so the model would stay generically labelled long after the
+    # lookup started working. Retrying a cheap request is the cheaper mistake.
+    if label != 'Weekly Free':
+        _weekly_free_name_cache['label'] = label
     return label
 
 
