@@ -107,3 +107,59 @@ def test_append_system_context_is_idempotent():
     once = append_system_context(None, 'BLOCK')
 
     assert append_system_context(once, 'BLOCK') == once
+
+
+class TestItActuallyFires:
+    """The failure mode this whole class exists for: silence.
+
+    Self-verification is prompt text behind an env flag. If the flag name is
+    wrong, or the injection point is never reached, nothing raises and no test
+    above would notice — the agent simply never verifies, forever, and the only
+    signal is a customer eventually saying the agent claims things it did not
+    check.
+    """
+
+    def test_the_env_var_name_is_pinned_to_its_literal(self):
+        """Every other test imports ENV_SELF_VERIFICATION, so a rename would be
+        consistently wrong and completely invisible: the code and the tests
+        would agree with each other and disagree with the deployment.
+
+        This is the one place the literal is written out. If it changes, the
+        env var in the deployment config has to change with it.
+        """
+        assert ENV_SELF_VERIFICATION == 'NIMBUS_AGENT_SELF_VERIFY'
+
+    def test_the_injector_is_called_wherever_its_proven_siblings_are(self):
+        """Wiring with no runtime signal, so it is checked structurally.
+
+        _maybe_append_memory and _maybe_append_shallow_clone_context are both
+        long-established and reach the agent, and there are two conversation
+        start paths. Appearing in fewer places than they do means one path
+        silently skips verification — which is exactly the bug that would never
+        surface in a unit test of the method itself.
+        """
+        import inspect
+
+        from openhands.app_server.app_conversation import (
+            live_status_app_conversation_service as module,
+        )
+
+        source = inspect.getsource(module)
+
+        def occurrences(name: str) -> int:
+            return source.count(name)
+
+        # One definition plus one call per conversation start path.
+        assert occurrences('_maybe_append_self_verification') == occurrences(
+            '_maybe_append_memory'
+        )
+        assert occurrences('_maybe_append_self_verification') == occurrences(
+            '_maybe_append_shallow_clone_context'
+        )
+
+    def test_the_block_is_non_empty_and_delimited(self):
+        """An empty or untagged block would inject nothing useful while every
+        gating test above still passed."""
+        assert SELF_VERIFICATION_CONTEXT.startswith('<VERIFICATION_WORKFLOW>')
+        assert SELF_VERIFICATION_CONTEXT.rstrip().endswith('</VERIFICATION_WORKFLOW>')
+        assert len(SELF_VERIFICATION_CONTEXT) > 500

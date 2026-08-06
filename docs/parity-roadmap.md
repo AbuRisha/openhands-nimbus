@@ -321,3 +321,51 @@ that is a different endpoint.
 start a conversation (existing path), `copy_events_until` into it, return the
 new conversation. Frontend needs a fork action on a message and a way to open
 the result.
+
+---
+
+## 10. Which way an unreadable setting should fail
+
+Two features landed on the same day with the same shape of ambiguity — a config
+value nobody can parse — and the correct default is **opposite** in each. It is
+worth stating once, because copying either one into the other is a plausible
+mistake that produces a real bug.
+
+**MCP server policy → fail RESTRICTIVE.** An unreadable `managed-only` flag
+becomes `true`. An allowlist that parses to nothing stays an *empty allowlist*
+rather than becoming *no allowlist*.
+
+**Agent self-verification → fail OFF.** An unreadable
+`NIMBUS_AGENT_SELF_VERIFY` leaves verification disabled.
+
+Both are "we could not tell what the operator meant". The difference is what
+being wrong costs:
+
+| | Wrong in the restrictive direction | Wrong in the permissive direction |
+|---|---|---|
+| MCP policy | a customer says their server stopped working | arbitrary code you did not intend to permit runs in your sandbox, and nobody tells you |
+| Self-verify | tokens spent nobody agreed to spend — on a metered product, the customer's money | an agent claims it checked something it never rendered |
+
+**The rule: fail toward the outcome you would find out about.** A customer
+reports a feature that stopped working. Nobody reports code that quietly ran, or
+money quietly spent. Ask which failure is *silent*, and default away from it —
+"be more restrictive" is a heuristic that happens to be right in the first case
+and wrong in the second.
+
+Both module docstrings state their own reasoning rather than pointing here, so
+neither reads as a copy of the other with the sign flipped.
+
+### The same principle, applied to a silent feature
+
+Self-verification is prompt text behind an env flag, which means a wrong flag
+name or a missed injection point fails **completely silently** — nothing raises
+and the agent simply never verifies. Two tests exist purely for that:
+`ENV_SELF_VERIFICATION` is pinned to its literal string in exactly one place
+(every other test imports the constant, so a rename would be consistently wrong
+and invisible), and the injector is asserted to appear at the same call sites as
+two long-established siblings, since there are two conversation start paths and
+appearing in fewer means one silently skips it.
+
+If a feature has no runtime signal when it fails, something has to check its
+wiring structurally. A unit test of the function proves the function works, not
+that anything calls it.
