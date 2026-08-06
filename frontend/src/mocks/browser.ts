@@ -1,6 +1,7 @@
 import { setupWorker } from "msw/browser";
 import { handlers as wsHandlers } from "./handlers.ws";
 import { handlers, resetTestHandlersMockSettings } from "./handlers";
+import { V1_CONVERSATION_HANDLERS } from "./v1-conversation-handlers";
 
 /**
  * Seed the browser mock as a CONFIGURED user.
@@ -24,4 +25,18 @@ import { handlers, resetTestHandlersMockSettings } from "./handlers";
  */
 resetTestHandlersMockSettings();
 
-export const worker = setupWorker(...handlers, ...wsHandlers);
+/*
+ * The V1 conversation handlers are wired in HERE and not into the shared
+ * `handlers` array, for the same reason the seed above is: that array backs the
+ * vitest server too, and adding routes to it changed the behaviour of settings
+ * tests that had nothing to do with conversations. Dev needs a browsable app;
+ * the suite needs the fixtures it already asserts against.
+ *
+ * First in the list so they win over the V0 conversation handlers, which MSW
+ * would otherwise match first for overlapping paths.
+ */
+export const worker = setupWorker(
+  ...V1_CONVERSATION_HANDLERS,
+  ...handlers,
+  ...wsHandlers,
+);
