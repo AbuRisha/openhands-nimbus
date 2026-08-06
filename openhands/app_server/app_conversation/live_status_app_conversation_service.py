@@ -1745,11 +1745,35 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             return
 
         try:
-            count = len(user_mcp)
-            _logger.info(
-                f'Loading custom MCP config from user settings: {count} servers'
+            # Deployment policy, applied to CUSTOMER servers only — the
+            # system-generated ones above are ours and are never filtered.
+            #
+            # An MCP server is arbitrary local process execution by design, so
+            # merging whatever is in user settings gave a deployment no way to
+            # say which servers are acceptable. Rejections are logged by name:
+            # a server that silently fails to appear is indistinguishable from
+            # one that was never configured, which turns a policy decision into
+            # a support ticket about a broken feature.
+            from openhands.app_server.mcp.mcp_policy import (  # noqa: PLC0415
+                filter_servers,
+                load_policy,
             )
-            mcp_servers.update(user_mcp)
+
+            policy = load_policy()
+            permitted, rejected = filter_servers(user_mcp, policy)
+            if rejected:
+                _logger.warning(
+                    'mcp_policy: refused %d customer MCP server(s) for user %s: %s',
+                    len(rejected),
+                    user.id,
+                    ', '.join(rejected),
+                )
+
+            _logger.info(
+                f'Loading custom MCP config from user settings: '
+                f'{len(permitted)} servers'
+            )
+            mcp_servers.update(permitted)
 
         except Exception:
             _logger.exception(
