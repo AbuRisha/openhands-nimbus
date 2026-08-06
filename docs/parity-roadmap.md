@@ -369,3 +369,46 @@ appearing in fewer means one silently skips it.
 If a feature has no runtime signal when it fails, something has to check its
 wiring structurally. A unit test of the function proves the function works, not
 that anything calls it.
+
+---
+
+## 11. Search — what exists, and why content search needs infrastructure
+
+**Searching conversations by title already works, end to end.**
+`GET /api/v1/app-conversations/search?title__contains=` is exposed, threaded
+through the service, and applied as a SQL predicate. The gap is purely frontend:
+`conversation-panel.tsx` has no search state and never calls it.
+
+That covers the most common reason people go back — "how did I fix this last
+month" is usually a hunt for the *conversation*, and titles are generated
+summaries.
+
+It was case-SENSITIVE until now, and the way that hid is worth remembering:
+production is Postgres, whose `LIKE` respects case, while the test suite runs
+SQLite, whose `LIKE` does not. So `.like()` passed every test and would have
+failed to match "Billing" for a user typing "billing". Fixed to `.ilike()`, and
+pinned by asserting on the **compiled SQL** rather than on behaviour — a
+behavioural test cannot see the difference on SQLite, which is exactly why it
+survived.
+
+### Content search is a different problem
+
+Searching what was *said* — not what a conversation is called — cannot be built
+the same way, because **events are not in the database**. The event services are
+filesystem, S3 and Google Cloud (`event/filesystem_event_service.py`,
+`aws_event_service.py`, `google_cloud_event_service.py`), and `search_events` is
+scoped to one conversation with no text filter.
+
+So there is no table to add an index to. The options are:
+
+1. **Scan on demand** — read every conversation's events per query. Honest, and
+   unusable past a few dozen conversations.
+2. **A search index written on save** — a new table populated wherever events
+   are persisted, queried with Postgres full-text. Correct, and it is a schema
+   plus a backfill for existing history.
+3. **Index only messages** — the same, but skipping tool actions and
+   observations. Far smaller, and matches what people search for: their own
+   words and the assistant's replies, not the contents of a grep result.
+
+Option 3 is the recommendation. Start there, and note that it is a migration and
+a backfill rather than a query — nobody should promise this as a small change.
