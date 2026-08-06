@@ -36,6 +36,9 @@ const profileItemClassName = "cursor-pointer p-0 h-auto hover:bg-transparent";
  * should ever see.
  */
 const PROVIDER_LABELS: Record<string, string> = {
+  // Our own namespace — currently the Weekly Free passthrough. Without this it
+  // renders as a bare lowercase "nimbus" beside properly-cased vendor names.
+  nimbus: "Nimbus",
   anthropic: "Anthropic",
   openai: "OpenAI",
   google: "Google",

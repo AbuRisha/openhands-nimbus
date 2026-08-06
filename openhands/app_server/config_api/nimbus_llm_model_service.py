@@ -79,6 +79,18 @@ from openhands.app_server.utils.paging_utils import paginate_results
 # generator and the gateway disagreed, and the gateway is the one that answers.
 # ---------------------------------------------------------------------------
 NIMBUS_CHAT_MODELS: list[str] = [
+    # SpiderSense Weekly Free — free for every key holder, rotates weekly.
+    #
+    # The id is STABLE. What changes each week is the model behind it, so
+    # nothing here names Qwen3.5: the display name comes from the gateway's
+    # own /v1/free/models at runtime (see nimbus_catalog_profiles), which is
+    # what makes next week's rotation need no release.
+    #
+    # Listed as nimbus/weekly-free rather than bare: the gateway strips the
+    # 'nimbus/' prefix (verified — lookupRoute resolves both forms), and the
+    # prefix keeps this file's invariant that every model's prefix is an
+    # offered provider, instead of a provider-less special case.
+    'nimbus/weekly-free',
     # Anthropic
     'anthropic/claude-opus-5',
     'anthropic/claude-sonnet-5',
@@ -156,6 +168,8 @@ NIMBUS_DEFAULT_MODEL: str = 'anthropic/claude-sonnet-5'
 # qwen and z-ai were missing, so their models — five between them — would have
 # rendered outside the verified group even once the catalog above listed them.
 NIMBUS_VERIFIED_PROVIDERS: list[str] = [
+    # Our own namespace — currently just the Weekly Free passthrough.
+    'nimbus',
     'anthropic',
     'openai',
     'google',

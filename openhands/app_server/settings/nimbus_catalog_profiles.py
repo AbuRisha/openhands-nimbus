@@ -86,6 +86,58 @@ def display_name(model: str) -> str:
     return ' '.join(parts) if parts else model
 
 
+# Weekly Free's id is stable but the MODEL BEHIND IT rotates weekly, so its
+# label is the one thing in this catalog that must not be derived from the id.
+# "Weekly Free" alone tells a customer nothing about what they are about to run.
+_WEEKLY_FREE_ID = 'nimbus/weekly-free'
+_weekly_free_name_cache: dict[str, str] = {}
+
+
+def _weekly_free_label() -> str:
+    """``Weekly Free (Qwen3.5-397B)`` — the current model, read at runtime.
+
+    Asks the gateway's own ``/v1/free/models`` for ``name``. Cached for the
+    process: the model changes weekly, not per settings load.
+
+    Falls back to a plain ``Weekly Free`` on any failure. A label that is merely
+    less specific is fine; refusing to seed the profile, or naming last week's
+    model, is not — the whole point of reading it at runtime is that nobody has
+    to remember to edit a string every Monday.
+    """
+    if 'label' in _weekly_free_name_cache:
+        return _weekly_free_name_cache['label']
+
+    label = 'Weekly Free'
+    base = (os.getenv('LLM_BASE_URL') or '').rstrip('/')
+    key = os.getenv('LLM_API_KEY') or ''
+    if base and key:
+        try:
+            import json
+            import urllib.request
+
+            req = urllib.request.Request(
+                f'{base}/v1/free/models',
+                headers={'Authorization': f'Bearer {key}'},
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read())
+            for row in (data or {}).get('data') or []:
+                if row.get('id') == 'weekly-free':
+                    name = str(row.get('name') or '').strip()
+                    if name:
+                        label = f'Weekly Free ({name})'
+                    break
+        except Exception as exc:  # noqa: BLE001 - never block seeding
+            logger.info(
+                'nimbus_catalog: could not read the weekly-free name (%s); '
+                'using the generic label',
+                type(exc).__name__,
+            )
+
+    _weekly_free_name_cache['label'] = label
+    return label
+
+
 def gateway_base_url() -> str | None:
     """The gateway every catalog model is served through."""
     return os.getenv('LLM_BASE_URL') or None
@@ -93,7 +145,11 @@ def gateway_base_url() -> str | None:
 
 def _catalog_models() -> dict[str, str]:
     """``{display name: model id}`` for the whole catalog, order preserved."""
-    return {display_name(model): model for model in NIMBUS_CHAT_MODELS}
+    out: dict[str, str] = {}
+    for model in NIMBUS_CHAT_MODELS:
+        name = _weekly_free_label() if model == _WEEKLY_FREE_ID else display_name(model)
+        out[name] = model
+    return out
 
 
 def seed_catalog_profiles(settings: Any) -> bool:
