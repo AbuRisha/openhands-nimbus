@@ -38,6 +38,12 @@ import { ArchivedBanner } from "./archived-banner";
 import { PendingMessages } from "./pending-messages";
 import { useResumeThenSend } from "#/hooks/use-resume-then-send";
 import { useModelStore } from "#/stores/model-store";
+import { useActiveConversation } from "#/hooks/query/use-active-conversation";
+import { useLlmProfiles } from "#/hooks/query/use-llm-profiles";
+import { useSwitchLlmProfileAndLog } from "#/hooks/mutation/use-switch-llm-profile-and-log";
+import { useRefusalFailover } from "#/hooks/chat/use-refusal-failover";
+import { useApplyRefusalChoice } from "#/hooks/chat/use-apply-refusal-choice";
+import { RefusalPrompt } from "./refusal-prompt";
 
 export function ChatInterface() {
   const { setMessageToSend } = useConversationStore();
@@ -105,9 +111,113 @@ export function ChatInterface() {
   }, [isAgentRunning, handleBuildPlanClick, scrollDomToBottom]);
 
   const params = useParams();
+
+  /*
+   * A ref, because the resend path below is wired BEFORE handleSendMessage is
+   * defined and a retry must go through the same function a typed message
+   * does — it carries the archived-sandbox resume and the queueing behaviour,
+   * and a second near-identical send path would drift from it silently.
+   */
+  const handleSendMessageRef = React.useRef<
+    ((content: string, images: File[], files: File[]) => Promise<void>) | null
+  >(null);
+
   // A missing sandbox is infrastructure churn, not a decision the user made.
   // Rather than replacing the composer with a dead end, resume on send.
   const { ensureLive, resumeState } = useResumeThenSend(params.conversationId);
+
+  /*
+   * Model failover when a model refuses.
+   *
+   * All four pieces are unit-tested on their own; this is the wiring, and the
+   * wiring is where the interesting mistakes live — every one of them is a
+   * silent no-op rather than an error.
+   */
+  const { data: conversation } = useActiveConversation();
+  const { data: llmProfiles } = useLlmProfiles();
+  const { switchAndLog } = useSwitchLlmProfileAndLog();
+
+  // {name, model} is exactly the catalog shape, and the profile NAME is what
+  // switching takes — mapping back through this is why the catalog carries
+  // both.
+  const failoverCatalog = React.useMemo(
+    () =>
+      (llmProfiles?.profiles ?? [])
+        .filter((profile) => !!profile.model)
+        .map((profile) => ({
+          name: profile.name,
+          model: profile.model as string,
+        })),
+    [llmProfiles],
+  );
+
+  const profileNameForModel = React.useCallback(
+    (model: string) =>
+      failoverCatalog.find((entry) => entry.model === model)?.name ?? null,
+    [failoverCatalog],
+  );
+
+  const currentModel = conversation?.llm_model ?? null;
+  const currentModelName =
+    failoverCatalog.find((entry) => entry.model === currentModel)?.name ??
+    currentModel ??
+    "";
+
+  const { refusal, resolve } = useRefusalFailover({
+    events: v1FullEvents,
+    isRunning: isAgentRunning,
+    currentModel,
+    currentModelName,
+    catalog: failoverCatalog,
+  });
+
+  const { apply } = useApplyRefusalChoice({
+    isRunning: isAgentRunning,
+    switchToProfile: (profileName) => {
+      if (params.conversationId)
+        switchAndLog(params.conversationId, profileName);
+    },
+    profileNameForModel,
+    // Resend through the same path a typed message takes, so a retry gets the
+    // archived-sandbox resume and the queueing behaviour rather than a second,
+    // subtly different send.
+    resend: (text) => {
+      // .catch rather than `void`: handleSendMessage surfaces its own failures
+      // as toasts, so this only stops an unhandled rejection and hides nothing.
+      handleSendMessageRef.current?.(text, [], []).catch(() => {});
+    },
+  });
+
+  /*
+   * The refused request comes from the last USER message, not the optimistic
+   * store — by the time a refusal has come back that store has been cleared,
+   * and reading it would resend an empty string. A silent no-op, which is why
+   * it is worth naming here rather than trusting.
+   */
+  const lastUserText = React.useMemo(() => {
+    for (let i = v1FullEvents.length - 1; i >= 0; i -= 1) {
+      const message = (
+        v1FullEvents[i] as {
+          llm_message?: {
+            role?: string;
+            content?: { type?: string; text?: string }[];
+          };
+        }
+      ).llm_message;
+      if (message?.role !== "user" || !Array.isArray(message.content)) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const text = message.content
+        .filter(
+          (part) => part?.type === "text" && typeof part.text === "string",
+        )
+        .map((part) => part.text)
+        .join("\n");
+      if (text) return text;
+    }
+    return "";
+  }, [v1FullEvents]);
   const { mutateAsync: uploadFiles } = useUnifiedUploadFiles();
 
   const optimisticUserMessage = getOptimisticUserMessage();
@@ -215,6 +325,10 @@ export function ChatInterface() {
     setOptimisticUserMessage(content);
     setMessageToSend("");
   };
+
+  // Kept current every render: the retry path holds this ref, and a stale one
+  // would resend through a closure over last render's state.
+  handleSendMessageRef.current = handleSendMessage;
 
   // Auto-scroll to bottom when new messages arrive
   React.useEffect(() => {
@@ -340,6 +454,16 @@ export function ChatInterface() {
               conversation — the user could not even type. Sending resumes
               first; the only visible cost is a brief reconnect on the first
               message after a restart. */}
+          {refusal && (
+            <RefusalPrompt
+              refusedModel={refusal.refusedModel}
+              fallback={refusal.fallback}
+              onChoose={(choice) => {
+                apply(resolve(choice), lastUserText, currentModel);
+              }}
+            />
+          )}
+
           {resumeState === "failed" && <ArchivedBanner />}
 
           {/* Above the composer: what you typed while the agent was busy is
