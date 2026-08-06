@@ -28847,5 +28847,22 @@
     "de": "Alle",
     "uk": "All",
     "ca": "All"
+  },
+  "NIMBUS$EFFORT_NOT_SUPPORTED_FOR_MODEL": {
+    "en": "Not supported for {{model}}. Your choice is saved and applies when you switch to a reasoning model.",
+    "ja": "{{model}} では非対応です。設定は保存され、推論モデルに切り替えたときに適用されます。",
+    "zh-CN": "{{model}} 不支持此功能。您的选择已保存，切换到推理模型时将生效。",
+    "zh-TW": "{{model}} 不支援此功能。您的選擇已儲存，切換至推理模型時將生效。",
+    "ko-KR": "{{model}}에서는 지원되지 않습니다. 설정은 저장되며 추론 모델로 전환하면 적용됩니다.",
+    "no": "Støttes ikke for {{model}}. Valget ditt er lagret og gjelder når du bytter til en resonneringsmodell.",
+    "ar": "غير مدعوم في {{model}}. تم حفظ اختيارك وسيتم تطبيقه عند التبديل إلى نموذج استدلالي.",
+    "de": "Für {{model}} nicht unterstützt. Deine Auswahl wird gespeichert und gilt, sobald du zu einem Reasoning-Modell wechselst.",
+    "fr": "Non pris en charge pour {{model}}. Votre choix est enregistré et s'appliquera lors du passage à un modèle de raisonnement.",
+    "it": "Non supportato per {{model}}. La tua scelta è salvata e verrà applicata passando a un modello di ragionamento.",
+    "pt": "Não suportado para {{model}}. A sua escolha foi guardada e será aplicada ao mudar para um modelo de raciocínio.",
+    "es": "No compatible con {{model}}. Tu elección se ha guardado y se aplicará al cambiar a un modelo de razonamiento.",
+    "ca": "No compatible amb {{model}}. La teva selecció s'ha desat i s'aplicarà en canviar a un model de raonament.",
+    "tr": "{{model}} için desteklenmiyor. Seçiminiz kaydedildi ve bir akıl yürütme modeline geçtiğinizde uygulanacak.",
+    "uk": "Не підтримується для {{model}}. Ваш вибір збережено й буде застосовано після переходу на модель міркування."
   }
 }
