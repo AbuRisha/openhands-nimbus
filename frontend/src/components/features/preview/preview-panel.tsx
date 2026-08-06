@@ -2,7 +2,6 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { I18nKey } from "#/i18n/declaration";
 import { useConversationId } from "#/hooks/use-conversation-id";
-import { useActiveConversation } from "#/hooks/query/use-active-conversation";
 import { usePreviewPorts } from "#/hooks/query/use-preview-ports";
 import { cn } from "#/utils/utils";
 
@@ -29,14 +28,18 @@ import { cn } from "#/utils/utils";
  * dev server that is the right trade; for anything needing a real session it is
  * not, and the subdomain migration in roadmap §7 is what fixes it properly.
  *
- * WHY THE KEY IS IN THE URL
- * -------------------------
- * An iframe cannot set a header on its document request, so the proxy takes a
- * bootstrap `?session_api_key=` and converts it to a path-scoped cookie for
- * every subresource after. That means the key is briefly in a src attribute —
- * so it is kept out of anything that persists: no history entry, and the
- * open-in-new-tab link deliberately omits it and relies on the cookie the first
- * load already set.
+ * NO CREDENTIAL IN THE URL, DELIBERATELY
+ * --------------------------------------
+ * An iframe cannot set a header on its document request, so the first design
+ * put a bootstrap `?session_api_key=` on the src. That works and is wrong: the
+ * key then sits in the DOM, in any screenshot of this page, and in browser
+ * history, where it outlives the session it belongs to.
+ *
+ * The ports request now plants the path-scoped httponly cookie instead, and we
+ * have to make that call before a preview can be offered anyway — so the frame
+ * src carries nothing. The ordering matters and is not incidental: ports first,
+ * src second. Setting the src before that response lands would produce a frame
+ * with no cookie and a 401 nobody could explain.
  */
 
 /** Ports below this are not where a dev server lives. */
@@ -56,7 +59,6 @@ function Message({ text }: { text: string }) {
 export function PreviewPanel() {
   const { t } = useTranslation();
   const { conversationId } = useConversationId();
-  const { data: conversation } = useActiveConversation();
   const { data, isLoading, isError } = usePreviewPorts(conversationId);
 
   const [selected, setSelected] = React.useState<number | null>(null);
@@ -77,13 +79,12 @@ export function PreviewPanel() {
     if (selected === null || !ports.includes(selected)) setSelected(ports[0]);
   }, [ports, selected]);
 
-  const sessionKey = conversation?.session_api_key ?? null;
-
+  // No credential here. The ports query above already set the path-scoped
+  // httponly cookie, and it has necessarily resolved by this point because
+  // every branch below depends on its data.
   const src =
     conversationId && selected !== null
-      ? `/preview/${conversationId}/${selected}/${
-          sessionKey ? `?session_api_key=${encodeURIComponent(sessionKey)}` : ""
-        }`
+      ? `/preview/${conversationId}/${selected}/`
       : null;
 
   if (isLoading) {
@@ -126,11 +127,7 @@ export function PreviewPanel() {
           {t(I18nKey.PREVIEW$RELOAD)}
         </button>
 
-        {/*
-         * No session key on this link. The first frame load already set the
-         * path-scoped cookie, so a new tab authenticates without putting a
-         * credential into browser history where it would outlive the session.
-         */}
+        {/* Same URL as the frame: the cookie authenticates both. */}
         {conversationId && selected !== null && (
           <a
             href={`/preview/${conversationId}/${selected}/`}
