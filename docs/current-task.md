@@ -7,7 +7,13 @@ Last updated: 2026-08-06. Branch `land/auth-gates`, PR #15 (17 commits, CLEAN).
 
 ## Next three actions
 
-1. **P17 — unblock the commit hook. Do this FIRST.**
+**P17 is DONE** (`3e9fec44a`, hooks passing, no `--no-verify`). Kept below for the
+reasoning, because the same shape will arrive again with the next merge from
+main: a new file lands there failing the repo's own hooks, and the cheap way out
+is a flag. All four violations are fixed — 9 eslint + 1 a11y in the panel, mypy
+`union-attr` and ruff `B008` in `nimbus_account_router`.
+
+1. ~~**P17 — unblock the commit hook.**~~ **DONE.**
    `frontend/src/components/features/user/nimbus-account-panel.tsx` has 9
    `i18next/no-literal-string` violations and fails eslint **on main**. Because
    lint-staged runs on whatever a commit stages, it blocks every merge commit
