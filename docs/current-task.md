@@ -92,6 +92,30 @@ branch, tests pass. Rewriting pushed history to fix this trades a cosmetic
 problem for a lost-work one; a note in the PR description carries the same
 information to a reviewer at no risk.
 
+## Two rules worth applying beyond where they were found
+
+**Fail toward the outcome you would find out about.** A customer reports a
+feature that stopped working. Nobody reports code that quietly ran, or money
+quietly spent. When an ambiguity has to resolve somewhere, ask which failure is
+SILENT and default away from it. That is why the MCP policy fails restrictive
+(silent failure = unpermitted code running) and self-verification fails off
+(silent failure = money spent) — same shape, opposite answer, one rule.
+
+**Green tests can be evidence of nothing.** Two cases hit this today:
+- A conversation-title search used `.like()`. SQLite (tests) ignores case,
+  Postgres (production) does not, so "billing" would never have matched
+  "Billing" and every test passed. Fixed to `.ilike()`, asserted on the
+  COMPILED SQL because a behavioural test cannot see it on SQLite — and
+  verified by reintroducing the bug and watching the test fail. The same shape
+  applies to NULL ordering and collation.
+- Every test of a feature flag imported the constant, so a wrong name would
+  have been consistently wrong and invisible: code and tests agreeing with each
+  other while both disagreed with the deployment.
+
+The generalisation: a unit test of a function proves the function works, not
+that anything calls it, and not that it agrees with production. When a feature
+has no runtime signal on failure, something has to check its wiring.
+
 ## P15 — what is built, and exactly what wiring is left
 
 BUILT (`596116e25`, `1a0fa14f5`): the decision module
