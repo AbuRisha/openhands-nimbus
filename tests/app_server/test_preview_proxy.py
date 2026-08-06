@@ -9,6 +9,7 @@ sane range is refused.
 from __future__ import annotations
 
 import httpx
+import psutil
 import pytest
 from fastapi import HTTPException
 
@@ -99,3 +100,91 @@ class TestSessionKeyResolution:
 
     def test_none_when_neither_is_present(self):
         assert mod._session_key(self._Req({}, {})) is None
+
+
+class TestListeningPorts:
+    """What is ACTUALLY bound, rather than what package.json claims.
+
+    A product whose runtime is detached from the agent has to guess from a dev
+    script. Ours is not detached, so guessing would be a worse answer we chose
+    on purpose.
+    """
+
+    class _Conn:
+        def __init__(self, port, status=psutil.CONN_LISTEN):
+            self.laddr = type('A', (), {'port': port})()
+            self.status = status
+
+    class _Proc:
+        def __init__(self, conns, children=None, raises=None):
+            self._conns = conns
+            self._children = children or []
+            self._raises = raises
+
+        def children(self, recursive=False):  # noqa: ARG002
+            return self._children
+
+        def net_connections(self, kind='tcp'):  # noqa: ARG002
+            if self._raises:
+                raise self._raises
+            return self._conns
+
+    def _patch(self, monkeypatch, root):
+        monkeypatch.setattr(mod.psutil, 'Process', lambda _pid: root)
+
+    def test_reports_a_listening_port(self, monkeypatch):
+        self._patch(monkeypatch, self._Proc([self._Conn(5173)]))
+
+        assert mod.listening_ports_for(1) == [5173]
+
+    def test_includes_ports_bound_by_children(self, monkeypatch):
+        # Nobody starts a server directly: `npm run dev` forks node, and node is
+        # the process that actually binds.
+        child = self._Proc([self._Conn(3000)])
+        self._patch(monkeypatch, self._Proc([], children=[child]))
+
+        assert mod.listening_ports_for(1) == [3000]
+
+    def test_ignores_connections_that_are_not_listening(self, monkeypatch):
+        # An outbound connection to npm is not something to offer as a preview.
+        self._patch(
+            monkeypatch,
+            self._Proc([self._Conn(51234, status=psutil.CONN_ESTABLISHED)]),
+        )
+
+        assert mod.listening_ports_for(1) == []
+
+    def test_excludes_the_agent_server_port(self, monkeypatch):
+        self._patch(monkeypatch, self._Proc([self._Conn(8001), self._Conn(5173)]))
+
+        assert mod.listening_ports_for(1, exclude={8001}) == [5173]
+
+    def test_excludes_privileged_ports(self, monkeypatch):
+        self._patch(monkeypatch, self._Proc([self._Conn(80), self._Conn(5173)]))
+
+        assert mod.listening_ports_for(1) == [5173]
+
+    def test_deduplicates_and_sorts(self, monkeypatch):
+        # A server bound on both v4 and v6 shows up twice and is one port.
+        child = self._Proc([self._Conn(5173)])
+        self._patch(
+            monkeypatch,
+            self._Proc([self._Conn(5173), self._Conn(3000)], children=[child]),
+        )
+
+        assert mod.listening_ports_for(1) == [3000, 5173]
+
+    def test_a_child_exiting_mid_scan_does_not_fail_the_listing(self, monkeypatch):
+        # Ordinary, not an error worth losing every other port over.
+        dying = self._Proc([], raises=psutil.NoSuchProcess(pid=2))
+        self._patch(monkeypatch, self._Proc([self._Conn(5173)], children=[dying]))
+
+        assert mod.listening_ports_for(1) == [5173]
+
+    def test_a_dead_root_reports_nothing_rather_than_raising(self, monkeypatch):
+        def _boom(_pid):
+            raise psutil.NoSuchProcess(pid=1)
+
+        monkeypatch.setattr(mod.psutil, 'Process', _boom)
+
+        assert mod.listening_ports_for(1) == []

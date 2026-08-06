@@ -47,6 +47,7 @@ import re
 from typing import Final
 
 import httpx
+import psutil
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 
@@ -124,6 +125,67 @@ def _clean_response_headers(upstream: httpx.Response) -> dict[str, str]:
             continue
         headers[key] = value
     return headers
+
+
+def listening_ports_for(pid: int, exclude: set[int] | None = None) -> list[int]:
+    """TCP ports a process or its descendants are listening on.
+
+    Reporting what is ACTUALLY bound beats parsing package.json for a dev
+    script, which is what a product whose runtime is detached from the agent has
+    to do. Ours is not: the dev server is started by the agent's own terminal
+    tool, in the same process tree, so the truthful answer is available and the
+    guessed one is never needed.
+
+    Descendants matter because nobody starts a server directly — `npm run dev`
+    forks node, which is the process that actually binds.
+    """
+    skip = exclude or set()
+    found: set[int] = set()
+
+    try:
+        root = psutil.Process(pid)
+        processes = [root, *root.children(recursive=True)]
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return []
+
+    for process in processes:
+        try:
+            for conn in process.net_connections(kind='tcp'):
+                if conn.status != psutil.CONN_LISTEN or not conn.laddr:
+                    continue
+                port = conn.laddr.port
+                if port in skip or not _MIN_PORT <= port <= _MAX_PORT:
+                    continue
+                found.add(port)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            # A child exiting mid-scan is ordinary, not an error worth failing
+            # the whole listing over.
+            continue
+
+    return sorted(found)
+
+
+@preview_proxy_router.get('/preview/{conversation_id}/ports')
+async def preview_ports(request: Request, conversation_id: str) -> dict:
+    """Which ports this conversation currently has something listening on.
+
+    Declared BEFORE the catch-all below: FastAPI matches in order, and
+    `/preview/x/ports` would otherwise try to parse "ports" as the port integer
+    and 422.
+    """
+    sandbox = await validate_session_key(_session_key(request))
+
+    from openhands.app_server.sandbox.process_sandbox_service import _processes
+
+    process_info = _processes.get(sandbox.id)
+    if process_info is None:
+        # A remote runtime has no local process tree to scan. Saying so beats
+        # an empty list, which reads as "your server is not running".
+        return {'ports': [], 'supported': False}
+
+    # The agent server's own port is not a preview.
+    ports = listening_ports_for(process_info.pid, exclude={process_info.port})
+    return {'ports': ports, 'supported': True}
 
 
 @preview_proxy_router.api_route(
