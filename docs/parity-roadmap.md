@@ -190,3 +190,62 @@ A claim about theirs carries the artifact it came from. "Not found" is written
 as "not found — searched X" so the next person knows the search was run and
 where it stopped. An inventory that quietly mixes observation with inference is
 worse than a shorter honest one, because nobody can tell which rows to trust.
+
+---
+
+## 7. Live preview loop — design summary
+
+Designed 2026-08-06 against this codebase. Full detail in the P13 task.
+
+**Why it ranks high:** it is the one capability where a browser product is at
+*no* disadvantage to a desktop app, because the customer's app already runs in a
+browser.
+
+**The asset we already own.** `sandbox/agent_proxy_router.py` reverse-proxies
+HTTP **and** WebSocket from the public origin into the sandbox, and already
+solves streaming, hop-by-hop headers and WS pumping in exactly this
+architecture. The preview proxy is a sibling of it, not a new subsystem.
+
+**The constraint that decides the design.** Azure Container Apps publishes
+exactly one port per app (`agent_proxy_router.py:21-23`). Direct port exposure
+is therefore impossible; everything enters through the app server. Phase 1 is a
+path-based proxy, Phase 3 upgrades to a wildcard subdomain.
+
+**Two limits to state to customers rather than discover:**
+- Apps that emit absolute asset paths (`/assets/main.js`) break under a path
+  prefix. Do **not** attempt HTML rewriting — that is a tarpit. The subdomain
+  migration is the real fix.
+- The iframe runs `sandbox="allow-scripts allow-forms"` **without**
+  `allow-same-origin`, giving agent-written JS an opaque origin so it cannot
+  reach our storage or cookies. The cost is that the previewed app cannot use
+  its own cookies, localStorage or service workers.
+
+**Already built, do not rebuild:** screenshot-to-model (`include_screenshot`);
+screenshot content-hashing, so "only if changed" is a prompt rule not new
+machinery; CDP pre-page script injection in the SDK browser server; DOM snapshot
+via `browser_get_content` / `browser_get_state`.
+
+**Real gap found:** the SDK captures **no console logs** — searched
+`browser_use/*.py` for "console", zero hits. Console capture has to come from
+our own injected bridge script.
+
+**Do not build:** a pixel/screencast pane (the existing screenshot feed already
+covers unembeddable apps), multi-tab preview with history, a separate
+model-driven-navigation UI (the agent already has the full browser tool set),
+or dev-server config detection — an endpoint reporting *actually listening*
+ports is strictly more truthful than parsing `package.json`. The competitor
+needs detection because their runtime is detached from the agent. Ours is not.
+
+**Unverified, flagged:** ACA wildcard custom-domain + certificate binding for
+`*.preview.<domain>` is assumed, not confirmed. Verify before committing to
+Phase 3.
+
+## 8. Live bug found during that design
+
+The **VSCode tab cannot work on this deployment**. It resolves its iframe URL
+from `sandbox.exposed_urls` where `name === "VSCODE"`
+(`hooks/query/use-unified-vscode-url.ts:51-63`), but under `RUNTIME=process`
+the sandbox publishes only an `AGENT_SERVER` entry
+(`sandbox/process_sandbox_service.py:529-535`). The lookup always misses and
+the tab renders "URL not available". Tracked as P14 — offering a permanently
+broken tab is the one option to rule out.
