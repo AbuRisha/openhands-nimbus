@@ -116,34 +116,38 @@ The generalisation: a unit test of a function proves the function works, not
 that anything calls it, and not that it agrees with production. When a feature
 has no runtime signal on failure, something has to check its wiring.
 
-## P15 — what is built, and exactly what wiring is left
+## P15 — four units built, ONE step left
 
-BUILT (`596116e25`, `1a0fa14f5`): the decision module
-`src/utils/refusal-failover.ts` (14 tests) and the inline prompt
-`components/features/chat/refusal-prompt.tsx` (8 tests). Both are pure/presentational.
+BUILT and pushed, 37 tests, none touching the send loop:
+- `src/utils/refusal-failover.ts` — looksLikeRefusal (with a length ceiling),
+  chooseFallback, modelToRestoreAfterTurn (14 tests, `596116e25`)
+- `components/features/chat/refusal-prompt.tsx` — inline prompt, two separate
+  retries, 300s self-answer (8 tests, `1a0fa14f5`)
+- `hooks/chat/use-refusal-failover.ts` — detection, once per message
+  (8 tests, `d4a68f00b`)
+- `hooks/chat/use-apply-refusal-choice.ts` — switch, resend, restore after the
+  turn (7 tests, `4016fd62a`)
 
-NOT BUILT — nothing detects a refusal and nothing applies a choice. The four
-pieces, in order:
+LEFT: mount them in `chat-interface.tsx`. Feed `useRefusalFailover` the v1
+events, `isRunning` from curAgentState, `conversation.llm_model`, and a catalog
+from `useLlmProfiles()` as `{name, model}`. Render `<RefusalPrompt>` when
+`refusal` is non-null. Route `resolve` into
+`useApplyRefusalChoice.apply(choice, originalText, originalModel)` where
+originalText is the last USER MessageEvent — NOT the optimistic store, which is
+cleared by then.
 
-1. **Detect.** Watch the last assistant message as it settles and run
-   `looksLikeRefusal()` on its text. Do this when the turn ENDS, not per
-   streaming delta: a partial stream can contain "I can't help with" mid-sentence
-   and would fire the prompt against a message still being written.
-2. **Offer.** Build the catalog from `useLlmProfiles()` (name + model, same
-   source the composer chip uses), call `chooseFallback(conversation.llm_model,
-   catalog)`, render `<RefusalPrompt>` anchored to that message. Null fallback
-   is already handled by the component.
-3. **Apply a retry.** `switchAndLog(conversationId, fallbackProfileName)` — note
-   it takes a PROFILE NAME, not a model id, so map back through the profiles
-   list — then resend the original user message. The original text is NOT in the
-   optimistic store by then; read it from the last user MessageEvent.
-4. **Restore.** On turn completion call `modelToRestoreAfterTurn(choice,
-   originalModel)` and switch back when it returns non-null. This is the whole
-   point of the feature and the easiest piece to skip, because everything looks
-   correct without it until someone reads their bill.
+Handed to the other lane 2026-08-06; confirm before duplicating it.
 
-TRAP: the retry must not re-trigger detection on its own refusal and loop. Guard
-by message id — a given message gets at most one prompt, answered or not.
+ALREADY SOLVED IN THE UNITS — do not re-solve:
+- Detection waits for the turn to end, so a partial stream cannot fire it.
+- A message is prompted at most once. A retry that ALSO refuses arms on its own
+  new message, which is correct; the loop only happens if the SAME message
+  re-arms.
+- `looksLikeRefusal` has a length ceiling, because substring matching alone
+  called "I can't help with the old API, but here's the new one" a refusal —
+  found by a test written to guard something else entirely.
+- Switching takes a profile NAME, not a model id. Passing an id is a silent
+  no-op and the retry runs on the model that just refused.
 
 ## Done and verified
 
