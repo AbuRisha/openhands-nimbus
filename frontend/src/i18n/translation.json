@@ -28915,5 +28915,39 @@
     "ca": "Configuració",
     "tr": "Ayarlar",
     "uk": "Налаштування"
+  },
+  "SETTINGS$NAV_SEARCH_PLACEHOLDER": {
+    "en": "Search",
+    "ja": "検索",
+    "zh-CN": "搜索",
+    "zh-TW": "搜尋",
+    "ko-KR": "검색",
+    "no": "Søk",
+    "ar": "بحث",
+    "de": "Suchen",
+    "fr": "Rechercher",
+    "it": "Cerca",
+    "pt": "Pesquisar",
+    "es": "Buscar",
+    "ca": "Cerca",
+    "tr": "Ara",
+    "uk": "Пошук"
+  },
+  "SETTINGS$NAV_SEARCH_NO_RESULTS": {
+    "en": "No settings match your search",
+    "ja": "一致する設定はありません",
+    "zh-CN": "没有匹配的设置",
+    "zh-TW": "沒有符合的設定",
+    "ko-KR": "일치하는 설정이 없습니다",
+    "no": "Ingen innstillinger samsvarer med søket",
+    "ar": "لا توجد إعدادات مطابقة",
+    "de": "Keine Einstellungen gefunden",
+    "fr": "Aucun paramètre ne correspond",
+    "it": "Nessuna impostazione corrisponde",
+    "pt": "Nenhuma definição corresponde",
+    "es": "Ningún ajuste coincide",
+    "ca": "Cap configuració coincideix",
+    "tr": "Eşleşen ayar yok",
+    "uk": "Немає відповідних налаштувань"
   }
 }

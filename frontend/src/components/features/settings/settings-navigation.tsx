@@ -1,3 +1,4 @@
+import React from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "#/utils/utils";
 import { Typography } from "#/ui/typography";
@@ -10,6 +11,8 @@ import { useShouldHideOrgSelector } from "#/hooks/use-should-hide-org-selector";
 import { SettingsNavHeader } from "./settings-nav-header";
 import { SettingsNavDivider } from "./settings-nav-divider";
 import { SettingsNavLink } from "./settings-nav-link";
+import { SettingsNavSearch } from "./settings-nav-search";
+import { filterSettingsNavItems } from "./filter-settings-nav-items";
 
 interface SettingsNavigationProps {
   isMobileMenuOpen: boolean;
@@ -24,6 +27,12 @@ export function SettingsNavigation({
 }: SettingsNavigationProps) {
   const { t } = useTranslation();
   const shouldHideSelector = useShouldHideOrgSelector();
+  const [query, setQuery] = React.useState("");
+
+  const visibleItems = React.useMemo(
+    () => filterSettingsNavItems(navigationItems, query, (key) => t(key)),
+    [navigationItems, query, t],
+  );
 
   return (
     <>
@@ -64,8 +73,18 @@ export function SettingsNavigation({
 
         {!shouldHideSelector && <OrgSelector />}
 
+        <SettingsNavSearch value={query} onChange={setQuery} />
+
         <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar-always">
-          {navigationItems.map((renderedItem, index) => {
+          {query.trim() && visibleItems.length === 0 && (
+            <p
+              data-testid="settings-nav-search-empty"
+              className="px-1 sm:px-4.5 text-sm text-white/40"
+            >
+              {t(I18nKey.SETTINGS$NAV_SEARCH_NO_RESULTS)}
+            </p>
+          )}
+          {visibleItems.map((renderedItem, index) => {
             if (renderedItem.type === "header") {
               return (
                 <SettingsNavHeader
