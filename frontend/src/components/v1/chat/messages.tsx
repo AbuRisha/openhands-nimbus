@@ -58,7 +58,13 @@ export const Messages: React.FC<MessagesProps> = React.memo(
      * errors keep their full rows, so nothing a user needs to read ends up
      * behind a click.
      */
-    const renderPlan = React.useMemo(() => planToolCalls(messages), [messages]);
+    // allEvents, not just messages: handleEventForUI replaces an action with
+    // its observation in the rendered list, so the action a row needs for its
+    // summary only exists in the full history.
+    const renderPlan = React.useMemo(
+      () => planToolCalls(messages, allEvents),
+      [messages, allEvents],
+    );
 
     const renderEvent = (message: OpenHandsEvent, index: number) => {
       const messageId = String(message.id);
