@@ -21,7 +21,13 @@ export type SettingsNavSection =
   | "personal"
   | "user"
   | "billing"
-  | "other";
+  | "other"
+  // Claude's settings shape: a "Settings" group of things about your account
+  // and how the product behaves, then a "Customize" group of things you add to
+  // it (skills, connectors, and — once P7/P5 land — plugins and extensions).
+  // A flat list of ten items had no such reading order; these two do.
+  | "workspace"
+  | "customize";
 
 export interface SettingsNavItem {
   icon: React.ReactElement;
@@ -172,56 +178,72 @@ export const OSS_NAV_ITEMS: SettingsNavItem[] = [
    * customer spend belongs on a per-customer page, not by un-gating an admin
    * dashboard.
    */
+  // ── Settings ──────────────────────────────────────────────────────────
   {
-    icon: <KeyIcon width={22} height={22} />,
-    to: "/settings/api-keys",
-    text: "SETTINGS$NAV_API_KEYS",
+    icon: <SettingsGearIcon width={22} height={22} />,
+    to: "/settings/app",
+    text: "SETTINGS$NAV_APPLICATION",
+    section: "workspace",
   },
   {
     icon: <RobotIcon width={22} height={22} />,
     to: "/settings/agent",
     text: "SETTINGS$AGENT",
+    section: "workspace",
   },
   {
     icon: <CircuitIcon width={22} height={22} />,
     to: "/settings",
     text: "SETTINGS$NAV_LLM",
+    section: "workspace",
     disabledByAcp: true,
   },
   {
     icon: <MemoryIcon width={22} height={22} />,
     to: "/settings/condenser",
     text: "SETTINGS$NAV_CONDENSER",
+    section: "workspace",
     disabledByAcp: true,
   },
   {
     icon: <LockIcon width={22} height={22} />,
     to: "/settings/verification",
     text: "SETTINGS$NAV_VERIFICATION",
+    section: "workspace",
   },
   {
-    icon: <ServerProcessIcon width={22} height={22} />,
-    to: "/settings/mcp",
-    text: "SETTINGS$NAV_MCP",
-  },
-  {
-    icon: <LightbulbIcon width={22} height={22} />,
-    to: "/settings/skills",
-    text: "SETTINGS$NAV_SKILLS",
-  },
-  {
-    icon: <PuzzlePieceIcon width={22} height={22} />,
-    to: "/settings/integrations",
-    text: "SETTINGS$NAV_INTEGRATIONS",
-  },
-  {
-    icon: <SettingsGearIcon width={22} height={22} />,
-    to: "/settings/app",
-    text: "SETTINGS$NAV_APPLICATION",
+    icon: <KeyIcon width={22} height={22} />,
+    to: "/settings/api-keys",
+    text: "SETTINGS$NAV_API_KEYS",
+    section: "workspace",
   },
   {
     icon: <KeyIcon width={22} height={22} />,
     to: "/settings/secrets",
     text: "SETTINGS$NAV_SECRETS",
+    section: "workspace",
+  },
+
+  // ── Customize ─────────────────────────────────────────────────────────
+  // What you ADD to the product, as opposed to how it already behaves.
+  {
+    icon: <LightbulbIcon width={22} height={22} />,
+    to: "/settings/skills",
+    text: "SETTINGS$NAV_SKILLS",
+    section: "customize",
+  },
+  {
+    icon: <PuzzlePieceIcon width={22} height={22} />,
+    to: "/settings/integrations",
+    // "Connectors" is what this is called everywhere else in the market, and
+    // what customers arrive looking for. "Integrations" is the same page.
+    text: "SETTINGS$NAV_CONNECTORS",
+    section: "customize",
+  },
+  {
+    icon: <ServerProcessIcon width={22} height={22} />,
+    to: "/settings/mcp",
+    text: "SETTINGS$NAV_MCP",
+    section: "customize",
   },
 ];

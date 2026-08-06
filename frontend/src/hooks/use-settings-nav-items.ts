@@ -32,7 +32,62 @@ export type SettingsNavRenderedItem =
 const SECTION_HEADERS: Partial<Record<SettingsNavSection, I18nKey>> = {
   org: I18nKey.SETTINGS$ORG_SETTINGS_HEADER,
   personal: I18nKey.SETTINGS$PERSONAL_SETTINGS_HEADER,
+  workspace: I18nKey.SETTINGS$NAV_WORKSPACE_HEADER,
+  customize: I18nKey.SETTINGS$NAV_CUSTOMIZE_HEADER,
 };
+
+/**
+ * Insert section headers and dividers into an ordered item list.
+ *
+ * Shared by both app modes rather than duplicated: OSS grew the same grouped
+ * shape SaaS had, and two copies of this loop would drift the moment one gained
+ * a section the other did not.
+ *
+ * `showSectionHeaders` is separate from the grouping itself because SaaS hides
+ * the org/personal captions for members and personal orgs while still wanting
+ * the dividers — the caption is a permission-dependent detail, the grouping is
+ * not.
+ */
+function buildSectionedItems(
+  items: SettingsNavItem[],
+  buildRenderedItem: (item: SettingsNavItem) => SettingsNavRenderedItem,
+  showSectionHeaders: boolean,
+): SettingsNavRenderedItem[] {
+  const renderedItems: SettingsNavRenderedItem[] = [];
+  let currentSection: SettingsNavSection | undefined;
+  let isFirstSection = true;
+
+  for (const item of items) {
+    const itemSection = item.section;
+
+    if (itemSection && itemSection !== currentSection) {
+      // For personal orgs or members, "org" and "personal" read as one group
+      // (LLM is the only org item visible and should flow with personal items).
+      const isOrgToPersonalWithoutHeaders =
+        !showSectionHeaders &&
+        currentSection === "org" &&
+        itemSection === "personal";
+
+      if (!isFirstSection && !isOrgToPersonalWithoutHeaders) {
+        renderedItems.push({ type: "divider" });
+      }
+
+      if (showSectionHeaders && SECTION_HEADERS[itemSection]) {
+        renderedItems.push({
+          type: "header",
+          text: SECTION_HEADERS[itemSection]!,
+        });
+      }
+
+      currentSection = itemSection;
+      isFirstSection = false;
+    }
+
+    renderedItems.push(buildRenderedItem(item));
+  }
+
+  return renderedItems;
+}
 
 /**
  * Build Settings navigation items based on:
@@ -121,51 +176,20 @@ export function useSettingsNavItems(): SettingsNavRenderedItem[] {
     return { type: "item", item };
   };
 
-  // For OSS mode or non-SaaS, return flat list without sections
+  // OSS used to return a flat list of ten items with no reading order at all.
+  // It now carries the same two groups the SaaS nav has always had headers
+  // for — Settings, then Customize — because this is the deployment customers
+  // actually use, and "everything in one undifferentiated column" was the
+  // thing being complained about.
   if (!isSaasMode) {
-    return items.map(buildRenderedItem);
+    return buildSectionedItems(items, buildRenderedItem, true);
   }
 
-  // Build rendered items with headers and dividers for SaaS mode
-  const renderedItems: SettingsNavRenderedItem[] = [];
-  let currentSection: SettingsNavSection | undefined;
-  let isFirstSection = true;
-
-  // Determine if we should show section headers (only for admins/owners in team orgs)
-  const showSectionHeaders = isTeamOrg && isAdminOrOwner;
-
-  for (const item of items) {
-    const itemSection = item.section;
-
-    // Check if we're entering a new section
-    if (itemSection && itemSection !== currentSection) {
-      // For personal orgs or members, treat "org" and "personal" sections as one group
-      // (LLM is the only org item visible and should flow with personal items)
-      const isOrgToPersonalWithoutHeaders =
-        (isPersonalOrg || !isAdminOrOwner) &&
-        currentSection === "org" &&
-        itemSection === "personal";
-
-      // Add divider between sections (but not before the first section,
-      // and not between org->personal when section headers aren't shown)
-      if (!isFirstSection && !isOrgToPersonalWithoutHeaders) {
-        renderedItems.push({ type: "divider" });
-      }
-
-      // Add section header for org and personal sections (admins/owners only)
-      if (showSectionHeaders && SECTION_HEADERS[itemSection]) {
-        renderedItems.push({
-          type: "header",
-          text: SECTION_HEADERS[itemSection]!,
-        });
-      }
-
-      currentSection = itemSection;
-      isFirstSection = false;
-    }
-
-    renderedItems.push(buildRenderedItem(item));
-  }
-
-  return renderedItems;
+  // Section headers show only for admins/owners in team orgs; the dividers
+  // are unconditional.
+  return buildSectionedItems(
+    items,
+    buildRenderedItem,
+    isTeamOrg && isAdminOrOwner,
+  );
 }

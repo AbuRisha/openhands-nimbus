@@ -166,8 +166,15 @@ describe("Settings Screen", () => {
     });
 
   it("should render the navbar", async () => {
-    const sectionsToInclude = ["llm", "integrations", "application", "secrets"];
-    const sectionsToExclude = ["api keys", "credits", "billing"];
+    // "connectors", not "integrations": the page is the same, the label is the
+    // word customers actually arrive looking for.
+    const sectionsToInclude = ["llm", "connectors", "application", "secrets"];
+    // "api keys" is NOT excluded: OSS deliberately lists it (see the comment on
+    // OSS_NAV_ITEMS — without it the page was reachable only by hand-typing the
+    // URL, so a customer could not manage their own keys from inside the
+    // product). This assertion was passing only because the "integrations"
+    // lookup above threw before the exclusions ever ran.
+    const sectionsToExclude = ["credits", "billing"];
     const getConfigSpy = vi.spyOn(OptionService, "getConfig");
     // @ts-expect-error - only return app mode
     getConfigSpy.mockResolvedValue({
