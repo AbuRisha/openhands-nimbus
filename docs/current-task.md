@@ -92,6 +92,35 @@ branch, tests pass. Rewriting pushed history to fix this trades a cosmetic
 problem for a lost-work one; a note in the PR description carries the same
 information to a reviewer at no risk.
 
+## P15 — what is built, and exactly what wiring is left
+
+BUILT (`596116e25`, `1a0fa14f5`): the decision module
+`src/utils/refusal-failover.ts` (14 tests) and the inline prompt
+`components/features/chat/refusal-prompt.tsx` (8 tests). Both are pure/presentational.
+
+NOT BUILT — nothing detects a refusal and nothing applies a choice. The four
+pieces, in order:
+
+1. **Detect.** Watch the last assistant message as it settles and run
+   `looksLikeRefusal()` on its text. Do this when the turn ENDS, not per
+   streaming delta: a partial stream can contain "I can't help with" mid-sentence
+   and would fire the prompt against a message still being written.
+2. **Offer.** Build the catalog from `useLlmProfiles()` (name + model, same
+   source the composer chip uses), call `chooseFallback(conversation.llm_model,
+   catalog)`, render `<RefusalPrompt>` anchored to that message. Null fallback
+   is already handled by the component.
+3. **Apply a retry.** `switchAndLog(conversationId, fallbackProfileName)` — note
+   it takes a PROFILE NAME, not a model id, so map back through the profiles
+   list — then resend the original user message. The original text is NOT in the
+   optimistic store by then; read it from the last user MessageEvent.
+4. **Restore.** On turn completion call `modelToRestoreAfterTurn(choice,
+   originalModel)` and switch back when it returns non-null. This is the whole
+   point of the feature and the easiest piece to skip, because everything looks
+   correct without it until someone reads their bill.
+
+TRAP: the retry must not re-trigger detection on its own refusal and loop. Guard
+by message id — a given message gets at most one prompt, answered or not.
+
 ## Done and verified
 
 | | Verified how |
