@@ -35,6 +35,7 @@ import { getStatusColor, getStatusText } from "#/utils/utils";
 import { useNewConversationCommand } from "#/hooks/mutation/use-new-conversation-command";
 import { I18nKey } from "#/i18n/declaration";
 import { ArchivedBanner } from "./archived-banner";
+import { PendingMessages } from "./pending-messages";
 import { useResumeThenSend } from "#/hooks/use-resume-then-send";
 import { useModelStore } from "#/stores/model-store";
 
@@ -340,6 +341,10 @@ export function ChatInterface() {
               first; the only visible cost is a brief reconnect on the first
               message after a restart. */}
           {resumeState === "failed" && <ArchivedBanner />}
+
+          {/* Above the composer: what you typed while the agent was busy is
+              still yours, and still cancellable, until it is delivered. */}
+          <PendingMessages />
 
           <InteractiveChatBox
             onSubmit={handleSendMessage}

@@ -29442,5 +29442,39 @@
     "ca": "No hi ha cap altre model disponible per provar.",
     "tr": "Denenecek başka model yok.",
     "uk": "Немає іншої моделі для спроби."
+  },
+  "QUEUE$WAITING": {
+    "en": "Queued — will send when the agent is free",
+    "ja": "キュー待ち — エージェントが空き次第送信",
+    "zh-CN": "已排队 — 代理空闲时发送",
+    "zh-TW": "已排入佇列 — 代理空閒時傳送",
+    "ko-KR": "대기 중 — 에이전트가 준비되면 전송",
+    "no": "I kø — sendes når agenten er ledig",
+    "ar": "في الانتظار — سيُرسل عندما يتفرغ الوكيل",
+    "de": "In der Warteschlange — wird gesendet, sobald der Agent frei ist",
+    "fr": "En file d'attente — sera envoyé dès que l'agent sera libre",
+    "it": "In coda — verrà inviato quando l'agente sarà libero",
+    "pt": "Em fila — será enviado quando o agente estiver livre",
+    "es": "En cola — se enviará cuando el agente esté libre",
+    "ca": "En cua — s'enviarà quan l'agent estigui lliure",
+    "tr": "Sırada — aracı boşaldığında gönderilecek",
+    "uk": "У черзі — надішлеться, коли агент звільниться"
+  },
+  "QUEUE$CANCEL": {
+    "en": "Cancel",
+    "ja": "キャンセル",
+    "zh-CN": "取消",
+    "zh-TW": "取消",
+    "ko-KR": "취소",
+    "no": "Avbryt",
+    "ar": "إلغاء",
+    "de": "Abbrechen",
+    "fr": "Annuler",
+    "it": "Annulla",
+    "pt": "Cancelar",
+    "es": "Cancelar",
+    "ca": "Cancel·la",
+    "tr": "İptal",
+    "uk": "Скасувати"
   }
 }
