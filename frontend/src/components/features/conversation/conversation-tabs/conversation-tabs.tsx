@@ -106,6 +106,15 @@ export function ConversationTabs() {
       className: "pl-2",
     },
     {
+      tabValue: "preview",
+      isActive: isTabActive("preview"),
+      icon: GlobeIcon,
+      onClick: () => selectTab("preview"),
+      tooltipContent: t(I18nKey.PREVIEW$TITLE),
+      tooltipAriaLabel: t(I18nKey.PREVIEW$TITLE),
+      label: t(I18nKey.PREVIEW$TITLE),
+    },
+    {
       tabValue: "browser",
       isActive: isTabActive("browser"),
       icon: GlobeIcon,

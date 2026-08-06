@@ -37,7 +37,14 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Final, Mapping
+from typing import Final, Mapping, TypeVar
+
+# The policy inspects only NAMES, so it genuinely does not care what a server
+# IS. But typing the values as `object` discarded the caller's type at the
+# boundary and made `mcp_servers.update(permitted)` unassignable. A TypeVar
+# keeps this module decoupled from MCPServer AND hands the caller its own type
+# back, which is what `object` was reaching for and missing.
+_ServerT = TypeVar('_ServerT')
 
 _logger = logging.getLogger(__name__)
 
@@ -136,8 +143,8 @@ def permits(policy: MCPPolicy, name: str) -> bool:
 
 
 def filter_servers(
-    servers: Mapping[str, object], policy: MCPPolicy
-) -> tuple[dict[str, object], list[str]]:
+    servers: Mapping[str, _ServerT], policy: MCPPolicy
+) -> tuple[dict[str, _ServerT], list[str]]:
     """Split customer servers into (permitted, rejected-names).
 
     Rejected names are returned rather than just dropped so the caller can log
@@ -145,7 +152,7 @@ def filter_servers(
     that was never configured, and that turns a policy decision into a support
     ticket about a broken feature.
     """
-    permitted: dict[str, object] = {}
+    permitted: dict[str, _ServerT] = {}
     rejected: list[str] = []
 
     for name, server in servers.items():
