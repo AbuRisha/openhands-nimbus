@@ -135,7 +135,10 @@ class NimbusSettingsStore(FileSettingsStore):
             )
             return None
 
-        from openhands.app_server.settings.settings_models import Settings
+        from openhands.app_server.settings.settings_models import (
+            OpenHandsAgentSettings,
+            Settings,
+        )
 
         seeded = Settings(
             **{
@@ -149,6 +152,33 @@ class NimbusSettingsStore(FileSettingsStore):
             }
         )
         seeded.v1_enabled = True
+
+        # Sub-agent delegation on by default.
+        #
+        # The SDK ships enable_sub_agents=False, which gates TaskToolSet out of
+        # the agent's tools entirely — so "spawn an agent to do X" simply did
+        # not exist until a customer found the toggle buried in Agent settings.
+        # A capability nobody can discover is one we do not have, and delegation
+        # is core to how this product is meant to be used.
+        #
+        # It is seeded rather than forced on every load: a customer who turns it
+        # back off has made a choice, and the next settings load must not undo
+        # it. That does mean customers seeded before this change keep it off
+        # until they toggle it themselves, which is the honest trade — there is
+        # no way to tell "never set" from "deliberately disabled" once both are
+        # stored as False.
+        #
+        # COST NOTE: each sub-agent is a full conversation against the same
+        # model, so a delegating turn can cost several times a plain one. That
+        # bills through the customer's own key exactly as their own turns do.
+        #
+        # Guarded on the settings type rather than assumed: agent_settings is a
+        # union, and ACPAgentSettings has no such field because an ACP
+        # sub-agent (Claude Code / Codex / Gemini CLI) manages its own
+        # delegation. Setting it there would be meaningless even if it existed.
+        if isinstance(seeded.agent_settings, OpenHandsAgentSettings):
+            seeded.agent_settings.enable_sub_agents = True
+
         # Seed the model picker in the same pass. Doing it here rather than on
         # the next load means a brand new customer's first view of chat already
         # has every Nimbus model in the header dropdown.

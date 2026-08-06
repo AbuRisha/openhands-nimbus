@@ -27,11 +27,33 @@ export function ChatStopButton({ handleStop }: ChatStopButtonProps) {
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      // Don't steal Escape from a text field the user is editing, or from an
-      // open overlay that needs to close first.
+
+      // Something closer to the user already acted on this Escape. The slash
+      // menu closes on it and calls preventDefault without stopping
+      // propagation, so without this check one press would both close the menu
+      // and kill the run. defaultPrevented is the signal for "handled" that
+      // does not require this component to know who else is listening.
+      if (event.defaultPrevented) return;
+
       const active = document.activeElement;
+
+      // The composer is exempt from the is-editing bail below, and that
+      // exemption is the entire point of this handler.
+      //
+      // The composer is a contentEditable div, and it holds focus for
+      // essentially the whole time an agent is running — you type, you send,
+      // focus stays. So treating "contentEditable" as "a text field the user
+      // is editing, leave it alone" meant Escape never once reached
+      // handleStop: interrupting by keyboard was silently impossible in the
+      // only state where anyone would ever want it.
+      const isChatComposer =
+        active instanceof HTMLElement &&
+        active.closest('[data-testid="chat-input"]') !== null;
+
+      // Any OTHER text field still keeps its Escape.
       const isEditing =
         active instanceof HTMLElement &&
+        !isChatComposer &&
         (active.tagName === "INPUT" ||
           active.tagName === "TEXTAREA" ||
           active.isContentEditable);
