@@ -35,6 +35,7 @@ import { getStatusColor, getStatusText } from "#/utils/utils";
 import { useNewConversationCommand } from "#/hooks/mutation/use-new-conversation-command";
 import { I18nKey } from "#/i18n/declaration";
 import { ArchivedBanner } from "./archived-banner";
+import { useResumeThenSend } from "#/hooks/use-resume-then-send";
 import { useModelStore } from "#/stores/model-store";
 
 export function ChatInterface() {
@@ -103,6 +104,9 @@ export function ChatInterface() {
   }, [isAgentRunning, handleBuildPlanClick, scrollDomToBottom]);
 
   const params = useParams();
+  // A missing sandbox is infrastructure churn, not a decision the user made.
+  // Rather than replacing the composer with a dead end, resume on send.
+  const { ensureLive, resumeState } = useResumeThenSend(params.conversationId);
   const { mutateAsync: uploadFiles } = useUnifiedUploadFiles();
 
   const optimisticUserMessage = getOptimisticUserMessage();
@@ -148,6 +152,17 @@ export function ChatInterface() {
       }
       newConversationCommand();
       return;
+    }
+
+    // If the sandbox died under us (deploy, recycle, crash), bring it back
+    // before the message goes anywhere. ensureLive is a no-op when the sandbox
+    // is already running, so this costs nothing on the normal path.
+    if (isArchived) {
+      const live = await ensureLive();
+      if (!live) {
+        displayErrorToast(t(I18nKey.CONVERSATION$RESUME_FAILED));
+        return;
+      }
     }
 
     // Create mutable copies of the arrays
@@ -308,14 +323,17 @@ export function ChatInterface() {
             />
           )}
 
-          {isArchived && <ArchivedBanner />}
+          {/* The composer is ALWAYS available. Hiding it behind an archived
+              banner made routine infrastructure churn look like the end of the
+              conversation — the user could not even type. Sending resumes
+              first; the only visible cost is a brief reconnect on the first
+              message after a restart. */}
+          {resumeState === "failed" && <ArchivedBanner />}
 
-          {!isArchived && (
-            <InteractiveChatBox
-              onSubmit={handleSendMessage}
-              disabled={isNewConversationPending}
-            />
-          )}
+          <InteractiveChatBox
+            onSubmit={handleSendMessage}
+            disabled={isNewConversationPending || resumeState === "resuming"}
+          />
         </div>
       </div>
     </ScrollProvider>
