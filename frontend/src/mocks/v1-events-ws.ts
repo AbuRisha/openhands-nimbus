@@ -163,9 +163,23 @@ const events = ws.link(`ws://${window?.location.host}/sockets/events/*`);
 
 export const V1_EVENTS_WS_HANDLERS: WebSocketHandler[] = [
   events.addEventListener("connection", ({ client }) => {
-    // Sent as individual frames, which is what the real socket does: the
-    // reducer appends per event, and delivering one array would exercise a
-    // path production never takes.
-    TRANSCRIPT.forEach((event) => client.send(JSON.stringify(event)));
+    /*
+     * Deferred a tick, and replayed on EVERY connection.
+     *
+     * Sending synchronously inside the connection handler raced the app: the
+     * frames went out before it had finished attaching its own onmessage
+     * listener, so the transcript rendered once and then came back empty after
+     * any reconnect — which made the diff rendering impossible to look at,
+     * because expanding a row takes longer than the next reconnect.
+     *
+     * The handler already fires per connection, so replay was never the missing
+     * part. The ordering was.
+     */
+    setTimeout(() => {
+      // Individual frames, which is what the real socket does: the reducer
+      // appends per event, and delivering one array would exercise a path
+      // production never takes.
+      TRANSCRIPT.forEach((event) => client.send(JSON.stringify(event)));
+    }, 0);
   }),
 ];

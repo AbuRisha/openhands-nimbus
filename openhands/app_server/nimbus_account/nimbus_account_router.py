@@ -22,11 +22,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-from typing import Final
+from typing import Annotated, Final
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from openhands.app_server.user_auth import get_user_id
 from openhands.app_server.utils.dependencies import get_dependencies
@@ -123,9 +123,7 @@ async def get_account(user_id: str | None = Depends(get_user_id)) -> NimbusAccou
         chat=ChatSpend(
             has_key=bool(chat.get('hasKey')),
             spend_cap_usd=(
-                None
-                if chat.get('spendCapUsd') is None
-                else float(chat['spendCapUsd'])
+                None if chat.get('spendCapUsd') is None else float(chat['spendCapUsd'])
             ),
             spent_usd=float(chat.get('spentUsd') or 0.0),
             request_count=int(chat.get('requestCount') or 0),
@@ -142,7 +140,7 @@ class SpendCapRequest(BaseModel):
 
 @router.put('/account/spend-cap', response_model=NimbusAccount)
 async def set_spend_cap(
-    body: SpendCapRequest = Body(...),
+    body: Annotated[SpendCapRequest, Body()],
     user_id: str | None = Depends(get_user_id),
 ) -> NimbusAccount:
     """Set a chat-only ceiling, separate from the account balance.
@@ -176,9 +174,10 @@ async def set_spend_cap(
         settings = await store.load()
         llm = getattr(getattr(settings, 'agent_settings', None), 'llm', None)
         raw = getattr(llm, 'api_key', None)
-        current_key = (
-            raw.get_secret_value() if hasattr(raw, 'get_secret_value') else raw
-        )
+        # isinstance, not hasattr: api_key is typed SecretStr | None and the
+        # only other thing it can hold is a raw str, so this is the actual
+        # contract. hasattr also left None unnarrowed, which mypy rejects.
+        current_key = raw.get_secret_value() if isinstance(raw, SecretStr) else raw
     except Exception as exc:  # noqa: BLE001 - fallback is a fresh mint
         logger.info(
             'nimbus_account: could not read the stored chat key (%s); the cap '
