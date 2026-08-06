@@ -61,6 +61,51 @@ class EventService(ABC):
     async def save_event(self, conversation_id: UUID, event: Event):
         """Save an event. Internal method intended not be part of the REST api."""
 
+    async def copy_events_until(
+        self,
+        source_conversation_id: UUID,
+        target_conversation_id: UUID,
+        up_to_event_id: str | None = None,
+    ) -> int:
+        """Copy a conversation's history into another, up to a chosen point.
+
+        This is the load-bearing half of forking a conversation. Agentic coding
+        is speculative: the agent goes down a wrong path and what the user needs
+        is to get BACK to a good state and try differently, which today means
+        starting over and re-explaining everything.
+
+        WHY COPY RATHER THAN TRUNCATE
+        -----------------------------
+        The obvious alternative — delete everything after a point in place — is
+        destructive, and there is no delete on this interface for good reason:
+        it would have to exist in every implementation, including the ones
+        backed by object storage where a "delete" is not obviously reversible.
+        Copying leaves the original conversation exactly as it was, so a fork
+        that turns out to be the wrong idea costs nothing. It also means this
+        can never destroy history through a bug in the cutoff logic, which is
+        the failure that would matter most.
+
+        THE CUTOFF IS INCLUSIVE
+        -----------------------
+        `up_to_event_id` is the last event KEPT, not the first dropped. A user
+        forks *from* a message they can see, and "from here" naturally includes
+        the thing they pointed at. Excluding it would silently drop the event
+        they were reasoning about.
+
+        An id that does not appear copies the whole history rather than nothing.
+        The alternative — an empty fork — looks identical to a broken feature,
+        while a complete copy is at worst more than was asked for and is
+        obviously recoverable. Callers that need to know should check the
+        returned count against their expectation.
+        """
+        copied = 0
+        async for event in self.iter_events_for_export(source_conversation_id):
+            await self.save_event(target_conversation_id, event)
+            copied += 1
+            if up_to_event_id is not None and str(event.id) == up_to_event_id:
+                break
+        return copied
+
     async def batch_get_events(
         self, conversation_id: UUID, event_ids: list[UUID]
     ) -> list[Event | None]:

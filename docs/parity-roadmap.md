@@ -276,3 +276,48 @@ the sandbox publishes only an `AGENT_SERVER` entry
 (`sandbox/process_sandbox_service.py:529-535`). The lookup always misses and
 the tab renders "URL not available". Tracked as P14 — offering a permanently
 broken tab is the one option to rule out.
+
+---
+
+## 9. Fork a conversation — what is built, and the decision that is not mine
+
+`EventService.copy_events_until(source, target, up_to_event_id)` is built and
+tested (9 tests). It is the load-bearing half: copy a conversation's history
+into another, inclusive of the chosen event, without touching the source.
+
+**Copy, not truncate — deliberately.** The obvious alternative is deleting
+everything after a point in place, and the interface has no delete for good
+reason: it would have to exist in every implementation, including the ones
+backed by object storage where a delete is not obviously reversible. Copying
+means a cutoff bug costs a wrong-sized fork rather than someone's history, and
+a fork that turns out to be a bad idea costs nothing.
+
+**Two behaviours chosen against the obvious reading**, both because the
+alternative is indistinguishable from a bug:
+
+- the cutoff is **inclusive** — a user forks *from* a message they can see, and
+  excluding it silently drops the event they were reasoning about
+- an **unknown id copies everything**, because an empty fork looks exactly like
+  a broken feature, whereas a complete copy is at worst more than was asked for
+
+### What is NOT built, and why it needs a decision rather than code
+
+A forked conversation gets its **own sandbox**, and it is not established
+whether the agent server also needs the replayed events or whether restoring
+them into the app-server event store is sufficient for the transcript to render
+and the agent to reason. That is a semantics question about the SDK's
+conversation state, not a wiring question, and guessing it produces a fork that
+looks right and behaves subtly wrong — the worst possible outcome for a feature
+whose entire purpose is recovering trust after the agent went wrong.
+
+Settle it before wiring the endpoint: start a conversation, restore events into
+it, and check whether the agent's own context reflects them. If it does not, the
+fork needs to replay through the agent server rather than the event store, and
+that is a different endpoint.
+
+### The endpoint, once that is answered
+
+`POST /app-conversations/{id}/fork` with `{ "up_to_event_id": "..." }` →
+start a conversation (existing path), `copy_events_until` into it, return the
+new conversation. Frontend needs a fork action on a message and a way to open
+the result.
