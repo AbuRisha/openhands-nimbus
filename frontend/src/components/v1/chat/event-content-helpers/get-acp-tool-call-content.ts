@@ -1,6 +1,6 @@
 import { ACPToolCallEvent } from "#/types/v1/core/events/acp-tool-call-event";
 import i18n from "#/i18n";
-import { MAX_CONTENT_LENGTH } from "./shared";
+import { truncateForDisplay } from "./shared";
 
 /**
  * Stringify an arbitrary raw_input / raw_output payload for markdown
@@ -16,10 +16,7 @@ const stringifyPayload = (value: unknown): string => {
   }
 };
 
-const truncate = (content: string): string =>
-  content.length > MAX_CONTENT_LENGTH
-    ? `${content.slice(0, MAX_CONTENT_LENGTH)}...`
-    : content;
+const truncate = (content: string): string => truncateForDisplay(content);
 
 /**
  * Build the markdown-flavored body for an ACP tool call card. Mirrors the

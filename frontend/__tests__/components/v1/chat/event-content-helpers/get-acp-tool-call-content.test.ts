@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { getACPToolCallContent } from "#/components/v1/chat/event-content-helpers/get-acp-tool-call-content";
 import { getACPToolCallResult } from "#/components/v1/chat/event-content-helpers/get-observation-result";
 import { ACPToolCallEvent } from "#/types/v1/core/events/acp-tool-call-event";
+import { MAX_CONTENT_LENGTH } from "#/components/v1/chat/event-content-helpers/shared";
 
 const baseEvent: ACPToolCallEvent = {
   kind: "ACPToolCallEvent",
@@ -71,13 +72,25 @@ describe("getACPToolCallContent", () => {
     expect(content).toContain("OBSERVATION$COMMAND_NO_OUTPUT");
   });
 
-  it("truncates very long output to MAX_CONTENT_LENGTH with an ellipsis", () => {
-    const huge = "x".repeat(5000);
+  it("says how much output it withheld instead of trailing off", () => {
+    // A bare "..." is indistinguishable from the command ending there, so a
+    // reader cannot tell whether the line they needed was in the part they
+    // got. The count is the difference between truncation and amputation.
+    const huge = "x".repeat(MAX_CONTENT_LENGTH + 5000);
     const content = getACPToolCallContent(makeEvent({ raw_output: huge }));
 
-    // MAX_CONTENT_LENGTH = 1000 in shared.ts; mirror that budget.
-    expect(content).toMatch(/x{1000}\.\.\./);
-    expect(content).not.toMatch(/x{1001}/);
+    expect(content).toContain("5,000 more characters not shown");
+    expect(content).not.toMatch(new RegExp(`x{${MAX_CONTENT_LENGTH + 1}}`));
+  });
+
+  it("leaves output that fits completely alone", () => {
+    // The helper is applied unconditionally at every call site, so it must be
+    // a no-op below the ceiling — otherwise ordinary output grows a notice.
+    const small = "y".repeat(50);
+    const content = getACPToolCallContent(makeEvent({ raw_output: small }));
+
+    expect(content).toContain(small);
+    expect(content).not.toContain("not shown");
   });
 
   it("serialises structured raw_output as JSON", () => {

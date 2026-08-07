@@ -1,7 +1,7 @@
 import { ObservationEvent } from "#/types/v1/core";
 import { buildUnifiedDiff } from "#/utils/unified-diff";
 import { getObservationResult } from "./get-observation-result";
-import { getDefaultEventContent, MAX_CONTENT_LENGTH } from "./shared";
+import { getDefaultEventContent, truncateForDisplay } from "./shared";
 import i18n from "#/i18n";
 import {
   MCPToolObservation,
@@ -91,9 +91,7 @@ const getTerminalObservationContent = (
 
   let content = textContent || "";
 
-  if (content.length > MAX_CONTENT_LENGTH) {
-    content = `${content.slice(0, MAX_CONTENT_LENGTH)}...`;
-  }
+  content = truncateForDisplay(content);
 
   // Build the output string
   let output = "";
@@ -134,9 +132,7 @@ const getBrowserObservationContent = (
     contentDetails += "Browser action completed successfully.";
   }
 
-  if (contentDetails.length > MAX_CONTENT_LENGTH) {
-    contentDetails = `${contentDetails.slice(0, MAX_CONTENT_LENGTH)}...(truncated)`;
-  }
+  contentDetails = truncateForDisplay(contentDetails);
 
   return contentDetails;
 };
@@ -160,9 +156,7 @@ const getMCPToolObservationContent = (
     content += `**Result:**\n${textContent}`;
   }
 
-  if (content.length > MAX_CONTENT_LENGTH) {
-    content = `${content.slice(0, MAX_CONTENT_LENGTH)}...`;
-  }
+  content = truncateForDisplay(content);
 
   return content;
 };
@@ -269,9 +263,7 @@ const getGlobObservationContent = (
     content += observation.files.map((f) => `- \`${f}\``).join("\n");
   }
 
-  if (content.length > MAX_CONTENT_LENGTH) {
-    content = `${content.slice(0, MAX_CONTENT_LENGTH)}...(truncated)`;
-  }
+  content = truncateForDisplay(content);
 
   return content;
 };
@@ -304,9 +296,7 @@ const getGrepObservationContent = (
     content += observation.matches.map((f) => `- \`${f}\``).join("\n");
   }
 
-  if (content.length > MAX_CONTENT_LENGTH) {
-    content = `${content.slice(0, MAX_CONTENT_LENGTH)}...(truncated)`;
-  }
+  content = truncateForDisplay(content);
 
   return content;
 };
