@@ -344,18 +344,62 @@ request, so the exposed surface had no coverage at all.
 
 262 backend pass (was 247). mypy clean.
 
-### Still open — `/mcp`
+### ANSWERED — `/mcp` does not refuse anonymous callers
 `/mcp` is an ASGI **Mount**, not a route; the real endpoint is `POST /mcp/mcp`.
 It is outside `/api` so the gate does not require a session, and
-`get_user_id` returns `str | None` WITHOUT raising — so an anonymous call would
-reach the tools with `user_id=None` rather than being refused.
+`get_user_id` returns `str | None` WITHOUT raising.
 
-Whether FastMCP itself refuses anonymous callers is **not answered**. Probing it
-under `TestClient` is inconclusive: FastMCP's `StreamableHTTPSessionManager`
-needs the app lifespan, which TestClient does not run, so the request dies with
-"task group was not initialized" before any handler. That 500 is infrastructure
-and says nothing about auth. Answering it needs a real ASGI server with
-lifespan. Same shape as the bug just fixed, so it is worth answering.
+Settled 2026-08-07 by running the app under **uvicorn** so the FastMCP lifespan
+actually starts. (`TestClient` cannot answer this — it does not run the lifespan,
+so `StreamableHTTPSessionManager` is never started and every request dies with
+"task group was not initialized" → 500 before any handler. That 500 is
+infrastructure and says nothing about auth. On Windows also set `PYTHONUTF8=1`,
+or migration `017`'s em-dash `print` aborts startup under cp932 behind a 130-line
+ExceptionGroup.)
+
+With no cookie and no `X-Access-Token`:
+
+- `tools/list` → **200** plus the full five-tool inventory, without even an
+  `initialize`.
+- `tools/call create_pr` → **200**, having **executed** the tool body with
+  `user_id=None`.
+
+Nothing rejects it: the gate falls through to `call_next`, `/mcp` is not in
+`_EXEMPT_PREFIXES`, and `FastMCP('mcp', ...)` is built with no auth provider.
+
+**What it can do.** `user_id=None` sends `get_provider_tokens` to
+`user_scoped_path(None, 'secrets.json')` — the LEGACY SHARED file at the
+file-store root. Seed a github token there and the anonymous `create_pr` picks it
+up and reaches GitHub: the error moves from `Illegal header value b'Bearer '`
+(empty token, httpx refusing to build the request locally — it never leaves the
+process) to `Invalid github token`, which `http_client.py:89` raises ONLY from a
+real HTTP 401. Same under `NimbusServerConfig` and under the default OSS config,
+where `FileSecretsStore.get_instance` ignores its `user_id` outright.
+
+**Live deployment.** `chat.nimbusapi.net/mcp/mcp` answers an unauthenticated
+`tools/list` with 200 — ACA ingress is `external: true` with
+`ipSecurityRestrictions: null`, and nothing in `containers/` filters by path. An
+anonymous `create_pr` there returns the empty-token failure: it executes and
+cannot act. The AzureFile share behind `OH_PERSISTENCE_DIR=/data/openhands`
+(`nimbusbackups4768`/`openhands-data`) has `settings.json` at its root but **no
+`secrets.json`**; the deployment's one real github token lives at
+`users/<customer>/secrets.json`, which an anonymous caller never resolves to.
+
+So per-customer isolation is the only thing holding this shut, and the share is
+persistent. Anything that ever writes provider tokens to the root path converts a
+reachable-but-inert endpoint into a live one with **no code change and no
+deploy**. The absent file is an accident, not a control.
+
+**Why it is not patched.** Upstream DOES guard this:
+`enterprise/server/middleware.py` returns True for `path.startswith('/mcp')`, and
+`SaasUserAuth.get_mcp_api_key` mints the key the sandbox sends as
+`X-Session-API-Key`. That middleware is in `enterprise/`, not in this deployment,
+and `NimbusUserAuth.get_mcp_api_key` returns `None` — so the **legitimate sandbox
+also calls `/mcp/mcp` with no credential** and also resolves to `user_id=None`.
+That is why the gap is invisible in normal use, and why the fix is *give the
+sandbox a credential first*, then require it. Denying anonymous `/mcp` on its own
+breaks `create_pr` for real users. Recorded as `UNAUTHENTICATED` in
+`tests/app_server/test_unauthenticated_route_surface.py`.
 
 ### The pattern worth remembering
 The module docstring asserted `/bridge/call` was "Session authenticated" while
@@ -449,4 +493,45 @@ A failing probe is not automatically a failing feature, and a probe that
 bypasses the event that carries the semantics is not testing the semantics.
 Same family as the earlier "transcript missing" false alarm, where the grep
 was for a label the summarizer no longer emits.
+
+
+## 2026-08-07 — find-in-conversation (Tier 1 #9), and a measured limitation
+
+`284849fc4`. Cmd/Ctrl+F over the transcript: live count, next/prev with
+wrap-around, Enter / Shift+Enter, Escape to close. VERIFIED IN A BROWSER end
+to end — bar opens on the chord, typing gives "1 of 1" with the current-match
+highlight registered, a no-match query gives "0 of 0" and clears both
+highlight registrations, Escape closes and clears.
+
+TWO DESIGN CALLS WORTH KEEPING:
+
+1. Highlights are Ranges via the CSS Custom Highlight API, NOT `<mark>`
+   wrapping. Wrapping mutates a subtree React owns, and the damage would land
+   in precisely the content worth searching — rendered markdown, code blocks,
+   diff tables. Ranges are inert; the browser paints them with nothing added
+   to the DOM.
+2. The searcher flattens text before matching. Inline formatting splits text
+   across nodes, so a per-node search silently fails on "the total helper"
+   when "total" is in a `<code>`. Flatten, search once, map offsets back.
+
+THE LIMITATION, measured not assumed: find does NOT see inside collapsed tool
+rows. They are not hidden, they are UNMOUNTED — a conversation showing five
+collapsed rows has exactly one "total" in `document.body.textContent` while
+the events behind it contain many. I originally justified taking Cmd+F partly
+on "native find cannot see collapsed output"; mine cannot either, and the
+comment in chat-interface now says so. Anyone seeing a suspiciously low count
+should read that before filing it as a bug. THE NEXT INCREMENT, if wanted:
+search event DATA and expand the owning row on match.
+
+Caught only because "1 of 1" for the word "total" looked wrong and I checked
+`textContent` rather than accepting the number. Same discipline as the
+autorepeat and metaKey finds — the suspicious detail was the lead.
+
+SHARED-TREE HAZARD, hit for real this time. `git add <my paths>` produced an
+index containing SIX of the other lane's files, because they had staged their
+own work concurrently. Committing would have swept their in-flight P5 into my
+commit — the same cross-contamination as `3e9fec44a` earlier on this branch.
+ALWAYS `git diff --cached --name-only` before committing in this tree, and
+recover with `git restore --staged <their paths>`, which leaves their working
+tree untouched. Verified after: their six files intact, my commit exactly 8.
 
