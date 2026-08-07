@@ -156,6 +156,21 @@ const TRANSCRIPT: unknown[] = [
   // A refusal, so the failover prompt can actually be looked at. Short on
   // purpose: looksLikeRefusal has a length ceiling, because a long message
   // containing the same phrase is an answer that happens to open with one.
+  // A condensation, so the divider can be looked at. Until this branch existed
+  // these events arrived over the socket and were dropped one line from being
+  // rendered, so nothing in the app could show one.
+  {
+    id: "e9b",
+    timestamp: AT,
+    source: "environment",
+    // The SDK WIRE value: `kind` is the Python class name, and the class is
+    // `Condensation` -- NOT the TS interface name `CondensationEvent`.
+    kind: "Condensation",
+    forgotten_event_ids: ["e1", "e2", "e3"],
+    summary:
+      "The user asked to tidy total(); the loop became a reduce and four cart tests passed.",
+  },
+
   userMessage("e10", "now do the other thing"),
   assistantMessage("e11", "I can't help with that."),
 ];

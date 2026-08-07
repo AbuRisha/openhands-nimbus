@@ -12,12 +12,15 @@ import {
   isHookExecutionEvent,
   isACPToolCallEvent,
   isStreamingDeltaEvent,
+  isCondensationEvent,
+  isCondensationSummaryEvent,
 } from "#/types/v1/type-guards";
 import { useConfig } from "#/hooks/query/use-config";
 import { useConversationStore } from "#/stores/conversation-store";
 import { useAgentState } from "#/hooks/use-agent-state";
 import { AgentState } from "#/types/agent-state";
 import { ChatMessage } from "../../features/chat/chat-message";
+import { CondensationEventMessage } from "./event-message-components/condensation-event-message";
 import { GenericEventMessage } from "../../features/chat/generic-event-message";
 import { PlanPreview } from "../../features/chat/plan-preview";
 import {
@@ -195,6 +198,12 @@ export function EventMessage({
         )}
       </>
     );
+  }
+
+  // Condensation — a divider, not a bubble. See the component for why it is
+  // styled as a system note rather than something the agent said.
+  if (isCondensationEvent(event) || isCondensationSummaryEvent(event)) {
+    return <CondensationEventMessage event={event} />;
   }
 
   // Finish actions
