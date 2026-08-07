@@ -390,16 +390,62 @@ persistent. Anything that ever writes provider tokens to the root path converts 
 reachable-but-inert endpoint into a live one with **no code change and no
 deploy**. The absent file is an accident, not a control.
 
-**Why it is not patched.** Upstream DOES guard this:
+**Why the order matters.** Upstream DOES guard this:
 `enterprise/server/middleware.py` returns True for `path.startswith('/mcp')`, and
 `SaasUserAuth.get_mcp_api_key` mints the key the sandbox sends as
 `X-Session-API-Key`. That middleware is in `enterprise/`, not in this deployment,
-and `NimbusUserAuth.get_mcp_api_key` returns `None` — so the **legitimate sandbox
-also calls `/mcp/mcp` with no credential** and also resolves to `user_id=None`.
-That is why the gap is invisible in normal use, and why the fix is *give the
-sandbox a credential first*, then require it. Denying anonymous `/mcp` on its own
-breaks `create_pr` for real users. Recorded as `UNAUTHENTICATED` in
-`tests/app_server/test_unauthenticated_route_surface.py`.
+and `NimbusUserAuth.get_mcp_api_key` returned `None` — so the **legitimate sandbox
+also called `/mcp/mcp` with no credential** and also resolved to `user_id=None`.
+That is why the gap was invisible in normal use, and it dictates the sequence:
+denying anonymous `/mcp` on its own would have broken `create_pr` for real users
+while looking like a fix.
+
+### FIXED — 2026-08-07
+
+Three parts, in the only order that works:
+
+1. `NimbusUserAuth.get_mcp_api_key` mints a signed token
+   (`nimbus_session.issue_mcp_token`), which `_add_system_mcp_servers` already
+   drops into `X-Session-API-Key`. The legitimate caller gets a credential
+   **first**.
+2. `NimbusUserAuth.get_instance` accepts that token **on the `/mcp` path only**,
+   so a token minted for MCP cannot stand in for a session on `/api` or
+   `/bridge`.
+3. `mcp_router._require_identity` refuses when identity is still absent —
+   checked **before** any secrets store is read, so a refused call never loads a
+   token it may not use.
+
+Two traps the fix had to avoid:
+
+- **Token confusion.** Both tokens are HMAC'd with the same secret and have the
+  same wire format. A `purpose` claim is now *verified*, not merely described:
+  `read_session` accepts only `purpose=session`, `mcp_token_user_id` only
+  `purpose=mcp`. Without it, a token lifted out of a sandbox would be a valid
+  `nimbus_session` cookie — an escalation created **by** the fix. A missing claim
+  reads as `session`, so cookies minted before it existed still verify.
+- **Breaking upstream OSS.** `DefaultUserAuth.get_user_id` returns None for every
+  caller by design, so the refusal is tied to `NIMBUS_REQUIRE_AUTH`. Refusing
+  unconditionally would have deleted `create_pr` for any deployment that never
+  opted into Nimbus auth.
+
+Verified against a real ASGI server, four states: anonymous **refused**; valid
+MCP token **accepted** and resolving to that customer's own
+`users/<id>/secrets.json` (proved by deleting the shared root file and watching
+the identified call still reach GitHub, while a customer with no store of their
+own gets the empty-token failure rather than someone else's token); a session
+cookie value in the MCP header **refused**; `NIMBUS_REQUIRE_AUTH=0` still
+behaving as upstream.
+
+**The isolation bug went with it.** `create_pr` now uses the signed-in customer's
+provider tokens instead of the legacy shared file — which is also what removes
+the latent "one written file away" hazard described above.
+
+Tests: `tests/app_server/test_mcp_auth.py` (18). Reclassified `SELF_AUTH` in
+`tests/app_server/test_unauthenticated_route_surface.py`. `tests/app_server` 243
+pass; `tests/unit/app_server` measured at **73 failed / 1462 passed both with and
+without** these changes, baselined in a throwaway `git worktree` at HEAD rather
+than by stashing — other agents were editing this tree at the time, and a
+tree-wide revert would have eaten their work and mine.
 
 ### The pattern worth remembering
 The module docstring asserted `/bridge/call` was "Session authenticated" while
@@ -534,4 +580,90 @@ commit — the same cross-contamination as `3e9fec44a` earlier on this branch.
 ALWAYS `git diff --cached --name-only` before committing in this tree, and
 recover with `git restore --staged <their paths>`, which leaves their working
 tree untouched. Verified after: their six files intact, my commit exactly 8.
+
+
+## 2026-08-07 — condensation rendering (#27), and the hook-stash race firing
+
+`0d29db681`. Condensation events existed as TS types since V1, arrive over the
+socket, and had NEVER rendered. Browser-verified: "3 earlier messages were
+condensed", summary collapsed by default, toggle expands, aria-expanded tracks.
+
+THE CAUSE WAS NOT THE MISSING BRANCH. The types never matched the wire. The SDK
+sets `kind = self.__class__.__name__` (sdk/utils/models.py) and the classes in
+sdk/event/condenser.py are `Condensation`, `CondensationRequest`,
+`CondensationSummaryEvent` — two of three differ from the TS interface names,
+which carry an extra "Event". The interfaces also declared NO `kind` field, so
+they sat outside the discriminated union and TypeScript REJECTED a guard
+against them ("no overlap") until the field was added. A guard written from the
+type name compiles, reads correctly, and never matches.
+
+The test pins BOTH directions deliberately: wire value matches, plausible TS
+name does not. "Fixing" that literal to match the interface silently deletes
+the feature again.
+
+### THE PRE-COMMIT STASH RACE FIRED — read this before committing here
+
+First attempt at the above failed:
+
+  [WARNING] Stashed changes conflicted with hook auto-fixes... Rolling back
+  error: patch failed: openhands/app_server/mcp/mcp_router.py:3
+  husky - pre-commit script failed (code 3)
+
+Nothing was lost — all five of the third session's /mcp files intact, markers
+and byte sizes identical. BUT the failed restore left THEIR FIVE BACKEND FILES
+STAGED IN MY INDEX (`M ` in column one). The next commit would have swept an
+entire uncommitted security fix into a frontend commit that described none of
+it. Caught only by `git diff --cached --name-only`, which has now caught
+foreign files in the index THREE times in one session.
+
+RECOVERY: `git restore --staged <their paths>` — index only, content untouched.
+Verify with byte sizes and grep markers before and after.
+
+WHY THE RETRY SUCCEEDED, which is the actionable part: the conflict is between
+the stash and lint-staged's OWN auto-fixes (`eslint --fix`, `prettier --write`
+rewrite staged files, then the restore cannot apply on top). Run
+`prettier --check` and `eslint` on your staged files FIRST; with zero pending
+fixes the race has no fuel and the log reads "Restored changes" instead of
+"Rolling back". A mitigation, not a fix — separate worktrees are the fix.
+
+
+### IT ESCALATED: the same race then DELETED uncommitted work
+
+Twenty minutes after the near-miss above, the same cycle destroyed the third
+session's entire uncommitted /mcp security fix. Recovered, but only by luck.
+
+SEQUENCE: my docs commit stashed unstaged files; mypy CRASHED on a corrupted
+incremental cache (`KeyError: 'bound_args'`, mypy/types.py:2297 — not a type
+error). Cleared `.mypy_cache` (463MB, regenerable) and retried. The retry's
+restore then failed on `use-bridge-devices.ts`, because the other lane
+COMMITTED that file between my stash and my restore, and the rollback took the
+/mcp fix with it.
+
+  _require_identity in mcp_router.py .... 6 -> 0
+  mcp_router.py ......................... 18509B -> 16472B
+  nimbus_user_auth.py ................... 6781B -> 5001B
+
+Never committed, so git had no copy. Off the disk entirely.
+
+RECOVERY — pre-commit stashes to a PATCH FILE and RETAINS it:
+
+  ls C:/Users/erick/.cache/pre-commit/patch*
+  git apply --check --include='openhands/*' --include='tests/*' <newest patch>
+  git apply         --include='openhands/*' --include='tests/*' <newest patch>
+
+Path-filtered because `use-bridge-devices.ts` was committed by then and would
+have conflicted. Verified byte-exact afterwards against sizes recorded during
+the earlier near-miss.
+
+THREE PIECES OF LUCK, none of them design: pre-commit retains patches on
+failure; exact byte sizes and grep markers had been recorded BEFORE the loss so
+recovery could be proven rather than assumed; and the work was path-scoped so a
+filtered apply was safe.
+
+THE EARLIER MITIGATION IS INSUFFICIENT. "Make staged files already-clean so the
+hook has nothing to auto-fix" did not help: this run had zero pending fixes and
+still failed, because the conflict came from ANOTHER SESSION'S COMMIT landing
+mid-cycle. Any commit by any session can revert any other session's uncommitted
+work in this tree. Separate worktrees are the only real fix; until then, commit
+WIP early and treat uncommitted work as unsafe.
 
