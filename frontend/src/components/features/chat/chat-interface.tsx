@@ -46,6 +46,8 @@ import { useResumeThenSend } from "#/hooks/use-resume-then-send";
 import { useModelStore } from "#/stores/model-store";
 import { useShortcut } from "#/hooks/use-shortcut";
 import { ShortcutLayer } from "#/utils/shortcut-registry";
+import { useFindInConversation } from "#/hooks/chat/use-find-in-conversation";
+import { FindInConversation } from "./find-in-conversation";
 
 export function ChatInterface() {
   const { setMessageToSend } = useConversationStore();
@@ -110,6 +112,33 @@ export function ChatInterface() {
     },
     { priority: ShortcutLayer.COMPOSER, when: () => !isAgentRunning },
   );
+
+  const find = useFindInConversation(scrollRef, [v1FullEvents]);
+
+  // Cmd/Ctrl+F. This one DOES belong in the registry — it is a global chord,
+  // unlike the composer's Up/Down recall, which is a cursor key that only means
+  // something in one element.
+  //
+  // It takes the browser's own find bar, which is a real cost. What it buys:
+  // a match count scoped to the transcript, next/prev that scrolls the chat
+  // container rather than the window, and highlighting that survives the
+  // transcript re-rendering underneath it.
+  //
+  // WHAT IT DOES NOT BUY, measured rather than assumed: it does NOT see inside
+  // collapsed tool rows. Their content is not hidden, it is UNMOUNTED — a
+  // conversation showing five collapsed rows has `document.body.textContent`
+  // containing exactly one "total" while the underlying events contain many.
+  // So on collapsed content this is no better than native find, and anyone
+  // extending it should know that before assuming a low count is a bug. The
+  // fix is to search event DATA and expand the owning row on match; that is a
+  // real change, not a tweak, and it is not done here.
+  //
+  // `allowInInput` so it opens while the composer has focus, which is where
+  // focus normally sits.
+  useShortcut({ key: "f", mod: true }, () => find.open(), {
+    priority: ShortcutLayer.GLOBAL,
+    allowInInput: true,
+  });
 
   const params = useParams();
 
@@ -396,6 +425,17 @@ export function ChatInterface() {
             />
           )}
         {/* Note: We only hide chat suggestions when there's a user message */}
+
+        <FindInConversation
+          isOpen={find.isOpen}
+          query={find.query}
+          matchCount={find.matchCount}
+          currentMatch={find.currentMatch}
+          onQueryChange={find.setQuery}
+          onNext={find.next}
+          onPrevious={find.previous}
+          onClose={find.close}
+        />
 
         <div
           ref={scrollRef}
