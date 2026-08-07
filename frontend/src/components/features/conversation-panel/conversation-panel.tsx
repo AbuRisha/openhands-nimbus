@@ -52,6 +52,25 @@ export function ConversationPanel({ onClose }: ConversationPanelProps) {
     string | null
   >(null);
 
+  /*
+   * Search, debounced.
+   *
+   * Filtered SERVER-side, because the list is paginated: filtering what happens
+   * to be loaded would search only the most recent page and quietly miss the
+   * older conversation someone is looking for — which is the entire reason
+   * they are searching.
+   *
+   * Debounced because every keystroke is a request otherwise, and 250ms is
+   * below what reads as lag while still collapsing a typed word into one call.
+   */
+  const [search, setSearch] = React.useState("");
+  const [debouncedSearch, setDebouncedSearch] = React.useState("");
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const {
     data,
     isFetching,
@@ -59,7 +78,7 @@ export function ConversationPanel({ onClose }: ConversationPanelProps) {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = usePaginatedConversations();
+  } = usePaginatedConversations(20, debouncedSearch);
 
   // Fetch in-progress start tasks
   const { data: startTasks } = useStartTasks();
@@ -143,6 +162,38 @@ export function ConversationPanel({ onClose }: ConversationPanelProps) {
       data-testid="conversation-panel"
       className="w-full md:w-[400px] h-full border border-[#525252] bg-[#25272D] rounded-lg overflow-y-auto absolute custom-scrollbar-always"
     >
+      <div className="sticky top-0 z-10 bg-[#25272D] p-2">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            // Escape clears rather than closing the panel: the box has no open
+            // state of its own, and closing would throw away the search the
+            // user is still typing.
+            if (e.key === "Escape" && search) {
+              e.preventDefault();
+              e.stopPropagation();
+              setSearch("");
+            }
+          }}
+          data-testid="conversation-search"
+          placeholder={t(I18nKey.CONVERSATION$SEARCH_PLACEHOLDER)}
+          aria-label={t(I18nKey.CONVERSATION$SEARCH_PLACEHOLDER)}
+          className="w-full rounded-lg border border-[#525252] bg-transparent px-2.5 py-1.5 text-sm text-white placeholder:text-white/40 focus:border-[#8B5CF6]/70 focus:outline-none"
+        />
+      </div>
+
+      {/* An empty RESULT is different from an empty LIST: say which. */}
+      {!isFetching && debouncedSearch.trim() && conversations.length === 0 && (
+        <p
+          data-testid="conversation-search-empty"
+          className="px-3 py-2 text-sm text-white/40"
+        >
+          {t(I18nKey.CONVERSATION$SEARCH_NO_RESULTS)}
+        </p>
+      )}
+
       {isFetching && conversations.length === 0 && (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, index) => (
@@ -156,13 +207,20 @@ export function ConversationPanel({ onClose }: ConversationPanelProps) {
           <p className="text-danger">{error.message}</p>
         </div>
       )}
-      {!isFetching && conversations?.length === 0 && !startTasks?.length && (
-        <div className="flex flex-col items-center justify-center h-full">
-          <p className="text-neutral-400">
-            {t(I18nKey.CONVERSATION$NO_CONVERSATIONS)}
-          </p>
-        </div>
-      )}
+      {/* Not while searching: "no conversations found" alongside "no
+          conversations match your search" says you have none at all, when in
+          fact you have several and none matched. Two empty states stacked is
+          worse than either alone. */}
+      {!isFetching &&
+        !debouncedSearch.trim() &&
+        conversations?.length === 0 &&
+        !startTasks?.length && (
+          <div className="flex flex-col items-center justify-center h-full">
+            <p className="text-neutral-400">
+              {t(I18nKey.CONVERSATION$NO_CONVERSATIONS)}
+            </p>
+          </div>
+        )}
       {/* Render in-progress start tasks first */}
       {startTasks?.map((task) => (
         <NavLink

@@ -98,9 +98,22 @@ export const V1_CONVERSATION_HANDLERS = [
     );
   }),
 
-  http.get("/api/v1/app-conversations/search", async () => {
+  http.get("/api/v1/app-conversations/search", async ({ request }) => {
     await delay();
-    return HttpResponse.json(page(CONVERSATIONS));
+    // Honour title__contains, so searching can actually be checked rather than
+    // merely rendered. Case-insensitive on purpose: production is Postgres and
+    // the real query uses ilike, so a case-SENSITIVE mock would let a
+    // case-sensitivity bug pass here and fail there.
+    const q = new URL(request.url).searchParams.get("title__contains");
+    if (!q) return HttpResponse.json(page(CONVERSATIONS));
+    const needle = q.toLowerCase();
+    return HttpResponse.json(
+      page(
+        CONVERSATIONS.filter((c) =>
+          (c.title ?? "").toLowerCase().includes(needle),
+        ),
+      ),
+    );
   }),
 
   // Start tasks: the sandbox provisioning queue. Reporting an empty list keeps

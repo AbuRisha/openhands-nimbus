@@ -618,11 +618,19 @@ class V1ConversationService {
   static async searchConversations(
     limit: number = 20,
     pageId?: string,
+    titleContains?: string,
   ): Promise<V1AppConversationPage> {
     const params = new URLSearchParams();
     params.append("limit", limit.toString());
     if (pageId) {
       params.append("page_id", pageId);
+    }
+    // Filtered server-side rather than in the browser: the list is paginated,
+    // so filtering what happens to be loaded would search only the most recent
+    // page and quietly miss the older conversation someone is looking for —
+    // which is the entire reason they are searching.
+    if (titleContains?.trim()) {
+      params.append("title__contains", titleContains.trim());
     }
 
     const { data } = await openHands.get<V1AppConversationPage>(

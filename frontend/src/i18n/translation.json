@@ -29476,5 +29476,39 @@
     "ca": "Cancel·la",
     "tr": "İptal",
     "uk": "Скасувати"
+  },
+  "CONVERSATION$SEARCH_PLACEHOLDER": {
+    "en": "Search conversations",
+    "ja": "会話を検索",
+    "zh-CN": "搜索对话",
+    "zh-TW": "搜尋對話",
+    "ko-KR": "대화 검색",
+    "no": "Søk i samtaler",
+    "ar": "البحث في المحادثات",
+    "de": "Unterhaltungen durchsuchen",
+    "fr": "Rechercher des conversations",
+    "it": "Cerca conversazioni",
+    "pt": "Pesquisar conversas",
+    "es": "Buscar conversaciones",
+    "ca": "Cerca converses",
+    "tr": "Sohbetlerde ara",
+    "uk": "Пошук розмов"
+  },
+  "CONVERSATION$SEARCH_NO_RESULTS": {
+    "en": "No conversations match your search",
+    "ja": "一致する会話はありません",
+    "zh-CN": "没有匹配的对话",
+    "zh-TW": "沒有符合的對話",
+    "ko-KR": "일치하는 대화가 없습니다",
+    "no": "Ingen samtaler samsvarer med søket",
+    "ar": "لا توجد محادثات مطابقة",
+    "de": "Keine passenden Unterhaltungen",
+    "fr": "Aucune conversation ne correspond",
+    "it": "Nessuna conversazione corrisponde",
+    "pt": "Nenhuma conversa corresponde",
+    "es": "Ninguna conversación coincide",
+    "ca": "Cap conversa coincideix",
+    "tr": "Eşleşen sohbet yok",
+    "uk": "Немає відповідних розмов"
   }
 }
