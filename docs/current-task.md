@@ -417,3 +417,36 @@ per nimbus-v2/.claude/launch.json, so it does serve the fork. Navigating to
 `/conversations/1` lands on `/` — verify registry behaviour by importing
 `/src/utils/shortcut-registry.ts` in the page and dispatching real
 KeyboardEvents, which exercises the shipped module rather than a test double.
+
+## 2026-08-07 — prompt recall (Up/Down), and a correction worth keeping
+
+`590286ea9`. Second half of Tier 1 #15. VERIFIED END-TO-END in the running
+app, not just jsdom: Up gives "now do the other thing", Up again gives "Tidy
+up the total() helper...", Up again is a no-op at the oldest, Down walks
+forward, and with "half typed" in the composer Up does not recall.
+
+FILED UNDER #15 BUT DELIBERATELY NOT IN THE REGISTRY. Everything in the
+registry is a global chord; Up is a cursor key that means "recall" only when
+the composer is empty. A document-level listener would put every arrow press
+in the app through the registry to serve one element. It sits on the element,
+AFTER the slash menu (which owns the arrows while open) and returns false when
+it declines, so caret movement is untouched. If Cmd+K is built later, that one
+IS a registry entry — the distinction is global chord vs element key.
+
+HOW TO VERIFY UI IN dev:mock — the earlier "SPA router claims /preview and
+404s" note made this look more broken than it is. `/conversations/1` DOES
+open; a hard `navigate` bounces to `/`, but clicking the sidebar link works,
+and the check must be run AFTER the transcript streams or it reads an empty
+page and looks like a routing failure. `read_page` reports "(empty page)"
+because innerWidth/innerHeight are 0 in this pane, but the DOM is fully
+present — query it with javascript_tool instead of trusting the a11y tree.
+
+THE CORRECTION, which is the reusable part: the first browser probe reported
+the typed-guard BROKEN. The probe was wrong, not the feature — it set
+textContent directly, which never fires onInput, so resetRecall never ran and
+the history walk stayed open. Re-run with a real InputEvent the guard holds.
+A failing probe is not automatically a failing feature, and a probe that
+bypasses the event that carries the semantics is not testing the semantics.
+Same family as the earlier "transcript missing" false alarm, where the grep
+was for a label the summarizer no longer emits.
+
