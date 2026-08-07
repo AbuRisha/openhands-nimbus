@@ -312,7 +312,11 @@ describe("ConversationName", () => {
     expect(model).toBeInTheDocument();
     expect(model).toHaveTextContent("GPT-4o");
     expect(model).toHaveAttribute("title", "openai/gpt-4o");
-    expect(model.querySelector("svg")).toBeInTheDocument();
+    // An icon, not specifically an inline <svg>. The native chip's mark became
+    // the Nimbus favicon (an <img>) when the OpenHands branding was stripped,
+    // which broke this assertion without changing anything a user can see --
+    // the test was pinning the ELEMENT rather than the behaviour.
+    expect(model.querySelector("svg, img")).toBeInTheDocument();
   });
 
   it("should render plain 'ACP' for ACP-agent conversations", () => {

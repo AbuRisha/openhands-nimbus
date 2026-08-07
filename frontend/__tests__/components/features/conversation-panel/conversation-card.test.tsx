@@ -457,7 +457,10 @@ describe("ConversationCard", () => {
       "title",
       "anthropic/claude-sonnet-4-20250514",
     );
-    expect(model.querySelector("svg")).toBeInTheDocument();
+    // An icon, not specifically an inline <svg> — see the matching note in
+    // conversation-name.test.tsx. Stripping the OpenHands branding turned the
+    // native chip's mark into the Nimbus favicon, served as an <img>.
+    expect(model.querySelector("svg, img")).toBeInTheDocument();
 
     const textSpan = model.querySelector("span.truncate");
     expect(textSpan).toBeInTheDocument();
