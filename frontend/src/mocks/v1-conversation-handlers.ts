@@ -130,4 +130,45 @@ export const V1_CONVERSATION_HANDLERS = [
     await delay();
     return HttpResponse.json({ items: [], next_page_id: null });
   }),
+
+  /*
+   * Preview ports and the pending-message queue.
+   *
+   * Both are served by routers that only exist when the Python app is running,
+   * so without these the preview tab can only ever show its "could not check"
+   * state and the queue chips can never appear at all — meaning neither piece
+   * of UI could be looked at under dev:mock.
+   */
+  http.get("/preview/:conversationId/ports", async () => {
+    await delay();
+    return HttpResponse.json({ ports: [5173, 3000], supported: true });
+  }),
+
+  http.get(
+    "/api/v1/conversations/:conversationId/pending-messages",
+    async () => {
+      await delay();
+      return HttpResponse.json([
+        {
+          id: "pm-1",
+          conversation_id: "1",
+          role: "user",
+          content: [
+            { type: "text", text: "also add a test for the empty cart" },
+          ],
+          created_at: NOW,
+        },
+      ]);
+    },
+  ),
+
+  http.delete(
+    "/api/v1/conversations/:conversationId/pending-messages/:messageId",
+    async () => {
+      await delay();
+      // 204 whether or not it was still there: the queue drains the instant the
+      // agent is ready, so losing that race is ordinary, not an error.
+      return new HttpResponse(null, { status: 204 });
+    },
+  ),
 ];

@@ -180,47 +180,31 @@ observation white-screened the entire transcript.
 - Three `docs.openhands.dev` help-link tests fail; pre-existing, verified by
   diffing (`translation.json` is +51/-0 and that URL is absent from source).
 
-## Not verified visually, and don't claim otherwise
+## Verified in a browser, 2026-08-06
 
-The **diff rendering** and the **composer model chip**.
+Everything below was confirmed against a running app, not inferred from tests.
 
-The cause has been found and a fix committed, but the fix ITSELF is unverified.
-The fixture handler always fired per connection, so replay was never missing —
-the ordering was. It sent its frames synchronously inside the connection
-handler, before the app finished attaching its own `onmessage` listener, so the
-transcript rendered once and came back empty after any reconnect. Expanding a
-row takes longer than the next reconnect, which is why the diff could never be
-looked at. It now defers a tick (`setTimeout(..., 0)`).
+- **Diffs.** One `code.language-diff` block with the `---`/`+++` header, the
+  removals, the addition, and the surrounding context line preserved — the last
+  being what the trim bug deleted.
+- **Preview tab.** `src="/preview/1/5173/"` with NO credential in the URL, and
+  `sandbox="allow-scripts allow-forms"` with NO `allow-same-origin`. Both
+  security properties confirmed as rendered attributes rather than intentions.
+  Port picker lists `:5173` and `:3000`.
+- **Queue chips.** Render with text, waiting label and Cancel. Clicking Cancel
+  removes the chip immediately and shows NO error toast — the 204-is-success
+  path behaving as designed.
+- **Dead Code tab.** `conversation-tab-vscode` absent, `conversation-tab-preview`
+  present.
+- **Settings vocabulary and grouping**, and that `dev:mock` reaches the chat.
 
-MEASURED 2026-08-06, and the answer is neither of the two guesses. With the
-fixture instrumented to log socket state at fire time:
+What made this possible: `v1-conversation-handlers.ts` now also mocks
+`/preview/{id}/ports` and the pending-message queue. Without those the preview
+tab could only ever show its "could not check" state and the chips could never
+appear — the UI existed but was unreachable.
 
-    [mock] event socket readyState=1 (1 = OPEN); sending 9 frames   (x2)
-
-So the deferral IS sufficient (socket OPEN, not CONNECTING) and replay DOES
-happen (logged twice, once per connection). The frames land on an open socket
-and the transcript still reads "Connecting... (this may take 1-2 minutes)".
-
-That rules out both hypotheses. It is not a send-too-early race and not a
-missing replay: the app is not treating an open, receiving socket as connected.
-Next step is the app's connection state machine in
-`contexts/conversation-websocket-context.tsx` — most likely it waits for a
-specific frame or status event before flipping out of "Connecting", and the
-fixture sends transcript events without whatever that is. Look there, NOT at the
-timeout.
-
-Fixed along the way: the mock hardcoded `localhost:3010` in `conversation_url`,
-and buildWebSocketUrl derives the socket host from that field — so the app could
-be served on any other port and still dial 3010, silently, with an empty
-transcript as the only symptom. Now `window.location.origin`. Also note
-`dev:mock` ignores the harness PORT variable (vite reads VITE_FRONTEND_PORT), so
-launch.json pins an explicit `--port`.
-
-Original reasoning, kept because it was wrong in an instructive way: port 3010 was held
-by another session's dev server and the launch config hardcodes it. **First job
-after P17: start the dev server, open `/conversations/1`, expand the `Edited
-cart.ts` row, and confirm a coloured diff.** If it still empties, the deferral
-was the wrong diagnosis — say so rather than deferring harder.
+STILL UNSEEN: the P15 prompt, because it needs a real refusal from a real model.
+Its four units are unit-tested; the mounted behaviour is not.
 
 ## How to look at the UI
 
