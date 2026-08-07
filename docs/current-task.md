@@ -149,6 +149,30 @@ ALREADY SOLVED IN THE UNITS — do not re-solve:
 - Switching takes a profile NAME, not a model id. Passing an id is a silent
   no-op and the retry runs on the model that just refused.
 
+## Also verified in a browser (later pass)
+
+- **Settings nav search.** Typing `mem` filters fourteen items to `Memory`, with
+  section headers correctly dropped — the specific thing the pure filter was
+  written to get right, since a caption left standing over nothing reads as
+  broken rather than filtered. A no-match query shows "No settings match your
+  search" and nothing else.
+- **Conversation search.** `preview` narrows three to one; uppercase `BILLING`
+  matches lowercase "billing reconciler" (the `.ilike()` fix, end to end); a
+  no-match query shows ONE empty state, not two.
+- **Tool-call rows** carry the summarizer's labels: `Read src/cart.ts`,
+  `Edit src/cart.ts`, `Bash npm test -- cart`.
+
+DEV-MOCK LIMITATION worth knowing before anyone debugs it as a proxy fault: the
+preview iframe requests `/preview/{id}/{port}/` and under `dev:mock` the SPA
+router claims that path — `No route matches URL "/preview/1/5173"`, 404. In
+production FastAPI serves it before the SPA mount, so this is the harness, not
+the feature. It does mean the preview tab cannot be exercised end to end under
+mocks.
+
+NOT verified visually: the truncation notice. The helper is unit-tested both
+ways (states the omitted count; no-op below the ceiling) but I could not get a
+long-output row to reveal its body in the browser.
+
 ## AUTH AUDIT, 2026-08-06 — two unauthenticated bridge endpoints
 
 Read from source. **Nothing was probed against a running service**, deliberately.
