@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Nimbus Bridge",
+  "version": "0.1.0",
+  "description": "Let a Nimbus conversation read and act in this browser, after you pair it with a code.",
+  "permissions": ["storage", "tabs", "scripting", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Nimbus Bridge"
+  }
+}

@@ -212,6 +212,7 @@ def _add_nimbus_extra_tools(tools: list) -> list:
     try:
         # Registers image_generate / video_generate in this process on import,
         # exactly as every SDK tool definition module does.
+        import openhands.nimbus_bootstrap.nimbus_browser_tools  # noqa: F401
         import openhands.nimbus_bootstrap.nimbus_media_tools  # noqa: F401
     except Exception as e:  # noqa: BLE001
         # The default tool set must survive a broken optional module.
@@ -247,7 +248,16 @@ def _add_nimbus_extra_tools(tools: list) -> list:
     # not local/process/remote falls through to Docker there.
     candidates = ['workflow_tool_set']
     if os.getenv('RUNTIME', '') in ('local', 'process'):
-        candidates += ['image_generate', 'video_generate']
+        candidates += [
+            'image_generate',
+            'video_generate',
+            # Same PYTHONPATH constraint, same gate: these live in
+            # nimbus_bootstrap and a stock agent-server image has never
+            # heard of them.
+            'browser_read_page',
+            'browser_navigate',
+            'browser_list_tabs',
+        ]
     else:
         _logger.info(
             'nimbus_tools: RUNTIME=%r spawns a stock agent-server image - '

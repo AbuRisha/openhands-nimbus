@@ -276,3 +276,139 @@ the sandbox publishes only an `AGENT_SERVER` entry
 (`sandbox/process_sandbox_service.py:529-535`). The lookup always misses and
 the tab renders "URL not available". Tracked as P14 — offering a permanently
 broken tab is the one option to rule out.
+
+---
+
+## 9. Fork a conversation — what is built, and the decision that is not mine
+
+`EventService.copy_events_until(source, target, up_to_event_id)` is built and
+tested (9 tests). It is the load-bearing half: copy a conversation's history
+into another, inclusive of the chosen event, without touching the source.
+
+**Copy, not truncate — deliberately.** The obvious alternative is deleting
+everything after a point in place, and the interface has no delete for good
+reason: it would have to exist in every implementation, including the ones
+backed by object storage where a delete is not obviously reversible. Copying
+means a cutoff bug costs a wrong-sized fork rather than someone's history, and
+a fork that turns out to be a bad idea costs nothing.
+
+**Two behaviours chosen against the obvious reading**, both because the
+alternative is indistinguishable from a bug:
+
+- the cutoff is **inclusive** — a user forks *from* a message they can see, and
+  excluding it silently drops the event they were reasoning about
+- an **unknown id copies everything**, because an empty fork looks exactly like
+  a broken feature, whereas a complete copy is at worst more than was asked for
+
+### What is NOT built, and why it needs a decision rather than code
+
+A forked conversation gets its **own sandbox**, and it is not established
+whether the agent server also needs the replayed events or whether restoring
+them into the app-server event store is sufficient for the transcript to render
+and the agent to reason. That is a semantics question about the SDK's
+conversation state, not a wiring question, and guessing it produces a fork that
+looks right and behaves subtly wrong — the worst possible outcome for a feature
+whose entire purpose is recovering trust after the agent went wrong.
+
+Settle it before wiring the endpoint: start a conversation, restore events into
+it, and check whether the agent's own context reflects them. If it does not, the
+fork needs to replay through the agent server rather than the event store, and
+that is a different endpoint.
+
+### The endpoint, once that is answered
+
+`POST /app-conversations/{id}/fork` with `{ "up_to_event_id": "..." }` →
+start a conversation (existing path), `copy_events_until` into it, return the
+new conversation. Frontend needs a fork action on a message and a way to open
+the result.
+
+---
+
+## 10. Which way an unreadable setting should fail
+
+Two features landed on the same day with the same shape of ambiguity — a config
+value nobody can parse — and the correct default is **opposite** in each. It is
+worth stating once, because copying either one into the other is a plausible
+mistake that produces a real bug.
+
+**MCP server policy → fail RESTRICTIVE.** An unreadable `managed-only` flag
+becomes `true`. An allowlist that parses to nothing stays an *empty allowlist*
+rather than becoming *no allowlist*.
+
+**Agent self-verification → fail OFF.** An unreadable
+`NIMBUS_AGENT_SELF_VERIFY` leaves verification disabled.
+
+Both are "we could not tell what the operator meant". The difference is what
+being wrong costs:
+
+| | Wrong in the restrictive direction | Wrong in the permissive direction |
+|---|---|---|
+| MCP policy | a customer says their server stopped working | arbitrary code you did not intend to permit runs in your sandbox, and nobody tells you |
+| Self-verify | tokens spent nobody agreed to spend — on a metered product, the customer's money | an agent claims it checked something it never rendered |
+
+**The rule: fail toward the outcome you would find out about.** A customer
+reports a feature that stopped working. Nobody reports code that quietly ran, or
+money quietly spent. Ask which failure is *silent*, and default away from it —
+"be more restrictive" is a heuristic that happens to be right in the first case
+and wrong in the second.
+
+Both module docstrings state their own reasoning rather than pointing here, so
+neither reads as a copy of the other with the sign flipped.
+
+### The same principle, applied to a silent feature
+
+Self-verification is prompt text behind an env flag, which means a wrong flag
+name or a missed injection point fails **completely silently** — nothing raises
+and the agent simply never verifies. Two tests exist purely for that:
+`ENV_SELF_VERIFICATION` is pinned to its literal string in exactly one place
+(every other test imports the constant, so a rename would be consistently wrong
+and invisible), and the injector is asserted to appear at the same call sites as
+two long-established siblings, since there are two conversation start paths and
+appearing in fewer means one silently skips it.
+
+If a feature has no runtime signal when it fails, something has to check its
+wiring structurally. A unit test of the function proves the function works, not
+that anything calls it.
+
+---
+
+## 11. Search — what exists, and why content search needs infrastructure
+
+**Searching conversations by title already works, end to end.**
+`GET /api/v1/app-conversations/search?title__contains=` is exposed, threaded
+through the service, and applied as a SQL predicate. The gap is purely frontend:
+`conversation-panel.tsx` has no search state and never calls it.
+
+That covers the most common reason people go back — "how did I fix this last
+month" is usually a hunt for the *conversation*, and titles are generated
+summaries.
+
+It was case-SENSITIVE until now, and the way that hid is worth remembering:
+production is Postgres, whose `LIKE` respects case, while the test suite runs
+SQLite, whose `LIKE` does not. So `.like()` passed every test and would have
+failed to match "Billing" for a user typing "billing". Fixed to `.ilike()`, and
+pinned by asserting on the **compiled SQL** rather than on behaviour — a
+behavioural test cannot see the difference on SQLite, which is exactly why it
+survived.
+
+### Content search is a different problem
+
+Searching what was *said* — not what a conversation is called — cannot be built
+the same way, because **events are not in the database**. The event services are
+filesystem, S3 and Google Cloud (`event/filesystem_event_service.py`,
+`aws_event_service.py`, `google_cloud_event_service.py`), and `search_events` is
+scoped to one conversation with no text filter.
+
+So there is no table to add an index to. The options are:
+
+1. **Scan on demand** — read every conversation's events per query. Honest, and
+   unusable past a few dozen conversations.
+2. **A search index written on save** — a new table populated wherever events
+   are persisted, queried with Postgres full-text. Correct, and it is a schema
+   plus a backfill for existing history.
+3. **Index only messages** — the same, but skipping tool actions and
+   observations. Far smaller, and matches what people search for: their own
+   words and the assistant's replies, not the contents of a grep result.
+
+Option 3 is the recommendation. Start there, and note that it is a migration and
+a backfill rather than a query — nobody should promise this as a small change.

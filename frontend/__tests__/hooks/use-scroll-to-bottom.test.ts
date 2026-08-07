@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useScrollToBottom } from "#/hooks/use-scroll-to-bottom";
 import type { RefObject } from "react";
+import { useScrollToBottom } from "#/hooks/use-scroll-to-bottom";
 
 /**
  * Creates a mock scroll element with a trackable scrollTop setter.
@@ -20,20 +20,28 @@ function createMockScrollElement(initialScrollHeight = 1000) {
     state.scrollTop = value;
   });
 
-  const element = {
-    get scrollTop() {
-      return state.scrollTop;
+  /*
+   * A REAL element, with the scroll metrics jsdom does not compute defined on
+   * top of it.
+   *
+   * It used to be a plain object cast to HTMLDivElement, which was enough while
+   * the hook only read scrollTop/scrollHeight. The hook now observes the
+   * container with a MutationObserver and its children with a ResizeObserver,
+   * and both reject anything that is not a Node — so every test in this file
+   * threw before reaching an assertion. A stub that has to grow a new property
+   * each time the code learns something is a stub that should be a real
+   * element.
+   */
+  const element = document.createElement("div");
+  Object.defineProperties(element, {
+    scrollTop: {
+      get: () => state.scrollTop,
+      set: (value: number) => scrollTopSetter(value),
+      configurable: true,
     },
-    set scrollTop(value: number) {
-      scrollTopSetter(value);
-    },
-    get scrollHeight() {
-      return state.scrollHeight;
-    },
-    get clientHeight() {
-      return state.clientHeight;
-    },
-  } as unknown as HTMLDivElement;
+    scrollHeight: { get: () => state.scrollHeight, configurable: true },
+    clientHeight: { get: () => state.clientHeight, configurable: true },
+  });
 
   return { element, scrollTopSetter, state };
 }

@@ -155,11 +155,7 @@ describe("planToolCalls", () => {
   it("keeps a message on its own row", () => {
     const plan = planToolCalls([action("a1"), message("m1"), action("a2")]);
 
-    expect(plan.map((i) => i.type)).toEqual([
-      "toolCall",
-      "single",
-      "toolCall",
-    ]);
+    expect(plan.map((i) => i.type)).toEqual(["toolCall", "single", "toolCall"]);
   });
 
   it("never summarises a failure into a row", () => {
@@ -210,11 +206,7 @@ describe("narration is never summarised away", () => {
     ];
     const plan = planToolCalls(events);
 
-    expect(plan.map((i) => i.type)).toEqual([
-      "toolCall",
-      "single",
-      "toolCall",
-    ]);
+    expect(plan.map((i) => i.type)).toEqual(["toolCall", "single", "toolCall"]);
     const solo = plan[1];
     expect(solo.type === "single" && solo.event.id).toBe("narr");
   });
@@ -241,9 +233,21 @@ describe("summarizeToolCall", () => {
   it("names the operation, not the tool, for the editor family", () => {
     // One tool, several operations. Labelling all of them "FileEditor" would
     // produce a column of identical rows, which is the failure being replaced.
-    expect(summarizeToolCall(of("FileEditorAction", { command: "view", path: "/a/b.ts" })).label).toBe("Read");
-    expect(summarizeToolCall(of("FileEditorAction", { command: "str_replace", path: "/a/b.ts" })).label).toBe("Edit");
-    expect(summarizeToolCall(of("FileEditorAction", { command: "create", path: "/a/b.ts" })).label).toBe("Create");
+    expect(
+      summarizeToolCall(
+        of("FileEditorAction", { command: "view", path: "/a/b.ts" }),
+      ).label,
+    ).toBe("Read");
+    expect(
+      summarizeToolCall(
+        of("FileEditorAction", { command: "str_replace", path: "/a/b.ts" }),
+      ).label,
+    ).toBe("Edit");
+    expect(
+      summarizeToolCall(
+        of("FileEditorAction", { command: "create", path: "/a/b.ts" }),
+      ).label,
+    ).toBe("Create");
   });
 
   it("treats an unknown editor command as a read rather than a write", () => {
@@ -254,8 +258,13 @@ describe("summarizeToolCall", () => {
   });
 
   it("carries the identifying argument", () => {
-    expect(summarizeToolCall(of("ExecuteBashAction", { command: "npm test" })).target).toBe("npm test");
-    expect(summarizeToolCall(of("GrepAction", { pattern: "useResume" })).target).toBe("useResume");
+    expect(
+      summarizeToolCall(of("ExecuteBashAction", { command: "npm test" }))
+        .target,
+    ).toBe("npm test");
+    expect(
+      summarizeToolCall(of("GrepAction", { pattern: "useResume" })).target,
+    ).toBe("useResume");
   });
 
   it("keeps the filename when a path is too long to show", () => {
@@ -289,15 +298,21 @@ describe("summarizeToolCall", () => {
   });
 
   it("names the Nimbus media tools", () => {
-    expect(summarizeToolCall(of("ImageGenerateAction", { prompt: "a cat" }))).toEqual({
+    expect(
+      summarizeToolCall(of("ImageGenerateAction", { prompt: "a cat" })),
+    ).toEqual({
       label: "Generate image",
       target: "a cat",
     });
-    expect(summarizeToolCall(of("VideoGenerateAction", { prompt: "a dog" })).label).toBe("Generate video");
+    expect(
+      summarizeToolCall(of("VideoGenerateAction", { prompt: "a dog" })).label,
+    ).toBe("Generate video");
   });
 
   it("distinguishes MCP tools by name, since one kind covers them all", () => {
-    expect(summarizeToolCall(of("MCPToolAction", { name: "search_docs" })).label).toBe("MCP search_docs");
+    expect(
+      summarizeToolCall(of("MCPToolAction", { name: "search_docs" })).label,
+    ).toBe("MCP search_docs");
   });
 
   it("reads sensibly for an action kind it has never seen", () => {
@@ -315,5 +330,67 @@ describe("summarizeToolCall", () => {
     } as unknown as OpenHandsEvent;
 
     expect(summarizeToolCall(bare).label).toBe("mystery");
+  });
+});
+
+describe("the shape the component actually passes", () => {
+  /**
+   * The bug every other test in this file missed.
+   *
+   * `handleEventForUI` REPLACES an action with its observation in the rendered
+   * list, so `Messages` never receives both halves — it receives the
+   * observation, in the action's old position. Pairing purely within that list
+   * found nothing, every observation fell through to `single`, and the per-call
+   * rows never rendered at all.
+   *
+   * Every test above passed throughout, because they handed the function both
+   * halves. It proved the function worked; it could not prove the component
+   * called it with data of the right shape. That difference was only visible in
+   * a browser.
+   */
+
+  it("pairs an observation with the action it replaced", () => {
+    const act = action("a1");
+    const obs = observation("o1", "a1");
+
+    // Rendered list: the observation sits where the action was.
+    const plan = planToolCalls([obs], [act, obs]);
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0].type).toBe("toolCall");
+    expect(plan[0].type === "toolCall" && plan[0].action.id).toBe("a1");
+    expect(plan[0].type === "toolCall" && plan[0].observation?.id).toBe("o1");
+  });
+
+  it("keeps narration visible alongside replaced calls", () => {
+    const act = action("a1");
+    const obs = observation("o1", "a1");
+    const msg = message("m1");
+
+    const plan = planToolCalls([msg, obs], [msg, act, obs]);
+
+    expect(plan.map((i) => i.type)).toEqual(["single", "toolCall"]);
+  });
+
+  it("still shows an observation whose action is nowhere to be found", () => {
+    // A truncated history, or an event that arrived without its call. Better
+    // seen than silently dropped.
+    const obs = observation("o1", "missing");
+
+    const plan = planToolCalls([obs], [obs]);
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0].type).toBe("single");
+  });
+
+  it("does not regress when both halves are present", () => {
+    // The old shape must keep working: some paths do pass both.
+    const act = action("a1");
+    const obs = observation("o1", "a1");
+
+    const plan = planToolCalls([act, obs], [act, obs]);
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0].type === "toolCall" && plan[0].observation?.id).toBe("o1");
   });
 });

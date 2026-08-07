@@ -144,12 +144,37 @@ function callKey(event: OpenHandsEvent): string | null {
  * observation. That total-coverage property is what the test asserts, because
  * a pairing bug that silently swallows an event is invisible until someone
  * notices a missing result.
+ *
+ * WHY `allEvents` IS NOT OPTIONAL IN PRACTICE
+ * -------------------------------------------
+ * The rendered list does NOT contain both halves of a call. `handleEventForUI`
+ * REPLACES an action with its observation in place, so by the time this runs
+ * the action is gone and only the observation is left.
+ *
+ * Pairing purely within `events` therefore found nothing, every observation
+ * fell through to `single`, and the per-call rows this module exists for never
+ * rendered at all — while its unit tests passed, because they were handed both
+ * halves. The action still exists in the full event list, which is what
+ * `allEvents` is for: the summary line needs it, since the command, path and
+ * pattern live on the action and not on its result.
  */
-export function planToolCalls(events: OpenHandsEvent[]): PlanItem[] {
+export function planToolCalls(
+  events: OpenHandsEvent[],
+  allEvents: OpenHandsEvent[] = [],
+): PlanItem[] {
   // An observation can only be attached to an action that came before it, so a
   // single forward pass with a pending map is enough.
   const pendingByKey = new Map<string, ToolCallItem>();
   const out: PlanItem[] = [];
+
+  // Actions from the FULL history, so an observation that replaced its action
+  // in the rendered list can still find it.
+  const actionsByKey = new Map<string, OpenHandsEvent>();
+  allEvents.forEach((event) => {
+    if (!isActionEvent(event)) return;
+    const key = callKey(event);
+    if (key) actionsByKey.set(key, event);
+  });
 
   events.forEach((event, index) => {
     if (!isToolMachineryEvent(event)) {
@@ -179,8 +204,24 @@ export function planToolCalls(events: OpenHandsEvent[]): PlanItem[] {
         if (key) pendingByKey.delete(key);
         return;
       }
-      // No action to attach to. Render it rather than dropping it — an
-      // unmatched result is exactly the kind of thing worth seeing.
+      // The normal case in the rendered list: the observation REPLACED its
+      // action, so the action is not here to have been paired above. Look it
+      // up in the full history — the summary needs it, because the command,
+      // path and pattern live on the action rather than on its result.
+      const replaced = key ? actionsByKey.get(key) : undefined;
+      if (replaced) {
+        out.push({
+          type: "toolCall",
+          action: replaced,
+          observation: event,
+          index,
+          observationIndex: index,
+        });
+        return;
+      }
+
+      // Genuinely unmatched. Render it rather than dropping it — a result with
+      // no call is exactly the kind of thing worth seeing.
       out.push({ type: "single", event, index });
       return;
     }
