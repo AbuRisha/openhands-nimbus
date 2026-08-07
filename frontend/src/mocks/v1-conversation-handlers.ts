@@ -225,4 +225,36 @@ export const V1_CONVERSATION_HANDLERS = [
       ],
     });
   }),
+
+  // The browser bridge, so the Paired browsers panel can be LOOKED at.
+  //
+  // Both states on purpose: one connected browser and one paired-but-closed.
+  // Those render different sentences and the whole risk in that component is
+  // collapsing them into "pair a browser", which is only correct when the list
+  // is empty. A mock with a single connected device would hide that.
+  http.get("/bridge/devices", async () =>
+    HttpResponse.json({
+      devices: [
+        {
+          device_id: "dev-desktop",
+          name: "Chrome on this Mac",
+          connected: true,
+          paired_at: "2026-08-06T09:15:00Z",
+        },
+        {
+          device_id: "dev-laptop",
+          name: "Chrome on the laptop",
+          connected: false,
+          paired_at: "2026-08-01T18:40:00Z",
+        },
+      ],
+    }),
+  ),
+
+  // A code shaped like a real one: 8 chars from the 32-symbol alphabet that
+  // excludes 0/1/O/I/L, because this gets read off one screen and typed into
+  // another.
+  http.post("/bridge/pair/code", async () =>
+    HttpResponse.json({ code: "H7K2M9QR", expires_in_seconds: 120 }),
+  ),
 ];
