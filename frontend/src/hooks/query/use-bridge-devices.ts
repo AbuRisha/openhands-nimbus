@@ -39,6 +39,16 @@ export function useBridgeDevices(enabled = true) {
       return data.devices;
     },
     enabled,
+    // The panel renders its OWN explanation for every failure it can have, so
+    // the global toast would put "Request failed with status code 401" directly
+    // beneath "Pairing again will not help — sign in and this page will work."
+    //
+    // That is worse than redundant. The whole point of the signed-out state is
+    // that it tells the user the one thing that helps; a raw transport string
+    // next to it reads as a leak, and it is the only line in that block which
+    // tells the customer nothing. Opting out is the mechanism the query client
+    // already provides for exactly this case.
+    meta: { disableToast: true },
     // Connectedness changes when someone opens or closes a browser, which this
     // page cannot be told about — the socket belongs to the extension, not to
     // us. Polling is the honest mechanism; 10s is slow enough to be free and
