@@ -149,6 +149,54 @@ ALREADY SOLVED IN THE UNITS — do not re-solve:
 - Switching takes a profile NAME, not a model id. Passing an id is a silent
   no-op and the retry runs on the model that just refused.
 
+## AUTH AUDIT, 2026-08-06 — two unauthenticated bridge endpoints
+
+Read from source. **Nothing was probed against a running service**, deliberately.
+
+`nimbus_auth_gate.py:147` enforces only on `/api`: for any non-page-load request
+to a path outside it, the middleware falls straight through to `call_next`. So
+a router mounted outside `/api` is unprotected BY DEFAULT, and silently — it
+bypasses the gate rather than being exempted by it.
+
+Every route outside `/api`:
+
+| Route | Auth | Verdict |
+|---|---|---|
+| `/bridge/pair` | none | **correct by design** — the pairing code IS the credential; 8 chars from 32 symbols, 120s, single-use, five attempts, only ever shown inside an authenticated session |
+| `/bridge/device` (ws) | token in first message | fine |
+| **`/bridge/call`** | **NONE** | **`user_id` and `device_id` come from the request BODY.** An unauthenticated POST drives any user's paired browser through the 22 browser tools — their real Chrome, signed into their accounts |
+| **`/bridge/devices/{user_id}`** | **NONE** | lists any user's paired browsers and pairing times, and distinguishes a real id from an invented one — which supplies the `device_id` the call above needs |
+| `/preview/{id}/ports` | `validate_session_key` | fine |
+| `/sockets/events/{id}` | exempt-listed, `X-Session-API-Key` | fine |
+
+`grep -cE "Depends\(|get_user_id|validate_session|X-Session-API-Key"
+bridge_router.py` returns **0**. The module docstring says `/bridge/call` is
+"Session authenticated, because it is the agent server calling in, not a
+browser" — that is the intent, and it is not what the code does. Both gaps are
+endpoints added after that docstring was written.
+
+The exempt list was audited too and is sound: the agent proxy checks
+`validate_session_key` (8 sites), the event webhook has a `valid_sandbox`
+dependency (10 sites), and `/api/auth/`, `/health`, `/alive`, `/oauth/` and the
+public web-client config are legitimately open.
+
+So the gap is exactly two endpoints, which is why this is contained rather than
+systemic.
+
+FIX, and it solves a second problem at once: `/bridge/call` should authenticate
+on `X-Session-API-Key` resolved to a sandbox — the mechanism `/preview` and the
+webhook already use, and the one its own docstring claims — with `user_id`
+coming from that resolution rather than the body. `/bridge/devices` should drop
+the path param and derive the user from the session, which ALSO fixes the
+frontend being unable to supply a `user_id` at all (`useMe` is SaaS-gated and
+`/api/v1/nimbus/account` returns no id).
+
+**P5 UI is deliberately NOT built on top of this.** Escalated to the lane that
+owns the module.
+
+Worth revisiting separately: the gate keying on `startswith('/api')` means the
+next router mounted outside it inherits the same silent default.
+
 ## Done and verified
 
 | | Verified how |
