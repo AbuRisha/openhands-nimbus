@@ -112,15 +112,34 @@ def _explain(status_code: int, body: str) -> str:
             'No browser is paired with this account. Ask the user to install the '
             'Nimbus extension and enter the pairing code shown in settings.'
         )
+    if status_code == 401:
+        # NOT a pairing problem, and the user cannot fix it by pairing again —
+        # this sandbox could not prove which account it belongs to, so telling
+        # them to re-pair would send them round a loop that cannot terminate.
+        return (
+            'This session could not authenticate to the browser bridge, so no '
+            'browser was contacted. This is a configuration fault rather than '
+            'something the user can fix; report it instead of retrying.'
+        )
     return f'The browser bridge failed ({status_code}): {body[:200]}'
+
+
+def _session_api_key() -> str:
+    """This sandbox's own session key.
+
+    Two names because two sandbox backends set different ones: the docker
+    service writes ``OH_SESSION_API_KEYS_0`` and the process service writes
+    ``SESSION_API_KEY``. Checked in that order to match
+    app_conversation_service_base's own fallback.
+    """
+    return os.getenv('OH_SESSION_API_KEYS_0') or os.getenv('SESSION_API_KEY') or ''
 
 
 class BrowserBridgeExecutor(
     ToolExecutor[BrowserBridgeAction, BrowserBridgeObservation]
 ):
-    def __init__(self, tool: str, user_id: str) -> None:
+    def __init__(self, tool: str) -> None:
         self._tool = tool
-        self._user_id = user_id
 
     def __call__(
         self, action: BrowserBridgeAction, conversation: Any = None
@@ -132,8 +151,13 @@ class BrowserBridgeExecutor(
         try:
             response = httpx.post(
                 f'{APP_SERVER_URL}/bridge/call',
+                # The user is NOT sent. It used to be, read from NIMBUS_USER_ID
+                # and trusted by the server, which meant any caller could name
+                # any account and drive that person's browser. The server now
+                # derives the user from this key, so the sandbox can only ever
+                # reach devices paired to the account that owns it.
+                headers={'X-Session-API-Key': _session_api_key()},
                 json={
-                    'user_id': self._user_id,
                     'device_id': action.device_id or '',
                     'tool': self._tool,
                     'params': params,
@@ -173,7 +197,6 @@ def _make_tool(
 
         @classmethod
         def create(cls, conv_state: Any = None, **params: Any) -> Sequence['_Tool']:
-            user_id = os.getenv('NIMBUS_USER_ID', '')
             return [
                 cls(
                     description=description,
@@ -184,7 +207,7 @@ def _make_tool(
                         readOnlyHint=read_only,
                         openWorldHint=True,
                     ),
-                    executor=BrowserBridgeExecutor(tool_name, user_id),
+                    executor=BrowserBridgeExecutor(tool_name),
                 )
             ]
 
