@@ -171,6 +171,32 @@ describe("useRefusalFailover", () => {
     expect(result.current.refusal?.fallback).toBeNull();
   });
 
+  it("waits for the catalog instead of recording 'no fallback' forever", () => {
+    // The catalog comes from a query and is empty on the first idle render.
+    // Because detection marks a message answered the moment it fires, an early
+    // run pinned fallback: null permanently — so every refusal said "no other
+    // model is available" and the feature was dead behind a correct-looking
+    // message. Found by looking at the running app, not by these tests, which
+    // had always passed a populated array synchronously.
+    const { result, rerender } = renderHook(
+      (props: { catalog: typeof CATALOG }) =>
+        useRefusalFailover({
+          events: [assistant("a1", "I must decline.")],
+          isRunning: false,
+          currentModel: "anthropic/claude-opus-5",
+          currentModelName: "Claude Opus 5",
+          catalog: props.catalog,
+        }),
+      { initialProps: { catalog: [] as typeof CATALOG } },
+    );
+
+    expect(result.current.refusal).toBeNull();
+
+    rerender({ catalog: CATALOG });
+
+    expect(result.current.refusal?.fallback?.model).toBe("openai/gpt-5.6-sol");
+  });
+
   it("hands the choice back so the caller owns the side effects", () => {
     const { result } = setup([assistant("a1", "I must decline.")]);
 

@@ -171,4 +171,45 @@ export const V1_CONVERSATION_HANDLERS = [
       return new HttpResponse(null, { status: 204 });
     },
   ),
+
+  /*
+   * The catalog, as the deployment seeds it: one profile per Nimbus model,
+   * named after the model. Unmocked, the model picker is empty AND the refusal
+   * prompt can only ever say "no other model is available" — which is exactly
+   * what it said before this existed, and looked like a bug in the feature
+   * rather than a gap in the fixture.
+   */
+  http.get("/api/v1/settings/profiles", async () => {
+    await delay();
+    const base = "https://api.nimbusapi.net/v1";
+    return HttpResponse.json({
+      active_profile: "Claude Sonnet 5",
+      profiles: [
+        {
+          name: "Claude Opus 5",
+          model: "anthropic/claude-opus-5",
+          base_url: base,
+          api_key_set: false,
+        },
+        {
+          name: "Claude Sonnet 5",
+          model: "anthropic/claude-sonnet-5",
+          base_url: base,
+          api_key_set: false,
+        },
+        {
+          name: "GPT 5.6 Sol",
+          model: "openai/gpt-5.6-sol",
+          base_url: base,
+          api_key_set: false,
+        },
+        {
+          name: "Gemini 3.5 Flash",
+          model: "google/gemini-3.5-flash",
+          base_url: base,
+          api_key_set: false,
+        },
+      ],
+    });
+  }),
 ];

@@ -36,8 +36,17 @@ import { useNewConversationCommand } from "#/hooks/mutation/use-new-conversation
 import { I18nKey } from "#/i18n/declaration";
 import { ArchivedBanner } from "./archived-banner";
 import { PendingMessages } from "./pending-messages";
+import { RefusalPrompt } from "./refusal-prompt";
+import { useRefusalFailover } from "#/hooks/chat/use-refusal-failover";
+import { useApplyRefusalChoice } from "#/hooks/chat/use-apply-refusal-choice";
+import { useLlmProfiles } from "#/hooks/query/use-llm-profiles";
+import { useSwitchLlmProfileAndLog } from "#/hooks/mutation/use-switch-llm-profile-and-log";
+import { useActiveConversation } from "#/hooks/query/use-active-conversation";
 import { useResumeThenSend } from "#/hooks/use-resume-then-send";
 import { useModelStore } from "#/stores/model-store";
+
+/** Joins multi-part message text; kept out of JSX for readability. */
+const NEWLINE = String.fromCharCode(10);
 
 export function ChatInterface() {
   const { setMessageToSend } = useConversationStore();
@@ -133,6 +142,60 @@ export function ChatInterface() {
   const isHistoryLoading = !showV1Messages;
   const isChatLoading = isHistoryLoading && !isTask;
 
+  /*
+   * Refusal failover.
+   *
+   * The four units are wired here and nowhere else: this is the only place
+   * that has the events, the running state, the conversation and the send
+   * function all at once. Everything above stays pure and testable because
+   * the side effects live at this one seam.
+   */
+  const { data: llmProfilesData } = useLlmProfiles();
+  const { data: activeConversation } = useActiveConversation();
+  const { switchAndLog } = useSwitchLlmProfileAndLog();
+
+  const refusalCatalog = React.useMemo(
+    () =>
+      (llmProfilesData?.profiles ?? [])
+        .filter((profile) => !!profile.model)
+        .map((profile) => ({ name: profile.name, model: profile.model! })),
+    [llmProfilesData?.profiles],
+  );
+
+  const currentModel = activeConversation?.llm_model ?? null;
+  const currentModelName =
+    refusalCatalog.find((entry) => entry.model === currentModel)?.name ??
+    currentModel ??
+    "";
+
+  const { refusal, resolve } = useRefusalFailover({
+    events: v1UiEvents,
+    isRunning: isAgentRunning,
+    currentModel,
+    currentModelName,
+    catalog: refusalCatalog,
+  });
+
+  // The request that was refused. Read from the last USER event rather than
+  // the optimistic store, which has been cleared by the time a refusal lands.
+  const lastUserText = React.useMemo(() => {
+    const found = [...v1UiEvents]
+      .reverse()
+      .find(
+        (event) =>
+          (event as { llm_message?: { role?: string } }).llm_message?.role ===
+          "user",
+      );
+    const content = (
+      found as { llm_message?: { content?: { type: string; text?: string }[] } }
+    )?.llm_message?.content;
+    if (!Array.isArray(content)) return "";
+    return content
+      .filter((part) => part.type === "text" && part.text)
+      .map((part) => part.text)
+      .join(NEWLINE);
+  }, [v1UiEvents]);
+
   const handleSendMessage = async (
     content: string,
     originalImages: File[],
@@ -215,6 +278,19 @@ export function ChatInterface() {
     setOptimisticUserMessage(content);
     setMessageToSend("");
   };
+
+  const { apply: applyRefusalChoice } = useApplyRefusalChoice({
+    isRunning: isAgentRunning,
+    switchToProfile: (profileName) => {
+      if (params.conversationId)
+        switchAndLog(params.conversationId, profileName);
+    },
+    profileNameForModel: (model) =>
+      refusalCatalog.find((entry) => entry.model === model)?.name ?? null,
+    resend: (text) => {
+      handleSendMessage(text, [], []);
+    },
+  });
 
   // Auto-scroll to bottom when new messages arrive
   React.useEffect(() => {
@@ -341,6 +417,19 @@ export function ChatInterface() {
               first; the only visible cost is a brief reconnect on the first
               message after a restart. */}
           {resumeState === "failed" && <ArchivedBanner />}
+
+          {/* A refusal is part of the conversation, so the offer to do
+              something about it belongs inline rather than in a modal. */}
+          {refusal && (
+            <RefusalPrompt
+              refusedModel={refusal.refusedModel}
+              fallback={refusal.fallback}
+              onChoose={(choice) => {
+                resolve(choice);
+                applyRefusalChoice(choice, lastUserText, currentModel);
+              }}
+            />
+          )}
 
           {/* Above the composer: what you typed while the agent was busy is
               still yours, and still cancellable, until it is delivered. */}

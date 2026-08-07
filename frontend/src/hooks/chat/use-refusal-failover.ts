@@ -101,6 +101,19 @@ export function useRefusalFailover({
 
   React.useEffect(() => {
     if (isRunning) return;
+    /*
+     * Wait for the catalog.
+     *
+     * It arrives from a query, so on the first idle render it is empty — and
+     * because detection marks a message answered the moment it fires, an early
+     * run recorded `fallback: null` PERMANENTLY and never re-evaluated. The
+     * prompt then said "no other model is available" for every refusal, with
+     * the whole feature dead behind a correct-looking message.
+     *
+     * Unit tests could not see this: they pass a populated array synchronously.
+     * It took looking at the running app.
+     */
+    if (catalog.length === 0) return;
     if (!lastAssistant) return;
     if (answered.current.has(lastAssistant.id)) return;
     if (!looksLikeRefusal(lastAssistant.text)) return;

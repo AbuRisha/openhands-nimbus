@@ -152,6 +152,12 @@ const TRANSCRIPT: unknown[] = [
     "e9",
     "Replaced the loop with `reduce` and the four cart tests still pass.",
   ),
+
+  // A refusal, so the failover prompt can actually be looked at. Short on
+  // purpose: looksLikeRefusal has a length ceiling, because a long message
+  // containing the same phrase is an answer that happens to open with one.
+  userMessage("e10", "now do the other thing"),
+  assistantMessage("e11", "I can't help with that."),
 ];
 
 /**
