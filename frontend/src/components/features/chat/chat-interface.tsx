@@ -44,6 +44,8 @@ import { useSwitchLlmProfileAndLog } from "#/hooks/mutation/use-switch-llm-profi
 import { useActiveConversation } from "#/hooks/query/use-active-conversation";
 import { useResumeThenSend } from "#/hooks/use-resume-then-send";
 import { useModelStore } from "#/stores/model-store";
+import { useShortcut } from "#/hooks/use-shortcut";
+import { ShortcutLayer } from "#/utils/shortcut-registry";
 
 export function ChatInterface() {
   const { setMessageToSend } = useConversationStore();
@@ -85,30 +87,29 @@ export function ChatInterface() {
     curAgentState === AgentState.RUNNING ||
     curAgentState === AgentState.LOADING;
 
-  // Global keyboard shortcut for Build button (Cmd+Enter / Ctrl+Enter)
-  // This is placed here instead of PlanPreview to avoid duplicate listeners
-  // when multiple PlanPreview components exist in the chat
-  React.useEffect(() => {
-    if (isAgentRunning) {
-      return undefined;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Check for Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux)
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        event.preventDefault();
-        event.stopPropagation();
-        handleBuildPlanClick(event);
-        scrollDomToBottom();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isAgentRunning, handleBuildPlanClick, scrollDomToBottom]);
+  // Build button (Cmd+Enter / Ctrl+Enter), at COMPOSER priority.
+  //
+  // It sits here rather than in PlanPreview because several PlanPreviews can be
+  // in the transcript at once and each would bind its own listener. The
+  // registry makes that hoist unnecessary — duplicate registrations of one
+  // chord resolve to a single winner — but there is still no reason for N
+  // registrations where one will do, so it stays.
+  //
+  // CONFIRMATION outranks COMPOSER, which is the fix for a real collision: this
+  // effect is gated on `isAgentRunning`, which covers only RUNNING and LOADING.
+  // AWAITING_USER_CONFIRMATION is neither, so while the agent waited for
+  // approval both this and the confirmation buttons were listening, and one
+  // Cmd+Enter approved a tool call AND started a plan build. The old
+  // `stopPropagation()` here never prevented that: both listeners were on
+  // `document`, and stopPropagation does not stop siblings on the same node.
+  useShortcut(
+    { key: "Enter", mod: true },
+    (event) => {
+      handleBuildPlanClick(event);
+      scrollDomToBottom();
+    },
+    { priority: ShortcutLayer.COMPOSER, when: () => !isAgentRunning },
+  );
 
   const params = useParams();
 

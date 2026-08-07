@@ -23,6 +23,8 @@ import ChevronDownSmallIcon from "#/icons/chevron-down-small.svg?react";
 import CheckIcon from "#/icons/checkmark.svg?react";
 import SettingsIcon from "#/icons/settings.svg?react";
 import type { ACPModelOption } from "#/api/option-service/option.types";
+import { useShortcut } from "#/hooks/use-shortcut";
+import { ShortcutLayer } from "#/utils/shortcut-registry";
 
 interface AcpModelMenuProps {
   models: ACPModelOption[];
@@ -40,11 +42,12 @@ function AcpModelMenu({
   const { t } = useTranslation();
   const ref = useClickOutsideElement<HTMLUListElement>(onClose);
 
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // MENU outranks MODAL, so Escape inside a menu that sits in a modal closes
+  // the menu and leaves the modal open. Both used to fire.
+  useShortcut({ key: "Escape" }, () => onClose(), {
+    priority: ShortcutLayer.MENU,
+    allowInInput: true,
+  });
 
   const handleSelect = (e: React.MouseEvent<HTMLButtonElement>, id: string) => {
     e.preventDefault();

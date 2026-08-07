@@ -2,6 +2,8 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import PauseIcon from "#/icons/pause.svg?react";
 import { I18nKey } from "#/i18n/declaration";
+import { useShortcut } from "#/hooks/use-shortcut";
+import { ShortcutLayer } from "#/utils/shortcut-registry";
 
 export interface ChatStopButtonProps {
   handleStop: () => void;
@@ -24,16 +26,27 @@ export interface ChatStopButtonProps {
 export function ChatStopButton({ handleStop }: ChatStopButtonProps) {
   const { t } = useTranslation();
 
-  React.useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-
+  // Escape interrupts the run, at GLOBAL priority — the lowest — so any menu or
+  // modal that registers Escape takes it first and this never fires underneath
+  // them. That ordering used to be approximated by scanning the DOM for
+  // `[role='dialog'], [role='menu']`; the scan is kept below because it also
+  // covers surfaces that never registered a shortcut at all, which priority
+  // alone cannot see.
+  //
+  // `allowInInput` is required, not incidental: the composer is a
+  // contentEditable that holds focus for the whole time an agent runs, so the
+  // registry's default typing guard would suppress the one shortcut whose
+  // entire purpose is to fire while you are typing. The narrower "is this some
+  // OTHER text field" test stays in `when`.
+  useShortcut({ key: "Escape" }, () => handleStop(), {
+    priority: ShortcutLayer.GLOBAL,
+    allowInInput: true,
+    when: (event) => {
       // Something closer to the user already acted on this Escape. The slash
-      // menu closes on it and calls preventDefault without stopping
-      // propagation, so without this check one press would both close the menu
-      // and kill the run. defaultPrevented is the signal for "handled" that
-      // does not require this component to know who else is listening.
-      if (event.defaultPrevented) return;
+      // menu is a React onKeyDown, not a registry entry, so priority cannot
+      // order it — it calls preventDefault without stopping propagation, and
+      // without this one press would both close the menu and kill the run.
+      if (event.defaultPrevented) return false;
 
       const active = document.activeElement;
 
@@ -57,16 +70,11 @@ export function ChatStopButton({ handleStop }: ChatStopButtonProps) {
         (active.tagName === "INPUT" ||
           active.tagName === "TEXTAREA" ||
           active.isContentEditable);
-      if (isEditing) return;
-      if (document.querySelector("[role='dialog'], [role='menu']")) return;
+      if (isEditing) return false;
 
-      event.preventDefault();
-      handleStop();
-    };
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [handleStop]);
+      return !document.querySelector("[role='dialog'], [role='menu']");
+    },
+  });
 
   return (
     <button

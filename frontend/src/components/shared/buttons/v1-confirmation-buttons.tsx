@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { I18nKey } from "#/i18n/declaration";
 import { AgentState } from "#/types/agent-state";
@@ -12,6 +12,8 @@ import { useActiveConversation } from "#/hooks/query/use-active-conversation";
 import { useAgentState } from "#/hooks/use-agent-state";
 import { useRespondToConfirmation } from "#/hooks/mutation/use-respond-to-confirmation";
 import { SecurityRisk } from "#/types/v1/core/base/common";
+import { useShortcut } from "#/hooks/use-shortcut";
+import { ShortcutLayer } from "#/utils/shortcut-registry";
 
 export function V1ConfirmationButtons() {
   const v1SubmittedEventIds = useEventMessageStore(
@@ -63,37 +65,23 @@ export function V1ConfirmationButtons() {
     ],
   );
 
-  // Handle keyboard shortcuts
-  useEffect(() => {
-    if (!awaitingAction) {
-      return undefined;
-    }
+  // Continue: Cmd+Enter (⌘↩). At CONFIRMATION priority, which outranks the
+  // composer's Build shortcut on the same chord — while the agent is blocked on
+  // an approval, Cmd+Enter means "approve".
+  //
+  // `mod` rather than `metaKey`: this used to test metaKey alone, so approving
+  // by keyboard worked on a Mac and silently did nothing on Windows or Linux.
+  useShortcut({ key: "Enter", mod: true }, () => handleConfirmation(true), {
+    priority: ShortcutLayer.CONFIRMATION,
+    when: () => !!awaitingAction,
+  });
 
-    const handleCancelShortcut = (event: KeyboardEvent) => {
-      if (event.shiftKey && event.metaKey && event.key === "Backspace") {
-        event.preventDefault();
-        handleConfirmation(false);
-      }
-    };
-
-    const handleContinueShortcut = (event: KeyboardEvent) => {
-      if (event.metaKey && event.key === "Enter") {
-        event.preventDefault();
-        handleConfirmation(true);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Cancel: Shift+Cmd+Backspace (⇧⌘⌫)
-      handleCancelShortcut(event);
-      // Continue: Cmd+Enter (⌘↩)
-      handleContinueShortcut(event);
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [awaitingAction, handleConfirmation]);
+  // Cancel: Shift+Cmd+Backspace (⇧⌘⌫)
+  useShortcut(
+    { key: "Backspace", mod: true, shift: true },
+    () => handleConfirmation(false),
+    { priority: ShortcutLayer.CONFIRMATION, when: () => !!awaitingAction },
+  );
 
   // Only show if agent is waiting for confirmation and we haven't already submitted
   if (

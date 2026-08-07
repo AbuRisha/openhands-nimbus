@@ -1,4 +1,6 @@
 import React from "react";
+import { useShortcut } from "#/hooks/use-shortcut";
+import { ShortcutLayer } from "#/utils/shortcut-registry";
 
 interface ModalBackdropProps {
   children: React.ReactNode;
@@ -11,20 +13,17 @@ export function ModalBackdrop({
   onClose,
   "aria-label": ariaLabel,
 }: ModalBackdropProps) {
-  React.useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose?.();
-    };
-
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-    // onClose belongs here. The listener closes over it, and callers almost
-    // always pass an inline arrow — so with an empty dependency array the
-    // handler registered on the FIRST render is the one Escape keeps calling
-    // forever, holding whatever state that closure captured. Clicking the
-    // backdrop went through the current prop and Escape did not, which is a
-    // difference nobody would think to look for.
-  }, [onClose]);
+  // The stale-closure hazard that the old dependency comment described is now
+  // structural rather than remembered: `useShortcut` holds the handler in a
+  // ref, so an inline arrow from the caller is always the CURRENT one and there
+  // is no dependency array to get wrong. Escape and a backdrop click go through
+  // the same `onClose` by construction.
+  //
+  // MODAL priority, so an open menu inside the modal takes Escape first.
+  useShortcut({ key: "Escape" }, () => onClose?.(), {
+    priority: ShortcutLayer.MODAL,
+    allowInInput: true,
+  });
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) onClose?.(); // only close if the click was on the backdrop
