@@ -301,3 +301,119 @@ serves the V1 API (only V0 was ever mocked).
   pinned to our own key.
 - Every claim about our code carries `path:line`. "Not found" is written as
   "not found — searched X".
+
+## 2026-08-07 — bridge auth: both NONE rows above are FIXED
+
+The audit table earlier in this file is stale in the good direction. Recorded
+here rather than edited in place, because the table is the evidence of what was
+wrong and deleting it would erase why these tests exist.
+
+`POST /bridge/call`
+: Authenticated by `X-Session-API-Key` -> `validate_session_key` -> user taken
+  from `sandbox.created_by_user_id`. **`user_id` was REMOVED from `CallRequest`
+  entirely, not ignored.** That distinction is the point: a field that is
+  checked can be un-checked by a later edit, a field that does not exist cannot
+  be spoofed by shape. A sandbox with no owning user is a 401 rather than the
+  empty-string user, because devices are keyed by user id and an empty id is a
+  real bucket that any unowned sandbox would otherwise share.
+
+`GET /bridge/devices`
+: No path parameter. User from the session cookie. This also fixed the reason
+  the P5 UI could not be built: the browser has no way to learn its own user id
+  (`useMe` is SaaS-gated, `/api/v1/nimbus/account` returns no id), so the by-id
+  signature was unbuildable as well as unsafe.
+
+Caller updated: `nimbus_browser_tools.py` sends the header and no longer reads
+`NIMBUS_USER_ID`. `_explain` gained a 401 branch — 401 is NOT a pairing problem
+and must never tell the user to re-pair, which is a loop that cannot terminate.
+
+### The tests, and why the old ones could not see it
+Three bridge test files existed and all three test the STORES; none sent an HTTP
+request, so the exposed surface had no coverage at all.
+
+- `tests/app_server/test_bridge_router_auth.py` — 6 tests through the router.
+  Verified against `git show HEAD:bridge_router.py`: all 6 fail on the
+  vulnerable version, all 6 pass on the fix.
+- `tests/app_server/test_unauthenticated_route_surface.py` — the systemic half.
+  Every non-`/api` route must be CLASSIFIED with a stated reason, and a second
+  test fails on any `{user_id}` in a non-`/api` path. The gate was deliberately
+  NOT flipped to deny-by-default: that breaks `/preview`, `/sockets`,
+  `/bridge/pair` and the SPA routes, and a security change that breaks four
+  working things gets reverted, which ends up less safe than before. Constrain
+  the process, not the runtime.
+
+262 backend pass (was 247). mypy clean.
+
+### Still open — `/mcp`
+`/mcp` is an ASGI **Mount**, not a route; the real endpoint is `POST /mcp/mcp`.
+It is outside `/api` so the gate does not require a session, and
+`get_user_id` returns `str | None` WITHOUT raising — so an anonymous call would
+reach the tools with `user_id=None` rather than being refused.
+
+Whether FastMCP itself refuses anonymous callers is **not answered**. Probing it
+under `TestClient` is inconclusive: FastMCP's `StreamableHTTPSessionManager`
+needs the app lifespan, which TestClient does not run, so the request dies with
+"task group was not initialized" before any handler. That 500 is infrastructure
+and says nothing about auth. Answering it needs a real ASGI server with
+lifespan. Same shape as the bug just fixed, so it is worth answering.
+
+### The pattern worth remembering
+The module docstring asserted `/bridge/call` was "Session authenticated" while
+the function had no `Depends` at all. The artifact most likely to be read by a
+reviewer was the one furthest from the truth, and because it read as deliberate
+it stopped anyone re-checking. A confident description is evidence about intent,
+never about behaviour. It was found by grepping for the mechanism, not by
+reading the prose.
+
+## 2026-08-07 — shortcut registry (Tier 1 #15), and a red suite paid down
+
+`35e333cdb` — one Cmd+Enter fired two actions. VERIFIED IN A BROWSER against
+the real module, not jsdom: two live owners of Cmd+Enter now yield
+`["approve"]` alone; Escape in a menu-inside-a-modal yields `["closeMenu"]`
+alone; Ctrl+Enter yields `["approve-ctrl"]`; autorepeat yields `[]`; zero
+registrations leak after cleanup.
+
+Seven components each owned a `document`/`window` keydown listener and two
+chords had multiple live owners. `chat-interface` gates Build on
+`isAgentRunning` = RUNNING|LOADING only, so AWAITING_USER_CONFIRMATION left
+both it and the confirmation buttons listening.
+
+THE PART WORTH REMEMBERING — the code looked like it had handled this.
+`chat-interface` called `stopPropagation()`, which does nothing for sibling
+listeners on the same node; only `stopImmediatePropagation` would, and even
+that resolves by mount order. Meanwhile `chat-stop-button` had invented a
+SECOND, different mechanism (`defaultPrevented`) that does work but is equally
+unreadable as a contract. Two ad-hoc exclusivity schemes, neither stated
+anywhere. Now: one listener, declared priorities
+MENU > MODAL > CONFIRMATION > COMPOSER > GLOBAL, highest live match wins.
+
+Two more bugs fell out of the migration rather than being looked for:
+- confirmation shortcuts tested `event.metaKey` alone, so approve/reject by
+  keyboard worked on a Mac and silently did nothing on Windows or Linux
+- autorepeat was unguarded, so holding Cmd+Enter approved repeatedly
+
+Mutation-checked, not assumed: deleting the exclusive `return` from dispatch
+fails exactly the two collision tests and passes the other twelve.
+
+`0bb861794` — 20 red frontend tests -> 2. All twenty predated this branch and
+all twenty were the OpenHands->Nimbus rename with the assertions left behind
+(`git log main..HEAD -- map-provider.ts` is empty). Proving the registry
+commit had not caused them required reading all twenty; that is the standing
+tax of a red suite.
+
+Two of those tests were badly built in ways the rename only exposed: two
+hardcoded `SETTINGS$NAV_LLM` merely to detect "menu loaded" (now derived from
+OSS_NAV_ITEMS, so they cannot rot again), and the nav sweep used `getByText`,
+which throws on the duplicate ORG$ACCOUNT — a correctly-rendering menu failed.
+
+REMAINING RED, both deliberate:
+- `llm-settings > uses the docs.openhands.dev domain for the API key help
+  link` — the other lane has `openhands-api-key-help.test.tsx` in its working
+  set, so this is theirs to land, not mine to race.
+- `recent-conversation` — the known-red inherited from upstream 13634324c.
+
+DEV-MOCK NOTE: `dev:mock` on :3010 runs `--prefix ../openhands-nimbus/frontend`
+per nimbus-v2/.claude/launch.json, so it does serve the fork. Navigating to
+`/conversations/1` lands on `/` — verify registry behaviour by importing
+`/src/utils/shortcut-registry.ts` in the page and dispatching real
+KeyboardEvents, which exercises the shipped module rather than a test double.
