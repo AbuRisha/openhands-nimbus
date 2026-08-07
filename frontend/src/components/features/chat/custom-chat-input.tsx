@@ -1,10 +1,11 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useChatInputLogic } from "#/hooks/chat/use-chat-input-logic";
 import { useFileHandling } from "#/hooks/chat/use-file-handling";
 import { useGripResize } from "#/hooks/chat/use-grip-resize";
 import { useChatInputEvents } from "#/hooks/chat/use-chat-input-events";
 import { useChatSubmission } from "#/hooks/chat/use-chat-submission";
 import { useSlashCommand } from "#/hooks/chat/use-slash-command";
+import { usePromptRecall } from "#/hooks/chat/use-prompt-recall";
 import { ChatInputGrip } from "./components/chat-input-grip";
 import { ChatInputContainer } from "./components/chat-input-container";
 import { HiddenFileInput } from "./components/hidden-file-input";
@@ -119,6 +120,58 @@ export function CustomChatInput({
     closeMenu: closeSlashMenu,
   } = useSlashCommand(chatInputRef as React.RefObject<HTMLDivElement | null>);
 
+  const { recallPrevious, recallNext, reset: resetRecall } = usePromptRecall();
+
+  /**
+   * Recall writes to the composer and then fires a synthetic InputEvent so the
+   * box resizes — but that event is indistinguishable from typing, and `onInput`
+   * ends the history walk. Without this flag every Up would reset the cursor it
+   * had just advanced, so recall could never go more than one entry deep.
+   */
+  const recallIsWriting = useRef(false);
+
+  /**
+   * Up/Down walk your own sent prompts, shell-style.
+   *
+   * Ordering in the key chain matters and is not arbitrary: the slash menu gets
+   * the arrows FIRST (it uses them to move its selection), and this returns
+   * false whenever it declines so the normal caret behaviour still happens.
+   * Recall only engages from an empty composer — see `usePromptRecall` — so a
+   * multi-line prompt keeps ordinary cursor movement.
+   */
+  const handleRecallKeyDown = (e: React.KeyboardEvent): boolean => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return false;
+
+    const element = chatInputRef.current;
+    if (!element) return false;
+
+    const current = element.textContent ?? "";
+    const next =
+      e.key === "ArrowUp" ? recallPrevious(current) : recallNext(current);
+    if (next === null) return false;
+
+    e.preventDefault();
+    element.textContent = next;
+
+    // Same sequence the slash-command insert uses: collapse to the end, then
+    // fire a native InputEvent so React's onInput runs and the box resizes.
+    // Without the event the composer keeps its old height and a recalled
+    // multi-line prompt is clipped.
+    const range = document.createRange();
+    const sel = window.getSelection();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+
+    recallIsWriting.current = true;
+    element.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    recallIsWriting.current = false;
+    element.focus();
+
+    return true;
+  };
+
   // Cleanup: reset suggestions visibility when component unmounts
   useEffect(
     () => () => {
@@ -162,10 +215,15 @@ export function CustomChatInput({
             handleInput();
             updateSlashMenu();
             saveDraft();
+            // Typing ends the history walk, so the next Up starts from the most
+            // recent prompt again. Recall's own write is exempt — see
+            // `recallIsWriting`.
+            if (!recallIsWriting.current) resetRecall();
           }}
           onPaste={handlePaste}
           onKeyDown={(e) => {
             if (handleSlashKeyDown(e)) return;
+            if (handleRecallKeyDown(e)) return;
             handleKeyDown(e, isDisabled, handleSubmit);
           }}
           onFocus={handleFocus}
