@@ -29918,5 +29918,39 @@
     "ca": "Amaga el resum",
     "tr": "Özeti gizle",
     "uk": "Сховати підсумок"
+  },
+  "HELP$TITLE": {
+    "en": "Available commands",
+    "ja": "利用可能なコマンド",
+    "zh-CN": "可用命令",
+    "zh-TW": "可用指令",
+    "ko-KR": "사용 가능한 명령어",
+    "no": "Tilgjengelige kommandoer",
+    "ar": "الأوامر المتاحة",
+    "de": "Verfügbare Befehle",
+    "fr": "Commandes disponibles",
+    "it": "Comandi disponibili",
+    "pt": "Comandos disponíveis",
+    "es": "Comandos disponibles",
+    "ca": "Ordres disponibles",
+    "tr": "Kullanılabilir komutlar",
+    "uk": "Доступні команди"
+  },
+  "HELP$FOOTER": {
+    "en": "Type / in the message box to see these while you type.",
+    "ja": "メッセージ欄で / を入力すると、入力中に一覧が表示されます。",
+    "zh-CN": "在输入框中键入 / 即可在输入时查看这些命令。",
+    "zh-TW": "在輸入框中輸入 / 即可在輸入時查看這些指令。",
+    "ko-KR": "메시지 입력란에 / 를 입력하면 입력하는 동안 목록이 표시됩니다.",
+    "no": "Skriv / i meldingsfeltet for å se disse mens du skriver.",
+    "ar": "اكتب / في مربع الرسالة لعرضها أثناء الكتابة.",
+    "de": "Geben Sie / im Nachrichtenfeld ein, um diese beim Tippen zu sehen.",
+    "fr": "Tapez / dans le champ de message pour les voir pendant la saisie.",
+    "it": "Digita / nel campo del messaggio per vederli mentre scrivi.",
+    "pt": "Digite / na caixa de mensagem para vê-los enquanto escreve.",
+    "es": "Escribe / en el cuadro de mensaje para verlos mientras escribes.",
+    "ca": "Escriu / al quadre de missatge per veure'ls mentre escrius.",
+    "tr": "Yazarken görmek için mesaj kutusuna / yazın.",
+    "uk": "Введіть / у полі повідомлення, щоб бачити їх під час набору."
   }
 }
