@@ -27,6 +27,14 @@ query params, multipart encoding, headers — is asserted for real; what they
 cannot prove is that a running agent server answers those requests the way its
 source says it will. Treat a first live run as part of the change.
 
+The sharpest of those unknowns is the archive's member framing: whether the
+tarball's paths are relative to the archived directory or include it. Guess wrong
+and ``tar`` still exits 0 while the state lands one level off, which reads as a
+successful fork whose agent remembers nothing. Rather than leave that as a
+caveat, ``_verify_landed`` checks the TARGET for the state the agent will
+actually open, so the wrong framing fails loudly on the first real fork instead
+of shipping an amnesiac one.
+
 TWO SHARP EDGES, both handled below
 -----------------------------------
 ``execute_bash_command`` returns ``page.items[-1]`` and ``BashOutput``'s own
@@ -54,6 +62,7 @@ from openhands.app_server.app_conversation import (
     fork_conversation_state as _copier_module,
 )
 from openhands.app_server.app_conversation import fork_state_cli as _cli_module
+from openhands.sdk.conversation.persistence_const import BASE_STATE, EVENTS_DIR
 
 _logger = logging.getLogger(__name__)
 
@@ -109,6 +118,73 @@ def _parse_copied(stdout: str | None) -> int:
         if isinstance(payload, dict) and 'error' in payload:
             raise ForkTransportError(f'fork CLI reported: {payload["error"]}')
     raise ForkTransportError(f'no {{"copied": N}} in fork CLI stdout: {stdout[:400]!r}')
+
+
+def _parse_landed(stdout: str | None) -> tuple[bool, int]:
+    """The ``{"base": 0|1, "events": N}`` the target-side probe printed.
+
+    Same fragmentation caveat as ``_parse_copied``, same rule: an unreadable
+    answer is an error, never an optimistic default.
+    """
+    if not stdout:
+        raise ForkTransportError(
+            'target did not report what landed, so the fork cannot be confirmed'
+        )
+    for blob in reversed(_JSON_OBJECT_RE.findall(stdout)):
+        try:
+            payload = json.loads(blob)
+        except ValueError:
+            continue
+        if isinstance(payload, dict) and 'base' in payload and 'events' in payload:
+            return bool(int(payload['base'])), int(payload['events'])
+    raise ForkTransportError(
+        f'target verification produced no readable result: {stdout[:400]!r}'
+    )
+
+
+async def _verify_landed(
+    client: httpx.AsyncClient,
+    target: SandboxEndpoint,
+    conversations_path: str,
+    target_conversation_id: UUID,
+    expected_events: int,
+) -> None:
+    """Confirm on the TARGET that the state is where the agent will look for it.
+
+    WHY THIS EXISTS. Everything before this point is evidence from the SOURCE:
+    the copied count comes from the copier's own stdout, and ``tar`` exiting 0
+    only says extraction ran, not that it landed at the depth we assumed. The
+    archive's member framing is read from the agent server's source, not
+    observed -- and if it unpacks one level off, ``tar`` still exits 0, this
+    function's caller still returns N, and the fork is a complete-looking
+    conversation whose agent remembers nothing. That is the exact failure the
+    whole feature exists to prevent, so it is checked rather than assumed.
+
+    The probe always exits 0 and reports facts, so a missing directory is a
+    parsed answer rather than a cryptic non-zero exit.
+    """
+    state_dir = f'{conversations_path.rstrip("/")}/{target_conversation_id.hex}'
+    base_path = f'{state_dir}/{BASE_STATE}'
+    events_path = f'{state_dir}/{EVENTS_DIR}'
+    stdout = await _bash(
+        client,
+        target,
+        'printf \'{"base": %s, "events": %s}\\n\' '
+        f'"$(test -f {_sh(base_path)} && echo 1 || echo 0)" '
+        f'"$(ls -1 {_sh(events_path)} 2>/dev/null | wc -l | tr -d \' \')"',
+    )
+    has_base, landed = _parse_landed(stdout)
+    if not has_base:
+        raise ForkTransportError(
+            f'fork state did not land in the target: {base_path} is missing after '
+            'extraction, so the agent would start with no memory. The archive '
+            'most likely unpacked at a different depth than expected.'
+        )
+    if landed != expected_events:
+        raise ForkTransportError(
+            f'fork state landed incompletely: {expected_events} event(s) were '
+            f'staged in the source but {landed} arrived in {events_path}'
+        )
 
 
 async def _upload(
@@ -202,6 +278,10 @@ async def transfer_forked_state(
 ) -> int:
     """Fork the agent's state from one sandbox into another. Returns event count.
 
+    The returned count is only reached if the state was confirmed present in the
+    TARGET (step 7). A count sourced purely from the copier's own stdout would
+    assert a fork that extraction may have put somewhere else.
+
     Raises ForkTransportError with the failing step named. Nothing here is
     idempotent by itself, but every write goes to a path keyed by the TARGET
     conversation id, so a retry overwrites its own previous attempt rather than
@@ -258,7 +338,14 @@ async def transfer_forked_state(
         f'&& rm -f {REMOTE_ARCHIVE_PATH}',
     )
 
-    # 7. Best effort cleanup. A leftover /tmp directory is not worth failing a
+    # 7. Confirm it landed, on the TARGET. Everything above is source-side
+    #    evidence; without this the return value asserts a fork that may not
+    #    exist. Raising here is what keeps the transcript from being written.
+    await _verify_landed(
+        client, target, conversations_path, target_conversation_id, copied
+    )
+
+    # 8. Best effort cleanup. A leftover /tmp directory is not worth failing a
     #    fork that has already landed.
     try:
         await _bash(client, source, f'rm -rf {REMOTE_TOOL_DIR}')

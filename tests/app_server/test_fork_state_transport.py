@@ -18,6 +18,7 @@ tell" must never collapse into "copied nothing".
 from __future__ import annotations
 
 import json
+import re
 from uuid import uuid4
 
 import httpx
@@ -30,6 +31,7 @@ from openhands.app_server.app_conversation.fork_state_transport import (
     ForkTransportError,
     SandboxEndpoint,
     _parse_copied,
+    _parse_landed,
     transfer_forked_state,
 )
 
@@ -38,14 +40,36 @@ TARGET = SandboxEndpoint(base_url='http://tgt.invalid', session_api_key='key-tgt
 CONVERSATIONS = '/workspace/conversations'
 
 
+def _bash_response(exit_code, stdout) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            'command_id': str(uuid4()),
+            'order': 0,
+            'exit_code': exit_code,
+            'stdout': stdout,
+            'stderr': None,
+        },
+    )
+
+
 def _recorder(
     *,
     bash_stdout: str = '{"copied": 4}',
     bash_exit: int | None = 0,
     archive_body: bytes = b'\x1f\x8b_fake_tarball',
     fail: dict[str, int] | None = None,
+    landed_base: int = 1,
+    landed_events: int | None = None,
 ):
-    """A MockTransport that records requests and can fail a chosen path."""
+    """A MockTransport that records requests and can fail a chosen path.
+
+    The target-side verification probe is answered separately from the copier,
+    and by default answers CONSISTENTLY with it: the landed event count is read
+    back out of ``bash_stdout`` so the mock cannot accidentally describe a
+    sandbox where the fork half-arrived. Pass ``landed_base``/``landed_events``
+    to describe one deliberately.
+    """
     seen: list[httpx.Request] = []
     fail = fail or {}
 
@@ -58,16 +82,18 @@ def _recorder(
         if path.endswith('/file/upload'):
             return httpx.Response(200, json={'success': True})
         if path.endswith('/bash/execute_bash_command'):
-            return httpx.Response(
-                200,
-                json={
-                    'command_id': str(uuid4()),
-                    'order': 0,
-                    'exit_code': bash_exit,
-                    'stdout': bash_stdout,
-                    'stderr': None,
-                },
-            )
+            command = json.loads(request.content).get('command', '')
+            if command.startswith('printf'):
+                # The probe is built to always exit 0 and report facts, so it is
+                # answered that way here rather than through bash_exit.
+                events = landed_events
+                if events is None:
+                    match = re.search(r'"copied":\s*(\d+)', bash_stdout)
+                    events = int(match.group(1)) if match else 0
+                return _bash_response(
+                    0, f'{{"base": {landed_base}, "events": {events}}}'
+                )
+            return _bash_response(bash_exit, bash_stdout)
         if path.endswith('/file/archive'):
             return httpx.Response(200, content=archive_body)
         return httpx.Response(404, text=f'unexpected {path}')
@@ -164,10 +190,31 @@ class TestTheHappyPathMakesExactlyTheRightCalls:
     async def test_target_extraction_runs_on_the_target_sandbox(self):
         _, seen = await _run(_recorder())
         bashes = [r for r in seen if r.url.path.endswith('/bash/execute_bash_command')]
-        target_bash = [b for b in bashes if str(b.url).startswith(TARGET.base_url)]
-        assert len(target_bash) == 1
-        cmd = json.loads(target_bash[0].content)['command']
-        assert 'tar xzf' in cmd and CONVERSATIONS in cmd
+        target_cmds = [
+            json.loads(b.content)['command']
+            for b in bashes
+            if str(b.url).startswith(TARGET.base_url)
+        ]
+        # Extraction, then the verification probe.
+        assert len(target_cmds) == 2
+        assert 'tar xzf' in target_cmds[0] and CONVERSATIONS in target_cmds[0]
+
+    @pytest.mark.asyncio
+    async def test_it_verifies_on_the_target_that_the_state_actually_landed(self):
+        """The count from the source proves nothing about where tar put things."""
+        tgt = uuid4()
+        _, seen = await _run(_recorder(), tgt=tgt)
+        probes = [
+            json.loads(r.content)['command']
+            for r in seen
+            if r.url.path.endswith('/bash/execute_bash_command')
+            and str(r.url).startswith(TARGET.base_url)
+            and json.loads(r.content)['command'].startswith('printf')
+        ]
+        assert len(probes) == 1
+        # It must look where the AGENT will look, not where we staged.
+        assert f'{CONVERSATIONS}/{tgt.hex}/base_state.json' in probes[0]
+        assert f'{CONVERSATIONS}/{tgt.hex}/events' in probes[0]
 
 
 class TestFailuresAreLoudAndNamed:
@@ -203,6 +250,24 @@ class TestFailuresAreLoudAndNamed:
             await _run(_recorder(bash_stdout='{"error": "ForkStateError: no state"}'))
 
     @pytest.mark.asyncio
+    async def test_a_target_missing_base_state_is_a_failure_not_a_reported_success(
+        self,
+    ):
+        """tar can exit 0 having unpacked at the wrong depth.
+
+        Without the target-side check this returned a healthy count for a fork
+        whose agent would start with no memory at all.
+        """
+        with pytest.raises(ForkTransportError, match='did not land'):
+            await _run(_recorder(landed_base=0))
+
+    @pytest.mark.asyncio
+    async def test_a_partially_landed_fork_is_a_failure(self):
+        """4 staged, 1 arrived: an agent that has silently forgotten things."""
+        with pytest.raises(ForkTransportError, match='landed incompletely'):
+            await _run(_recorder(bash_stdout='{"copied": 4}', landed_events=1))
+
+    @pytest.mark.asyncio
     async def test_cleanup_failure_does_not_fail_a_landed_fork(self):
         """The fork is already in the target; a stale /tmp dir is not worth losing it."""
         calls = {'n': 0}
@@ -218,16 +283,9 @@ class TestFailuresAreLoudAndNamed:
                 body = json.loads(request.content)['command']
                 if body.startswith('rm -rf'):
                     return httpx.Response(500, text='cleanup denied')
-                return httpx.Response(
-                    200,
-                    json={
-                        'command_id': str(uuid4()),
-                        'order': 0,
-                        'exit_code': 0,
-                        'stdout': '{"copied": 1}',
-                        'stderr': None,
-                    },
-                )
+                if body.startswith('printf'):
+                    return _bash_response(0, '{"base": 1, "events": 1}')
+                return _bash_response(0, '{"copied": 1}')
             return httpx.Response(404)
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -266,6 +324,30 @@ class TestParseCopied:
 
     def test_zero_is_a_legitimate_count_and_is_returned(self):
         assert _parse_copied('{"copied": 0}') == 0
+
+
+class TestParseLanded:
+    def test_plain(self):
+        assert _parse_landed('{"base": 1, "events": 12}') == (True, 12)
+
+    def test_absent_base_state_is_reported_as_such(self):
+        assert _parse_landed('{"base": 0, "events": 0}') == (False, 0)
+
+    def test_surrounded_by_shell_noise(self):
+        assert _parse_landed('ls: no such dir\n{"base": 1, "events": 3}\n') == (True, 3)
+
+    def test_no_stdout_is_an_error(self):
+        with pytest.raises(ForkTransportError, match='did not report'):
+            _parse_landed(None)
+
+    def test_unreadable_is_an_error_not_an_assumed_success(self):
+        with pytest.raises(ForkTransportError, match='no readable result'):
+            _parse_landed('Traceback (most recent call last): ...')
+
+    def test_the_copied_payload_is_not_mistaken_for_a_landing_report(self):
+        """Both probes emit JSON; only one answers this question."""
+        with pytest.raises(ForkTransportError, match='no readable result'):
+            _parse_landed('{"copied": 4}')
 
 
 class TestShellQuoting:
