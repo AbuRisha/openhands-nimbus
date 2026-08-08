@@ -90,10 +90,56 @@ stale DONE costs the whole implementation.
 | 9 | **Find-in-conversation (Cmd+F)** | **DONE** | `284849fc4`. CSS Custom Highlight API — see the collapsed-rows limitation recorded there |
 | 10 | **@-mention picker with content search** | not started | **Needs a schema decision first** — content search, not filename match. See §11 |
 | 11 | **Tool-permission prompts + permission modes** | backend DONE, browser-reachable | See "Item 11, inventoried" below. Modes are S–M and purely frontend. Folder trust is separate and unbacked |
-| 12 | **Session fork + rewind** | **half built** | State-copier merged (13 tests). Transport + endpoint specced, unbuilt. Founder decision pending — and do not call it "fork" in the UI |
+| 12 | **Session fork + rewind** | **MERGED, DEPLOYED, AND HAS NEVER WORKED** | Every shipped image 404s on the first transport call. Fix in PR #19, unverified against a deployed artifact. See "Item 12" below before touching it |
 | 13 | **Server-side PTY terminal** | **half done, half blocked upstream** | Read-only agent terminal ships. Interactive shell impossible on this API: no stdin, no TTY, no session. See "Item 13, answered" |
 | 14 | **`/help` + built-in command set** | **DONE** | `0357cd459`. Help reads `BUILT_IN_COMMANDS` at render, so it cannot go stale |
 | 15 | **Shortcut registry + `Cmd+K` + `↑` recall** | **DONE** | Registry `35e333cdb`, recall `590286ea9`, palette `3c797261a`. Palette actions derive from `useSettingsNavItems`, so they cannot drift from the real nav |
+
+#### Item 12, 2026-08-08 — merged, deployed, and never once functional
+
+**Do not record this as shipped again until a fork is driven against a DEPLOYED
+image.** It has been called done twice and was wrong both times.
+
+**Round one:** the endpoint merged (PR #17) and deployed as revision `0000090`
+with a green suite. The transport counted events from the SOURCE copier's
+stdout and checked nothing on the target after `tar xzf` — and tar exits 0 even
+when the archive unpacks at a different depth. A fork could report success with
+an agent that had no memory. Fixed in `577579f14`.
+
+**Round two, and this one predates every image:** the transport calls
+`{base_url}/bash/execute_bash_command`, `/file/upload`, `/file/archive`. But
+`agent_server/api.py:343` mounts bash, file, git, vscode and the rest inside
+`APIRouter(prefix="/api")`. Only `server_details_router` (`/alive`,
+`/server_info`) and the sockets router sit at the root — **which is precisely
+why the health check passes while every functional call 404s.** All three paths
+were missing `/api`. `fork12-20260808`, `fork12v2-20260808`,
+`forkverify-20260808` and `bridgefix-20260808` all contain a fork that cannot
+fork.
+
+**WHY 43 GREEN TESTS COULD NOT SEE IT.** Every assertion was
+
+    request.url.path.endswith('/bash/execute_bash_command')
+
+which is equally true of the broken `/bash/...` and the correct `/api/bash/...`.
+**A suffix cannot observe a missing prefix.** The suite measured the tail; the
+defect was in the head. This is the same shape as counting events from the
+source's stdout, and as a `"'browser_navigate'" in source` check that matched a
+docstring and nearly caused a false production alarm — three cases in one day of
+an assertion made somewhere it structurally could not see what it was meant to
+catch.
+
+**The fix (PR #19)** adds `SandboxEndpoint.api_base` so a bare `base_url` cannot
+be used by accident, compares FULL paths, and asserts over every request rather
+than the three known call sites. Mutation-checked: reverting it fails 18 tests
+where before it failed none. 6/6 live checks against a real agent server.
+
+**What "shipped" must mean for this item:** a fork driven against the DEPLOYED
+image, not a test double and not a locally-booted agent server. Both previous
+claims rested on merged code plus a green suite, and both were false.
+
+Client side is unaffected and correct: the transport is state-first, so a
+routing failure raises before any conversation record is written — the user gets
+a hard failure with no orphan conversation rather than a half-made one.
 
 #### Items 20-26, inventoried 2026-08-08 — three are largely built, two unserved
 
