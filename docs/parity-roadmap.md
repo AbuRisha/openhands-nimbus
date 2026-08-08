@@ -77,18 +77,23 @@ because they are cheap and customer-visible.
 
 ### Tier 1 — highest value ÷ cost
 
-| # | Item | Size | Note |
+**STATUS IS RECORDED HERE. Keep it current.** This table read as if nothing had
+shipped for a full day after six of its items landed, and two sessions
+independently rebuilt #19 off a stale entry. A wrong size costs an estimate; a
+stale DONE costs the whole implementation.
+
+| # | Item | Status | Note |
 |---|---|---|---|
-| 6 | **Inline diffs in the transcript** | L | Biggest visual gap. `FileDiffViewer` already exists but is used only by `routes/changes-tab.tsx`. Reviewing agent output *is* the core loop |
-| 7 | **Queued-message control** — cancel, reorder, promote | S–M | Builds on Tier 0 #2 |
-| 8 | **Cross-session transcript search** | S–M | They built a dedicated worker for it, which says hot path |
-| 9 | **Find-in-conversation (Ctrl/Cmd+F)** | M | Native Ctrl+F is free; a real overlay with next/prev is M |
-| 10 | **@-mention picker over indexed repo files, with content search** | M | Content search, not just filename match, is what makes it feel smart |
-| 11 | **Tool-permission prompts + permission modes + folder trust** | M | The trust substrate for everything unattended later |
-| 12 | **Session fork + rewind/checkpoint** | L | Agentic coding is speculative; getting *back* is the difference between trusting a 40-turn task and babysitting it |
-| 13 | **Server-side PTY terminal** — NOT buildable on the current agent-server API; see "Item 13, answered" below | L, blocked upstream | They ship *two*: the agent's, and a user shell with retained scrollback |
-| 14 | **`/help` and a real built-in command set** | M | We have exactly 3 built-ins (`/new`, `/btw`, `/model`) vs ~20. No `/help` at all |
-| 15 | **Central shortcut registry + `Cmd+K` + `↑` recall** | M | 7 ad-hoc `document` keydown listeners today, no registry, three owners claim Cmd+Enter |
+| 6 | **Inline diffs in the transcript** | **DONE** | `unified-diff.ts` + the diff render path; edits render as diffs, not whole files |
+| 7 | **Queued-message control** | **DONE** | real queue store, cancel/reorder/promote |
+| 8 | **Cross-session transcript search** | **DONE** | `8f555ac2f` |
+| 9 | **Find-in-conversation (Cmd+F)** | **DONE** | `284849fc4`. CSS Custom Highlight API — see the collapsed-rows limitation recorded there |
+| 10 | **@-mention picker with content search** | not started | **Needs a schema decision first** — content search, not filename match. See §11 |
+| 11 | **Tool-permission prompts + permission modes + folder trust** | not started | The trust substrate for anything unattended. Most strategically important item left |
+| 12 | **Session fork + rewind** | **half built** | State-copier merged (13 tests). Transport + endpoint specced, unbuilt. Founder decision pending — and do not call it "fork" in the UI |
+| 13 | **Server-side PTY terminal** | **half done, half blocked upstream** | Read-only agent terminal ships. Interactive shell impossible on this API: no stdin, no TTY, no session. See "Item 13, answered" |
+| 14 | **`/help` + built-in command set** | **DONE** | `0357cd459`. Help reads `BUILT_IN_COMMANDS` at render, so it cannot go stale |
+| 15 | **Shortcut registry + `Cmd+K` + `↑` recall** | **2 of 3 done** | Registry `35e333cdb`, recall `590286ea9`. **Cmd+K is the smallest remaining Tier 1 item** and the registry is its natural consumer |
 
 #### Items 20-26, inventoried 2026-08-08 — three are largely built, two unserved
 
@@ -339,6 +344,12 @@ emit something mid-task. No amount of frontend work reaches it, which is why thi
 is marked blocked upstream rather than L.
 
 ### Tier 3 — cheap wins, do when passing
+
+**SIZES HERE ARE UNVERIFIED FRONTEND GUESSES.** Eleven of eleven Tier 2 sizes
+were wrong once checked against the backend, in the same direction each time.
+Assume the same of everything below until someone reads the backend for it.
+"Cheap" is a hypothesis, not a finding.
+
 
 Archive/unarchive, share a session, session pre-warm, theme mode, locale
 switching, incognito-as-ephemeral-session, web notifications, support bundle,
