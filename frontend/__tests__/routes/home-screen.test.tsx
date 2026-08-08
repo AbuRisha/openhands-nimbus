@@ -13,48 +13,51 @@ import AuthService from "#/api/auth-service/auth-service.api";
 import MainApp from "#/routes/root-layout";
 import { MOCK_DEFAULT_USER_SETTINGS } from "#/mocks/handlers";
 
-const { DEFAULT_FEATURE_FLAGS, useIsAuthedMock, useConfigMock, mockUseAppMode } = vi.hoisted(
-  () => {
-    const defaultFeatureFlags = {
-      enable_billing: false,
-      hide_llm_settings: false,
-      enable_jira: false,
-      enable_jira_dc: false,
-      enable_linear: false,
-      hide_users_page: false,
-      hide_billing_page: false,
-      hide_integrations_page: false,
-      enable_onboarding: false,
-    };
+const {
+  DEFAULT_FEATURE_FLAGS,
+  useIsAuthedMock,
+  useConfigMock,
+  mockUseAppMode,
+} = vi.hoisted(() => {
+  const defaultFeatureFlags = {
+    enable_billing: false,
+    hide_llm_settings: false,
+    enable_jira: false,
+    enable_jira_dc: false,
+    enable_linear: false,
+    hide_users_page: false,
+    hide_billing_page: false,
+    hide_integrations_page: false,
+    enable_onboarding: false,
+  };
 
-    return {
-      DEFAULT_FEATURE_FLAGS: defaultFeatureFlags,
-      useIsAuthedMock: vi.fn().mockReturnValue({
-        data: true,
-        isLoading: false,
-        isFetching: false,
-        isError: false,
-      }),
-      useConfigMock: vi.fn().mockReturnValue({
-        data: {
-          app_mode: "oss",
-          feature_flags: defaultFeatureFlags,
-        },
-        isLoading: false,
-      }),
-      mockUseAppMode: vi.fn().mockReturnValue({
-        isOss: true,
-        isSaas: false,
-        isCloud: false,
-        isSelfHosted: false,
-        isEnterpriseSelfHosted: false,
-        isEnterpriseCloud: false,
-        appMode: "oss",
-        deploymentMode: undefined,
-      }),
-    };
-  },
-);
+  return {
+    DEFAULT_FEATURE_FLAGS: defaultFeatureFlags,
+    useIsAuthedMock: vi.fn().mockReturnValue({
+      data: true,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    }),
+    useConfigMock: vi.fn().mockReturnValue({
+      data: {
+        app_mode: "oss",
+        feature_flags: defaultFeatureFlags,
+      },
+      isLoading: false,
+    }),
+    mockUseAppMode: vi.fn().mockReturnValue({
+      isOss: true,
+      isSaas: false,
+      isCloud: false,
+      isSelfHosted: false,
+      isEnterpriseSelfHosted: false,
+      isEnterpriseCloud: false,
+      appMode: "oss",
+      deploymentMode: undefined,
+    }),
+  };
+});
 
 vi.mock("#/hooks/query/use-is-authed", () => ({
   useIsAuthed: () => useIsAuthedMock(),
@@ -65,16 +68,17 @@ vi.mock("#/hooks/query/use-config", () => ({
 }));
 
 vi.mock("#/hooks/use-app-mode", () => ({
-  useAppMode: () => mockUseAppMode() ?? {
-    isOss: true,
-    isSaas: false,
-    isCloud: false,
-    isSelfHosted: false,
-    isEnterpriseSelfHosted: false,
-    isEnterpriseCloud: false,
-    appMode: "oss",
-    deploymentMode: undefined,
-  },
+  useAppMode: () =>
+    mockUseAppMode() ?? {
+      isOss: true,
+      isSaas: false,
+      isCloud: false,
+      isSelfHosted: false,
+      isEnterpriseSelfHosted: false,
+      isEnterpriseCloud: false,
+      appMode: "oss",
+      deploymentMode: undefined,
+    },
 }));
 
 const RouterStub = createRoutesStub([
@@ -531,7 +535,10 @@ describe("Settings 404", () => {
     // The advanced settings link should be an anchor tag that opens in a new window
     const linkElement = advancedSettingsLink.querySelector("a");
     expect(linkElement).toBeInTheDocument();
-    expect(linkElement).toHaveAttribute("href", "/settings");
+    // /settings/app, not /settings: bare /settings IS the LLM-profiles screen,
+    // which was removed from the nav. Sending a customer there would land them
+    // on a page with no way back into the nav. See settings-nav.tsx.
+    expect(linkElement).toHaveAttribute("href", "/settings/app");
     expect(linkElement).toHaveAttribute("target", "_blank");
     expect(linkElement).toHaveAttribute("rel", "noreferrer noopener");
   });
@@ -658,7 +665,10 @@ describe("HomepageCTA visibility", () => {
       isError: false,
     });
     useConfigMock.mockReturnValue({
-      data: { app_mode: "saas", feature_flags: { ...DEFAULT_FEATURE_FLAGS, deployment_mode: "cloud" } },
+      data: {
+        app_mode: "saas",
+        feature_flags: { ...DEFAULT_FEATURE_FLAGS, deployment_mode: "cloud" },
+      },
       isLoading: false,
     });
     mockUseAppMode.mockReturnValue({
@@ -734,7 +744,9 @@ describe("HomepageCTA visibility", () => {
 
     await screen.findByTestId("home-screen");
 
-    expect(screen.queryByTestId("homepage-cta-learn-more")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("homepage-cta-learn-more"),
+    ).not.toBeInTheDocument();
   });
 
   it("should not show HomepageCTA in SaaS Self-hosted mode", async () => {
@@ -745,7 +757,13 @@ describe("HomepageCTA visibility", () => {
       isError: false,
     });
     useConfigMock.mockReturnValue({
-      data: { app_mode: "saas", feature_flags: { ...DEFAULT_FEATURE_FLAGS, deployment_mode: "self_hosted" } },
+      data: {
+        app_mode: "saas",
+        feature_flags: {
+          ...DEFAULT_FEATURE_FLAGS,
+          deployment_mode: "self_hosted",
+        },
+      },
       isLoading: false,
     });
     mockUseAppMode.mockReturnValue({
@@ -764,7 +782,10 @@ describe("HomepageCTA visibility", () => {
       posthog_client_key: "test-posthog-key",
       providers_configured: ["github"],
       auth_url: "https://auth.example.com",
-      feature_flags: { ...DEFAULT_FEATURE_FLAGS, deployment_mode: "self_hosted" },
+      feature_flags: {
+        ...DEFAULT_FEATURE_FLAGS,
+        deployment_mode: "self_hosted",
+      },
       maintenance_start_time: null,
       recaptcha_site_key: null,
       faulty_models: [],
@@ -777,7 +798,8 @@ describe("HomepageCTA visibility", () => {
 
     await screen.findByTestId("home-screen");
 
-    expect(screen.queryByTestId("homepage-cta-learn-more")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("homepage-cta-learn-more"),
+    ).not.toBeInTheDocument();
   });
-
 });

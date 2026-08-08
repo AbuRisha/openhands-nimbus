@@ -177,13 +177,16 @@ describe("Settings Screen", () => {
   it("should render the navbar", async () => {
     // "connectors", not "integrations": the page is the same, the label is the
     // word customers actually arrive looking for.
-    const sectionsToInclude = ["model", "connectors", "general", "secrets"];
+    // "model" is NOT included: the Model entry was removed from the OSS nav,
+    // because every model is available to every customer and a screen for
+    // enabling them is a step that can only cost time. See settings-nav.tsx.
+    const sectionsToInclude = ["connectors", "general", "secrets"];
     // "api keys" is NOT excluded: OSS deliberately lists it (see the comment on
     // OSS_NAV_ITEMS — without it the page was reachable only by hand-typing the
     // URL, so a customer could not manage their own keys from inside the
     // product). This assertion was passing only because the "integrations"
     // lookup above threw before the exclusions ever ran.
-    const sectionsToExclude = ["credits", "billing"];
+    const sectionsToExclude = ["credits", "billing", "model"];
     const getConfigSpy = vi.spyOn(OptionService, "getConfig");
     // @ts-expect-error - only return app mode
     getConfigSpy.mockResolvedValue({
@@ -278,7 +281,10 @@ describe("Settings Screen", () => {
 
     // Verify we're in OSS mode by checking the navbar
     const navbar = await screen.findByTestId("settings-navbar");
-    expect(within(navbar).getByText("Model")).toBeInTheDocument();
+    // Model was removed from the OSS nav — every model is available to every
+    // customer, so a screen for enabling them only costs time. The other OSS
+    // entries below still assert what a customer DOES see.
+    expect(within(navbar).queryByText("Model")).not.toBeInTheDocument();
     expect(
       within(navbar).queryByText("credits", { exact: false }),
     ).not.toBeInTheDocument();
@@ -515,7 +521,7 @@ describe("Settings Screen", () => {
             hide_users_page: false,
             hide_billing_page: false,
             hide_integrations_page: false,
-        enable_onboarding: false,
+            enable_onboarding: false,
           },
         }),
       );
@@ -571,7 +577,7 @@ describe("Settings Screen", () => {
             hide_users_page: false,
             hide_billing_page: false,
             hide_integrations_page: false,
-        enable_onboarding: false,
+            enable_onboarding: false,
           },
         }),
       );
@@ -693,7 +699,7 @@ describe("Settings Screen", () => {
           hide_users_page: true,
           hide_billing_page: false,
           hide_integrations_page: false,
-        enable_onboarding: false,
+          enable_onboarding: false,
         },
       };
 
@@ -738,7 +744,7 @@ describe("Settings Screen", () => {
           hide_users_page: false,
           hide_billing_page: true,
           hide_integrations_page: false,
-        enable_onboarding: false,
+          enable_onboarding: false,
         },
       };
 
@@ -871,11 +877,13 @@ describe("Settings Screen", () => {
       expect(
         within(navbar).queryByText("Integrations", { exact: false }),
       ).not.toBeInTheDocument();
-      // Other OSS pages should still be visible
-      // The OSS nav speaks the product's vocabulary now: "Model", not "LLM";
-      // "General", not "Application".
+      // Other OSS pages should still be visible. The OSS nav speaks the
+      // product's vocabulary — "General", not "Application" — and no longer
+      // carries a Model entry at all, since every model is available to every
+      // customer. "Capabilities" is asserted instead, as a page a customer
+      // genuinely still reaches.
       expect(
-        within(navbar).getByText("Model", { exact: false }),
+        within(navbar).queryByText("Capabilities", { exact: false }),
       ).toBeInTheDocument();
       expect(
         within(navbar).getByText("General", { exact: false }),
@@ -994,7 +1002,7 @@ describe("getFirstAvailablePath", () => {
     hide_users_page: false,
     hide_billing_page: false,
     hide_integrations_page: false,
-        enable_onboarding: false,
+    enable_onboarding: false,
   };
 
   describe("SaaS mode", () => {
