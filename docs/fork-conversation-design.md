@@ -199,3 +199,62 @@ where the tested code runs and it is not a refactor afterwards. If the answer is
 "expand on the app server", the temp directory needs an explicit lifetime, a
 per-customer path, and cleanup on failure — none of which are implied by the
 six-step sequence as written.
+
+## Resolved: the copier runs in the sandbox, so the trade above is void
+
+`fork_state_cli.py` (merged) makes the open decision in the previous section
+moot. `fork_conversation_state` imports nothing outside the standard library
+except `openhands.sdk.conversation.persistence_const`, and that module is core
+SDK — `sdk/conversation/event_store.py` imports it — so it is present in any
+sandbox running the agent server. The copier can be uploaded and executed IN the
+sandbox, unmodified.
+
+So: the app server never expands customer state, AND the code that runs is the
+code that is tested. Neither the shared-disk exposure nor the loss of the
+copier's tests is necessary. The temp-directory lifetime question in the previous
+section also disappears, because there is no app-server temp directory.
+
+The CLI is proved in its deployment mode, not just imported: its test runs it as a
+subprocess from a bare directory holding only the two modules, with `cwd`
+deliberately elsewhere.
+
+## What remains, and the honest state of it
+
+The orchestration. Every primitive it needs already exists:
+
+    validate_session_key(key)        -> SandboxInfo         (sandbox/session_auth.py)
+    _agent_base_url(sandbox)         -> agent server URL    (sandbox/agent_proxy_router.py:82)
+
+...so for source and target it is base URL plus `X-Session-API-Key` per sandbox,
+resolved the same way every other sandbox-scoped call resolves them.
+
+    1. POST {src}/file/upload   fork_conversation_state.py -> /tmp/oh-fork/
+    2. POST {src}/file/upload   fork_state_cli.py          -> /tmp/oh-fork/
+    3. POST {src}/bash/execute_bash_command
+           python /tmp/oh-fork/fork_state_cli.py \
+             --conversations-path <conversations_dir> \
+             --source-id <src> --target-id <new> \
+             [--up-to-event-id <cutoff>] \
+             --target-conversations-path /tmp/oh-fork/out
+           -> parse {"copied": N} from stdout; non-zero exit is a real failure
+    4. GET  {src}/file/archive?path=/tmp/oh-fork/out/<new>
+                              &format=tar.gz&use_default_excludes=false
+    5. POST {tgt}/file/upload?path=/tmp/oh-fork-in.tar.gz   (the archive bytes)
+    6. POST {tgt}/bash/execute_bash_command
+           mkdir -p <conversations_dir>
+           && tar xzf /tmp/oh-fork-in.tar.gz -C <conversations_dir>
+           && rm /tmp/oh-fork-in.tar.gz
+    7. POST {src}/bash/execute_bash_command   rm -rf /tmp/oh-fork
+
+**Deliberately not written yet, and the reason matters.** This is HTTP glue whose
+correctness depends on how three live endpoints actually behave — multipart field
+naming, archive framing, what `BashOutput` carries on a non-zero exit. None of
+that can be verified without a RUNNING sandbox, and a running sandbox needs an
+authenticated conversation. Tests for it would necessarily be all-mocked, which
+proves the shape of the wiring and nothing about whether it works.
+
+An all-mocked transport that passes CI and fails on first contact is worse than
+no transport, because it looks finished. Whoever picks this up should write it
+against a live sandbox and verify step 3's stdout parsing and step 6's extraction
+by hand at least once. The steps above are contract-verified; their composition
+is not.
