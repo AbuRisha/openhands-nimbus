@@ -1093,3 +1093,43 @@ not code — see docs/bugs.md.
 RULE, and it is cheap: a red suite gets either a fix or a commit sha that
 reproduces it on a tree we did not touch. "Inherited" without a reproduction
 is a guess, and this doc shows guesses ossify into facts within days.
+
+
+## 2026-08-08 — websocket session key moved off the URL
+
+**Shipped to `lane/frontend` / `land/auth-gates`, NOT yet deployed.** Founder
+approved fixing it now rather than documenting it.
+
+The browser's event socket sent its credential as `?session_api_key=...`, which
+Azure ingress and Log Analytics record verbatim. Found by session
+`local_c44142de`. The key now rides `Sec-WebSocket-Protocol` — a browser cannot
+set arbitrary headers on a WS handshake, which is why it was ever in a URL, but
+it CAN set subprotocols, and those arrive as a request header that access logs
+do not capture.
+
+**Three things about this change are load-bearing and easy to undo by accident:**
+
+1. **The query parameter is still accepted.** This is every chat session's auth
+   on a hot path. A tab already open, or one running a cached bundle, still
+   sends the key the old way and would be disconnected at the moment of the
+   revision swap. Remove it only when no bundle in circulation sends it.
+2. **The UPSTREAM leg keeps the query parameter.** The sandbox has no header
+   option — `session_api_key: Annotated[str | None, Query(...)]` in the SDK's
+   `agent_server/sockets.py`. Stripping it there authenticates nothing. I nearly
+   did this as an "improvement" and checked first.
+3. **`accept(subprotocol=...)` only echoes a protocol that was OFFERED.**
+   Selecting one the client did not send makes a conforming client fail the
+   connection (RFC 6455 4.1).
+
+Verified by mutation rather than by a green run — break the padding re-add, 6
+tests fail; strip the key from upstream, 2 fail; restore, 16 pass. That check
+exists because *an assertion that never fails is indistinguishable from one that
+cannot fail*, which is the sharpest form of this session's recurring lesson and
+came from another session.
+
+### Still outstanding
+
+**Item 12's end-to-end fork is APPROVED by the founder but BLOCKED on access.**
+Driving it needs an authenticated session; Chrome automation was denied by the
+permission classifier, and there is no `docs/credentials.md` in any checkout. It
+is not blocked on a decision any more — only on a way in.
