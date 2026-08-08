@@ -103,7 +103,7 @@ Backend surfaces enumerated per item rather than sized from the frontend.
 |---|---|---|---|
 | 20 Artifacts | none | none | genuinely unbuilt |
 | 21 Workspaces | NOT what it looks like | none | unbuilt — see correction |
-| 22 Scheduled tasks | none | none | genuinely unbuilt |
+| 22 Scheduled tasks | model+store BUILT (21 tests) | none | **blocked on one security decision** — a scheduler has no request, so firing needs a way for background code to act as a customer. See scheduled_task_models.py |
 | 23 Memory | see below | `/settings/condenser` | **label promises more than the page does** |
 | 24 Plugin marketplaces | `skills_router` | `skills-settings.tsx` | **ALREADY BUILT** |
 | 25 MCP management | `mcp_router` (4) | `mcp-settings.tsx` | largely built |
