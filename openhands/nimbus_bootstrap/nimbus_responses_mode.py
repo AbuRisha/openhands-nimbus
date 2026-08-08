@@ -1,16 +1,41 @@
-"""Keep litellm on Chat Completions for models our gateway serves that way.
+"""Keep our gateway traffic on Chat Completions.
 
 THE FAILURE
 -----------
-``openai/gpt-5.3-codex`` failed every chat turn with:
+Every ``openai/gpt-5.*`` model failed every chat turn with:
 
     litellm.BadRequestError: OpenAIException - not_found: POST /responses
 
-It is not a missing model. The gateway answers 200 for it over
-``/chat/completions`` — verified with a customer key. litellm simply refuses to
-use that path: ``get_model_info`` reports ``mode: "responses"`` for that id and
-``mode: "chat"`` for every other OpenAI model we sell, so litellm bridges the
-call to the Responses API, which our gateway does not implement.
+It is not a missing model. The gateway answers 200 over ``/chat/completions``
+and simply does not implement ``/responses`` — confirmed unauthenticated:
+``POST https://api.nimbusapi.net/responses`` returns exactly that body.
+
+TWO MECHANISMS, AND ONLY ONE OF THEM IS THE SWITCH
+--------------------------------------------------
+This module originally attributed the failure to litellm's registry:
+``get_model_info`` reports ``mode: "responses"`` for some ids, so litellm
+bridges the call. That is real, and ``install_chat_mode_overrides`` addresses
+it.
+
+It is NOT what was breaking the chat. The SDK decides between
+``litellm.responses`` and ``litellm.completion`` in ``LLM.uses_responses_api()``
+(sdk/llm/llm.py:2526, branched on at sdk/agent/utils.py:634,697), and that
+answers from the SDK's OWN feature table — ``RESPONSES_API_MODELS`` — and never
+consults ``litellm.model_cost``. So the registry flip could not influence it,
+which is why extending that list fixed nothing and the deployed image with a
+matching sha still returned ``not_found``.
+
+The table is ``["gpt-5", "codex-mini-latest"]``, matched by case-insensitive
+SUBSTRING. Every ``gpt-5.x`` id contains ``gpt-5``, so all seven OpenAI models
+in the catalog matched, not just the one anybody had tried.
+``install_responses_api_override`` is the fix.
+
+A NOTE ON THE EARLIER "MEASURED, NOT ASSUMED" CLAIM BELOW
+---------------------------------------------------------
+It said gpt-5.3-codex was verified returning 'PONG' in a running container with
+the registry flip applied. Whatever that measured, it was not this code path —
+`uses_responses_api()` does not read the field that was flipped. A passing
+probe against a different layer is not evidence about the one customers use.
 
 WHY THIS IS A REGISTRY EDIT WHEN THE OTHER FIXES WERE NOT
 ---------------------------------------------------------
@@ -44,6 +69,7 @@ returns something for it.
 from __future__ import annotations
 
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +124,79 @@ NIMBUS_FORCE_CHAT_MODE: tuple[str, ...] = (
     'qwen3.7-max',
     'qwen3.8-max',
 )
+
+
+def _gateway_hosts() -> tuple[str, ...]:
+    """Hosts that are OUR gateway, and therefore serve Chat Completions only."""
+    from urllib.parse import urlparse
+
+    hosts = {'api.nimbusapi.net'}
+    for var in ('NIMBUS_API_BASE_URL', 'LLM_BASE_URL'):
+        raw = os.environ.get(var) or ''
+        if raw:
+            host = urlparse(raw if '//' in raw else f'https://{raw}').hostname
+            if host:
+                hosts.add(host.lower())
+    return tuple(sorted(hosts))
+
+
+def install_responses_api_override() -> bool:
+    """Stop the SDK sending OUR models to the Responses API.
+
+    THIS is the switch, and it is not the one the rest of this module edits.
+
+    `LLM.uses_responses_api()` (sdk/llm/llm.py) decides between
+    `litellm.responses` and `litellm.completion` — see the two branches in
+    sdk/agent/utils.py:634,697 — and it answers from the SDK's OWN feature
+    table, never from `litellm.model_cost`. So flipping `mode` in litellm's
+    registry cannot influence it, however correct that flip looks.
+
+    The table is `RESPONSES_API_MODELS = ["gpt-5", "codex-mini-latest"]` matched
+    by CASE-INSENSITIVE SUBSTRING. Every `gpt-5.x` id contains "gpt-5", so every
+    OpenAI model in the Nimbus catalog matches — gpt-5.4, gpt-5.5, gpt-5.6-*,
+    gpt-5.3-codex. All of them were being sent to POST /responses, which our
+    gateway answers with `not_found`. It presented as one broken model because
+    only one had been tried.
+
+    Keyed on the BASE URL rather than the model name on purpose. The claim we
+    can actually make is about the endpoint - our gateway serves
+    /chat/completions and not /responses - and it is true for every model it
+    fronts, including ones added later. A customer's own key pointed at
+    api.openai.com is untouched and keeps the Responses API, which is the
+    guarantee a model-name list could not make.
+    """
+    try:
+        from openhands.sdk.llm.llm import LLM
+    except Exception:  # noqa: BLE001
+        return False
+
+    # Idempotent: sitecustomize runs per interpreter, and wrapping a wrapper
+    # would keep working but makes the stack harder to read.
+    if getattr(LLM, '_nimbus_responses_patched', False):
+        return True
+
+    original = LLM.uses_responses_api
+    hosts = _gateway_hosts()
+
+    def uses_responses_api(self) -> bool:  # type: ignore[no-untyped-def]
+        from urllib.parse import urlparse
+
+        try:
+            base = str(getattr(self, 'base_url', '') or '')
+            if base:
+                host = (urlparse(base).hostname or '').lower()
+                if host in hosts:
+                    return False
+        except Exception:  # noqa: BLE001
+            # Never let this decide nothing: fall through to the SDK's answer
+            # rather than raising inside a hot path.
+            pass
+        return original(self)
+
+    LLM.uses_responses_api = uses_responses_api  # type: ignore[method-assign]
+    LLM._nimbus_responses_patched = True  # type: ignore[attr-defined]
+    logger.info('nimbus: forcing Chat Completions for gateway hosts %s', hosts)
+    return True
 
 
 def install_chat_mode_overrides() -> int:
