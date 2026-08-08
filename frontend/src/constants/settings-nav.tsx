@@ -210,14 +210,22 @@ export const OSS_NAV_ITEMS: SettingsNavItem[] = [
     text: "SETTINGS$NAV_CAPABILITIES",
     section: "workspace",
   },
-  {
-    icon: <CircuitIcon width={22} height={22} />,
-    to: "/settings",
-    // "Model", not "LLM". Nobody outside this industry says LLM.
-    text: "SCHEMA$LLM$MODEL$LABEL",
-    section: "workspace",
-    disabledByAcp: true,
-  },
+  /*
+   * NO "Model" ENTRY, DELIBERATELY.
+   *
+   * It pointed at `/settings` (the LLM-profiles screen), where a customer had
+   * to add and enable each model before they could use it. Every model in the
+   * catalog is available to every customer — there is nothing to opt into, so
+   * a screen for opting in is a step that only ever costs the customer time
+   * and makes the product look gated.
+   *
+   * Models are chosen per conversation from the composer's model selector,
+   * which is where the choice belongs: next to the message it affects, not
+   * buried in settings. `/model` in the chat does the same thing.
+   *
+   * The route still exists for the org-defaults flow; it is simply not a place
+   * we send customers.
+   */
 
   // ── Customize ─────────────────────────────────────────────────────────
   // What you ADD to the product, as opposed to how it already behaves.
