@@ -27,9 +27,32 @@ const getQuery = (correspondingAction?: ActionEvent): string | undefined => {
 };
 
 /**
+ * `status` is a free-form string on the wire, and only the TERMINAL values are
+ * safe to treat as "finished". `TaskManager` emits `TaskStatus.RUNNING`
+ * (tools/task/manager.py:283) and the impl also emits a literal `"error"`
+ * (tools/task/impl.py:64), so an observation can legitimately arrive while the
+ * sub-agent is still working.
+ *
+ * Matching on "unfinished" rather than enumerating finished states is the
+ * conservative direction: an unrecognised future status renders as finished,
+ * which is the existing behaviour, rather than as a permanent spinner.
+ */
+const TERMINAL_STATUSES = new Set(["completed", "finished", "error", "failed"]);
+
+const isStillRunning = (observation: TaskObservation): boolean => {
+  const status = observation.status?.toLowerCase().trim();
+  if (!status) return false;
+  return !TERMINAL_STATUSES.has(status);
+};
+
+/**
  * Rich card body for a sub-agent task (TaskToolSet). Shows which sub-agent ran
  * the task, its task id, the query it was given (from the paired action) and
  * the result it returned. Mirrors the TaskTrackerObservation visualizer.
+ *
+ * `status` was carried on the observation and rendered nowhere, so a task still
+ * in progress was displayed identically to a finished one — the reader saw a
+ * "Result" heading over a partial answer with nothing saying more was coming.
  */
 export function SubagentObservationContent({
   event,
@@ -40,6 +63,7 @@ export function SubagentObservationContent({
   const query = getQuery(correspondingAction);
   const resultText = getResultText(observation);
   const resultImages = getResultImages(observation);
+  const isUnfinished = isStillRunning(observation);
 
   return (
     <div className="flex flex-col gap-3 text-neutral-300">
@@ -56,6 +80,16 @@ export function SubagentObservationContent({
           </span>
           <span>{observation.task_id}</span>
         </div>
+        {isUnfinished && (
+          <div className="flex gap-1" data-testid="subagent-running">
+            <span className="font-bold">
+              {t(I18nKey.SUBAGENT_OBSERVATION$STATUS)}:
+            </span>
+            <span className="text-[#F5B301]">
+              {t(I18nKey.SUBAGENT_OBSERVATION$STILL_RUNNING)}
+            </span>
+          </div>
+        )}
       </div>
 
       {query && (
@@ -71,7 +105,9 @@ export function SubagentObservationContent({
 
       <div className="flex flex-col gap-1">
         <span className="font-bold">
-          {t(I18nKey.SUBAGENT_OBSERVATION$RESULT)}
+          {isUnfinished
+            ? t(I18nKey.SUBAGENT_OBSERVATION$PARTIAL_RESULT)
+            : t(I18nKey.SUBAGENT_OBSERVATION$RESULT)}
         </span>
         {resultText && <MarkdownRenderer>{resultText}</MarkdownRenderer>}
         {resultImages.map((url) => (
