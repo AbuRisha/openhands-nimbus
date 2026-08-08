@@ -3,7 +3,16 @@
 Live state for the Claude-parity work on `chat.nimbusapi.net`. Read this first,
 then `docs/parity-roadmap.md` for the full inventory and evidence.
 
-Last updated: 2026-08-06. Branch `land/auth-gates`, PR #15 (17 commits, CLEAN).
+Last updated: 2026-08-08. Branch `land/auth-gates`.
+
+> **AUDIT NOTE 2026-08-08.** Sections below this line dated 2026-08-06 or
+> earlier have been checked against the tree where they make testable claims.
+> Where a claim was stale it is struck through with a dated retraction rather
+> than deleted, so anyone holding the old status can see what changed. Two
+> whole classes of claim turned out to be wrong: the standing "known red"
+> test labels (all green, and two were never upstream) and the "Next three
+> actions" list (two of three already shipped). Treat undated claims here as
+> unverified until someone runs them.
 
 ## Next three actions
 
@@ -25,18 +34,33 @@ is a flag. All four violations are fixed — 9 eslint + 1 a11y in the panel, myp
    the limit" — in the panel showing someone's account balance. Fix means real
    i18n keys across all fifteen locales, the same as
    `NIMBUS$EFFORT_NOT_SUPPORTED_FOR_MODEL` and the nav labels already added.
-2. **P15 — refusal failover.** Best effort-to-value item in the whole
-   competitor inventory. When a model refuses, offer three outcomes: retry on a
-   fallback model, edit the prompt, cancel — auto-cancelling after 300s so a
-   prompt never blocks a session forever. **The part worth copying is
-   revert-after-turn:** without it one refusal silently downgrades every later
-   turn and the user never learns their model changed. Pure orchestration on top
-   of what exists — 29 catalog models, `use-switch-llm-profile`, the model store.
-   Size S–M.
-3. **P11 — queue control.** Queued messages no longer vanish (they render as the
-   optimistic bubble), but the store holds ONE message, so queueing a second
-   replaces the first in the display. Both still deliver. Needs a real queue
-   store, then cancel / reorder / promote.
+2. ~~**P15 — refusal failover.**~~ **DONE — verified 2026-08-08.** This entry
+   said the units were built and "LEFT: mount them in chat-interface.tsx".
+   They are mounted: `chat-interface.tsx:41-43` imports RefusalPrompt,
+   useRefusalFailover and useApplyRefusalChoice; :203 and :211 call the hooks;
+   :513 renders `<RefusalPrompt>` wired to `apply(resolve(choice), ...)`. Also
+   confirmed live in a browser — `refusal-prompt`, `refusal-retry-once`,
+   `refusal-retry-sticky`, `refusal-edit` and `refusal-cancel` are all in the
+   DOM on /conversations/:id.
+3. ~~**P11 — queue control.**~~ **LARGELY DONE — verified 2026-08-08.** This
+   entry said "the store holds ONE message, so queueing a second replaces the
+   first". That is no longer true: `use-pending-messages.ts` queries
+   `/api/v1/conversations/{id}/pending-messages` as a LIST and
+   `pending-messages.tsx` renders each with its own cancel, scoped to
+   conversation AND message id per the contract below. Reorder/promote are
+   still unbuilt and still blocked on the same missing ordering column.
+
+**NEXT, and these are actually open** (see docs/parity-roadmap.md for evidence):
+   - **#20 print-to-PDF** — the one remaining piece of artifacts that is purely
+     additive. Share/auto-publish is NOT next: it needs a decision on whether
+     version history travels with a shared link, and history is the part that
+     leaks.
+   - **#22 scheduled-tasks runner** — model and store exist with 21 tests, and
+     no runner. Blocked on ONE security decision, not on plumbing: a scheduler
+     has no request, so firing a task means letting background code act as a
+     customer and spend their credit. See scheduled_task_models.py.
+   - **#26 side-chat continuity** — one-shot `ask_agent` is built; continuity
+     needs real sub-conversation state.
 
 Then **P13 — live preview tab**, fully designed against this codebase (P13 task
 and roadmap §7). Phase 1 is a ~150-line sibling of
