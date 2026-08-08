@@ -5,6 +5,7 @@ import { TASK_SUGGESTIONS_HANDLERS } from "./task-suggestions-handlers";
 import { SECRETS_HANDLERS } from "./secrets-handlers";
 import { ORG_HANDLERS } from "./org-handlers";
 import { MEMORY_HANDLERS } from "./memory-handlers";
+import { ARTIFACT_HANDLERS } from "./artifact-handlers";
 import { GIT_REPOSITORY_HANDLERS } from "./git-repository-handlers";
 import {
   SETTINGS_HANDLERS,
@@ -20,6 +21,7 @@ import { ANALYTICS_HANDLERS } from "./analytics-handlers";
 
 export const handlers = [
   ...MEMORY_HANDLERS,
+  ...ARTIFACT_HANDLERS,
 
   ...ORG_HANDLERS,
   ...API_KEYS_HANDLERS,

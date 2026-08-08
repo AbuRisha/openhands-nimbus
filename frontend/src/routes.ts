@@ -50,6 +50,10 @@ export default [
       route("budgets", "routes/budgets.tsx"),
     ]),
     route("conversations/:conversationId", "routes/conversation.tsx"),
+    // Top-level rather than under /settings: artifacts are the customer's own
+    // documents, not a preference. Settings is where you configure the product;
+    // this is where you keep the things you made with it.
+    route("artifacts", "routes/artifacts.tsx"),
     route("oauth/device/verify", "routes/device-verify.tsx"),
   ]),
   // Shared routes that don't require authentication
