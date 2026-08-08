@@ -97,7 +97,7 @@ because they are cheap and customer-visible.
 | 16 | **Live preview loop**: preview pane, click-to-select an element, screenshot back to the model, console logs to the model, model-driven navigation | L |
 | 17 | **Git review surface**: diff, per-file patch, dirty-tree warning, commit/stash | M–L |
 | 18 | **Full PR console**: checks, annotations, rerun, review comments, merge (~20 methods on their side) | L |
-| 19 | **Live sub-agent progress + nested tool calls.** `TaskObservation.status` exists (`types/v1/core/base/observation.ts:318-321`) and **no render site reads it** | L |
+| 19 | **Live sub-agent progress + nested tool calls.** NOT a rendering gap — see "Item 19, answered" below. Needs the SDK to emit a mid-task event; no frontend work reaches it | L, blocked upstream |
 | 20 | **Artifacts**: gallery, versions, restore, share, auto-publish, print-to-PDF; artifacts that can call tools and query the model | L |
 | 21 | **Workspaces**: group folders/projects/links, auto-summary, auto-classify sessions, per-workspace memory | M–L |
 | 22 | **Scheduled tasks** with editable task files, trigger history, standing permissions | M |
@@ -106,6 +106,47 @@ because they are cheap and customer-visible.
 | 25 | **MCP management UI**: live status, per-server logs, probe-before-add, in-app OAuth, per-session tool enablement | M |
 | 26 | **Side chat** — scratch sub-conversation beside the main thread | M |
 | 27 | **Session summarize / compact** with a user trigger. Condensation events exist backend-side but `should-render-event.ts:15-80` has no branch, so they never render | M |
+
+#### Item 19, answered 2026-08-07 — and TWO wrong answers were built off the old wording first
+
+The original entry said `TaskObservation.status` exists and no render site reads
+it. Both halves misled, and both misleading readings were acted on within an hour
+of each other by different sessions. Recording the mechanism, because a third
+attempt is the default outcome otherwise.
+
+**The render site does exist.** `components/v1/chat/subagent/subagent-observation-content.tsx`
+is a rich card — subagent, task id, the paired query, the result — wired at
+`get-event-content.tsx:214`. The "no render site" clause was simply stale.
+
+**`status` is unread because it is redundant, not because it was forgotten.**
+`openhands/tools/task/impl.py:38-66` is the only constructor and every branch
+sets both fields together:
+
+    TaskStatus.COMPLETED  status=task.status, is_error unset (False)  -> success
+    TaskStatus.ERROR      status=task.status, is_error=True           -> error
+    except Exception      status="error",     is_error=True           -> error
+    case _                raise RuntimeError — never builds one
+
+`case _` is the SDK stating outright that a non-terminal `TaskObservation` is not
+a thing. So `status: "failed"` with a falsy `is_error` is unreachable, and
+`get-observation-result.ts` resolving on `is_error` alone is CORRECT.
+
+**The two wrong answers:**
+
+1. A "still running" indicator was built on `status`, reasoning that
+   `manager.py:283` emits `TaskStatus.RUNNING`. It does — but it constructs an
+   internal `Task`, not a `TaskObservation`. Shipped, then reverted in
+   `8fc03de2f`, along with ten green tests asserting behaviour the system cannot
+   produce. Tests documenting an unreachable state are worse than no tests: the
+   next reader takes them as a specification.
+2. The same field was flagged as a possible defect — a failed sub-agent rendering
+   with a green check. Correctly NOT called a bug without checking reachability,
+   and reachability came back clean.
+
+**What item 19 actually needs:** there is no in-progress event for a sub-agent at
+all. The observation arrives once, at the end. Live progress requires the SDK to
+emit something mid-task. No amount of frontend work reaches it, which is why this
+is marked blocked upstream rather than L.
 
 ### Tier 3 — cheap wins, do when passing
 
