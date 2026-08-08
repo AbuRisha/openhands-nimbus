@@ -1,18 +1,21 @@
 from fastapi import APIRouter
 
+from openhands.app_server.app_conversation import (
+    app_conversation_router,
+    fork_conversation_router,
+)
 from openhands.app_server.app_conversation.nimbus_memory_router import (
     router as nimbus_memory_router,
 )
-from openhands.app_server.nimbus_account.nimbus_account_router import (
-    router as nimbus_account_router,
-)
-from openhands.app_server.app_conversation import app_conversation_router
 from openhands.app_server.config_api.config_router import router as config_router
 from openhands.app_server.event import event_router
 from openhands.app_server.event_callback import (
     webhook_router,
 )
 from openhands.app_server.git.git_router import router as git_router
+from openhands.app_server.nimbus_account.nimbus_account_router import (
+    router as nimbus_account_router,
+)
 from openhands.app_server.pending_messages.pending_message_router import (
     router as pending_message_router,
 )
@@ -30,6 +33,9 @@ from openhands.app_server.web_client import web_client_router
 router = APIRouter(prefix='/api/v1')
 router.include_router(event_router.router)
 router.include_router(app_conversation_router.router)
+# Fork lives in its own module rather than in the 1100-line conversation
+# router; same prefix, so the URL is unchanged for clients.
+router.include_router(fork_conversation_router.fork_router)
 router.include_router(pending_message_router)
 router.include_router(sandbox_router.router)
 router.include_router(sandbox_spec_router.router)
