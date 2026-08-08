@@ -89,7 +89,7 @@ stale DONE costs the whole implementation.
 | 8 | **Cross-session transcript search** | **DONE** | `8f555ac2f` |
 | 9 | **Find-in-conversation (Cmd+F)** | **DONE** | `284849fc4`. CSS Custom Highlight API — see the collapsed-rows limitation recorded there |
 | 10 | **@-mention picker with content search** | not started, **and blocked on a backend endpoint that does not exist** | Nothing reachable from the browser can list or search FILES. Needs a new app_server route before any UI. See "Item 10, scoped" |
-| 11 | **Tool-permission prompts + permission modes** | backend DONE, browser-reachable | See "Item 11, inventoried" below. Modes are S–M and purely frontend. Folder trust is separate and unbacked |
+| 11 | **Tool-permission prompts + permission modes** | **DONE 2026-08-08** | `permission-mode-button.tsx`, mounted in `chat-input-actions.tsx`; POSTs `{"policy":{"kind":...}}` to `/confirmation_policy`. `kind` values are SDK CLASS NAMES, not the TS interface names. Folder trust remains separate and unbacked |
 | 12 | **Session fork + rewind** | **fix now IN the deployed image; behaviour still unverified** | `routing2-20260808` / rev `0000097` carries all three `/api`-prefixed callsites, confirmed by image inspection. Nobody has yet driven a fork against it. See "Item 12" below before touching it |
 | 13 | **Server-side PTY terminal** | **half done, half blocked upstream** | Read-only agent terminal ships. Interactive shell impossible on this API: no stdin, no TTY, no session. See "Item 13, answered" |
 | 14 | **`/help` + built-in command set** | **DONE** | `0357cd459`. Help reads `BUILT_IN_COMMANDS` at render, so it cannot go stale |
@@ -225,7 +225,7 @@ Backend surfaces enumerated per item rather than sized from the frontend.
 | 20 Artifacts | **BUILT** — store + 8 routes | **BUILT** — `/artifacts` | gallery, versions, restore, delete DONE. Share / auto-publish / print-to-PDF deliberately not built; see below |
 | 21 Workspaces | NOT what it looks like | none | unbuilt — see correction |
 | 22 Scheduled tasks | model+store BUILT (21 tests) | none | **blocked on one security decision** — a scheduler has no request, so firing needs a way for background code to act as a customer. See scheduled_task_models.py |
-| 23 Memory | see below | `/settings/condenser` | **label promises more than the page does** |
+| 23 Memory | `nimbus_memory_router` (GET/PUT) | **`/settings/memory`** | **RESOLVED 2026-08-08** — real memory page shipped; condenser renamed to "Long conversations" |
 | 24 Plugin marketplaces | `skills_router` | `skills-settings.tsx` | **ALREADY BUILT** |
 | 25 MCP management | `mcp_router` (4) | `mcp-settings.tsx` | largely built |
 | 26 Side chat | `ask_agent` (stateless) | `/btw` + btw-store | **one-shot BUILT; continuity is the gap** — see below |
@@ -259,10 +259,20 @@ rest of this document catalogues, committed while applying its own fix.
 
 Also: `skills_router` (9) is served and `skills-settings.tsx` exists.
 
-**#23 IS THE ONE TO LOOK AT, and it is a naming problem rather than a gap.**
-The settings nav maps "Memory" to `/settings/condenser`, and the comment there
+**#23 — RESOLVED 2026-08-08, and the diagnosis below was right.** Kept because
+the reasoning is what made the fix obvious, not because the state is current.
+
+WHAT SHIPPED: `/settings/memory` renders the customer's durable memory document
+against `nimbus_memory_router`'s GET/PUT — a backend that ALREADY EXISTED with
+nothing pointing at it. The condenser entry is renamed "Long conversations"
+(`SETTINGS$NAV_CONVERSATION_LENGTH`) and keeps its own route. So the nav now
+has two entries that mean two different things, each named for what it does.
+The save path renders WHAT THE SERVER STORED rather than what was typed,
+because the server truncates to a cap.
+
+~~The settings nav maps "Memory" to `/settings/condenser`, and the comment there
 is honest about why: a condenser compacts conversation context so a long
-session survives, which is what memory means to the person using it.
+session survives, which is what memory means to the person using it.~~
 
 That rename is good for the eleven other items it sits beside. But Claude's
 "Memory" is a different feature — global and per-account memory FILES that the
