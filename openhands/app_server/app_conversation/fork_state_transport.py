@@ -284,3 +284,41 @@ def _sh(value: str) -> str:
     later.
     """
     return "'" + value.replace("'", "'\\''") + "'"
+
+
+async def resolve_conversations_path(
+    client: httpx.AsyncClient, sandbox: SandboxEndpoint
+) -> str:
+    """Ask the sandbox where its conversations directory is, as an ABSOLUTE path.
+
+    Not hardcoded, for two reasons that would each produce a silently empty fork.
+
+    ``AgentServerConfig.conversations_path`` defaults to
+    ``Path("workspace/conversations")`` — RELATIVE, so its meaning depends on the
+    agent server's working directory, which the app server does not know. And
+    ``GET /file/archive`` documents ``path`` as "Absolute path of the directory to
+    archive". Resolving it anywhere but inside the sandbox is guesswork.
+
+    A deployment may also override it, in which case a constant here would be
+    wrong in exactly the way that copies zero events and reports success.
+    """
+    stdout = await _bash(
+        client,
+        sandbox,
+        'python -c "from openhands.agent_server.config import get_default_config'
+        ' as c; print(c().conversations_path.resolve())"',
+    )
+    lines = [line.strip() for line in (stdout or '').splitlines() if line.strip()]
+    if not lines:
+        raise ForkTransportError(
+            'sandbox did not report its conversations_path; cannot fork blind'
+        )
+    path = lines[-1]
+    if not path.startswith('/'):
+        # Sandboxes are Linux containers, so an absolute path starts with '/'.
+        # Anything else means we captured shell noise rather than the answer, and
+        # forking against it would archive nothing.
+        raise ForkTransportError(
+            f'sandbox reported a non-absolute conversations_path: {path!r}'
+        )
+    return path
