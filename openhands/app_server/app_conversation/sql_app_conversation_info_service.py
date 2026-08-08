@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from typing import AsyncGenerator, cast
 from uuid import UUID
 
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 from sqlalchemy import (
     ColumnElement,
     DateTime,
@@ -54,7 +54,11 @@ from openhands.app_server.app_conversation.app_conversation_models import (
     ConversationTrigger,
 )
 from openhands.app_server.integrations.provider import ProviderType
+from openhands.app_server.nimbus_sso.nimbus_auth_gate import auth_required
 from openhands.app_server.services.injector import InjectorState
+from openhands.app_server.user.elevated_context import (
+    is_elevated as _is_elevated,
+)
 from openhands.app_server.user.user_context import UserContext
 from openhands.app_server.utils.sql_utils import (
     Base,
@@ -848,22 +852,53 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         A verified user id therefore was NOT sufficient on its own: without the
         predicate below, NimbusUserAuth returning a real customer id would have
         changed nothing about what that customer could read.
+
+        AND THE PREDICATE ALONE IS NOT SUFFICIENT EITHER, which is what the
+        refusal below adds. `if user_id is not None` skips the WHERE when
+        identity does not resolve, so an unresolved id widened this from "your
+        conversations" to "every conversation" — silently, on a read path, with
+        the scoping code visibly present.
+
+        The None that matters is NOT the anonymous one. `DefaultUserAuth`
+        returns None for EVERY caller by design ("does not support multi
+        tenancy"), and `_nimbus_user_id` converts any resolution failure into
+        None as well. Both arrive on fully authenticated requests, which the
+        auth gate passes by definition.
+
+        Conditionally fail-closed, copying `mcp_router._require_identity`:
+        refuse when identity is absent AND this deployment authenticates.
+        Refusing unconditionally would delete every read path on any
+        deployment running upstream `DefaultUserAuth` — the same trap as
+        applying an ownership equality to a service that records no owner.
         """
         query = select(StoredConversationMetadata).where(
             StoredConversationMetadata.conversation_version == 'V1'
         )
         user_id = await self._nimbus_user_id()
+        if not user_id and auth_required() and not _is_elevated(self.user_context):
+            # Empty string counts as absent: user ids key ownership, and ''
+            # is a real bucket that every unowned row would share.
+            logger.warning(
+                'conversation read refused: no verified identity on an '
+                'authenticated deployment'
+            )
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                detail='Authentication required',
+            )
         if user_id is not None:
             query = query.where(StoredConversationMetadata.nimbus_user_id == user_id)
         return query
 
     async def _nimbus_user_id(self) -> str | None:
-        """The owning customer for this request, or None when unauthenticated.
+        """The owning customer for this request, or None when it does not resolve.
 
-        Never raises: a failure to resolve identity must not become a failure to
-        apply the filter, and it must not become an open query either — callers
-        treat None as "no owner scope", and the auth gate refuses anonymous
-        requests before they reach here.
+        Never raises. That is safe ONLY because `_secure_select` now refuses a
+        None when the deployment authenticates — before that, this method's
+        exception handler was the widening step, and its own docstring claimed
+        the opposite ("must not become an open query either"). The mitigation
+        it cited, that the auth gate refuses anonymous requests, defended a
+        different None than the one that actually occurs.
         """
         try:
             return await self.user_context.get_user_id()

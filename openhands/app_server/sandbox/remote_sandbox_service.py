@@ -10,7 +10,7 @@ from uuid import UUID
 
 import base62
 import httpx
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 from pydantic import Field
 from sqlalchemy import String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from openhands.app_server.app_conversation.app_conversation_models import (
     AppConversationInfo,
 )
 from openhands.app_server.errors import SandboxDeleteRetryError, SandboxError
+from openhands.app_server.nimbus_sso.nimbus_auth_gate import auth_required
 from openhands.app_server.sandbox import workspace_archive
 from openhands.app_server.sandbox.sandbox_models import (
     AGENT_SERVER,
@@ -50,6 +51,9 @@ from openhands.app_server.sandbox.sandbox_spec_service import (
 )
 from openhands.app_server.services.injector import InjectorState
 from openhands.app_server.settings.settings_models import grouped_workspace_dir
+from openhands.app_server.user.elevated_context import (
+    is_elevated as _is_elevated,
+)
 from openhands.app_server.user.specifiy_user_context import ADMIN, USER_CONTEXT_ATTR
 from openhands.app_server.user.user_context import UserContext
 from openhands.app_server.utils.docker_utils import (
@@ -229,8 +233,34 @@ class RemoteSandboxService(SandboxService):
         return SandboxStatus.MISSING
 
     async def _secure_select(self):
+        """Base query for every read path — the one place isolation is enforced.
+
+        The predicate used to be applied only `if user_id`, which meant an
+        unresolved identity DROPPED the WHERE and returned every stored sandbox
+        — including each one's `session_api_key`, which `validate_session_key`
+        accepts and the agent proxy routes on. Right control, inverted failure
+        mode, and the hardest of the three sandbox services to spot precisely
+        because the scoping code is visibly present.
+
+        Conditionally fail-closed, copying `mcp_router._require_identity`:
+        upstream `DefaultUserAuth.get_user_id` returns None for EVERY caller by
+        design, so refusing unconditionally would delete every read path on any
+        deployment that never opted into Nimbus auth.
+        """
         query = select(StoredRemoteSandbox)
         user_id = await self.user_context.get_user_id()
+        if not user_id and auth_required() and not _is_elevated(
+            self.user_context
+        ):
+            # Empty string counts as absent: ids key ownership, and '' is a
+            # real bucket that every unowned row would otherwise share.
+            _logger.warning(
+                'sandbox read refused: no verified identity on an '
+                'authenticated deployment'
+            )
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, detail='Authentication required'
+            )
         if user_id:
             query = query.where(StoredRemoteSandbox.created_by_user_id == user_id)
         return query

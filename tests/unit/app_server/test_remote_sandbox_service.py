@@ -21,6 +21,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openhands.app_server.errors import SandboxDeleteRetryError, SandboxError
@@ -1139,15 +1140,44 @@ class TestUserSecurity:
         remote_sandbox_service.user_context.get_user_id.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_secure_select_without_user_id(self, remote_sandbox_service):
-        """Test that _secure_select works when user ID is None."""
-        # Setup
+    async def test_secure_select_without_user_id_refuses_when_auth_is_required(
+        self, remote_sandbox_service, monkeypatch
+    ):
+        """This used to assert that a None user id "works", which was the bug.
+
+        The predicate was applied only `if user_id`, so an unresolved identity
+        dropped the WHERE and returned every stored sandbox — each carrying the
+        `session_api_key` that `validate_session_key` accepts and the agent
+        proxy routes on. It now refuses. Full contract in
+        tests/app_server/test_secure_select_fails_closed.py.
+        """
+        import openhands.app_server.sandbox.remote_sandbox_service as remote_mod
+
+        monkeypatch.setattr(remote_mod, 'auth_required', lambda: True)
         remote_sandbox_service.user_context.get_user_id.return_value = None
 
-        # Execute
+        with pytest.raises(HTTPException) as excinfo:
+            await remote_sandbox_service._secure_select()
+
+        assert excinfo.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_secure_select_without_user_id_is_allowed_on_oss(
+        self, remote_sandbox_service, monkeypatch
+    ):
+        """The other half, and the reason the refusal is conditional.
+
+        Upstream `DefaultUserAuth.get_user_id` returns None for EVERY caller by
+        design, so refusing unconditionally would delete this read path on any
+        deployment that never opted into Nimbus auth.
+        """
+        import openhands.app_server.sandbox.remote_sandbox_service as remote_mod
+
+        monkeypatch.setattr(remote_mod, 'auth_required', lambda: False)
+        remote_sandbox_service.user_context.get_user_id.return_value = None
+
         await remote_sandbox_service._secure_select()
 
-        # Verify
         remote_sandbox_service.user_context.get_user_id.assert_called_once()
 
 
