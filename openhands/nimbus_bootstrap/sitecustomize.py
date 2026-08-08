@@ -83,8 +83,15 @@ else:
     try:
         # Endpoint SHAPE only — see the module docstring for why this registry
         # edit is different in kind from the three that broke routing.
-        from nimbus_responses_mode import install_chat_mode_overrides
+        from nimbus_responses_mode import (
+            install_chat_mode_overrides,
+            install_responses_api_override,
+        )
 
+        # ORDER DOES NOT MATTER, but BOTH are needed and they act on different
+        # things: the override below is the one that decides which litellm
+        # entry point the SDK calls, the flip is litellm's own endpoint shape.
+        _nimbus_mark(f'respapi:{install_responses_api_override()}')
         _nimbus_mark(f'chatmode:{install_chat_mode_overrides()}')
     except Exception as e:  # noqa: BLE001
         _nimbus_mark(f'chatmode:FAILED:{type(e).__name__}')

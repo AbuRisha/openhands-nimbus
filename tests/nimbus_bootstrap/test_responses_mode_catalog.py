@@ -121,3 +121,70 @@ class TestTheOverrideActuallyFlips:
         install_chat_mode_overrides()
 
         assert registry['gpt-5.5']['mode'] == 'chat'
+
+
+class TestResponsesApiOverride:
+    """The switch that actually decides which litellm entry point is called.
+
+    `install_chat_mode_overrides` edits `litellm.model_cost`. The SDK never
+    reads it for this decision — `LLM.uses_responses_api()` answers from
+    `RESPONSES_API_MODELS` in sdk/llm/utils/model_features.py. Extending the
+    registry list therefore fixed nothing in production even with a matching
+    deployed sha, which is why this test asserts on `uses_responses_api()`
+    itself and not on the registry.
+    """
+
+    def _llm(self, model: str, base_url: str):
+        from pydantic import SecretStr
+
+        from openhands.sdk.llm.llm import LLM
+
+        return LLM(model=model, base_url=base_url, api_key=SecretStr('x'), usage_id='t')
+
+    def test_gateway_models_do_not_use_the_responses_api(self):
+        from openhands.nimbus_bootstrap.nimbus_responses_mode import (
+            install_responses_api_override,
+        )
+
+        install_responses_api_override()
+
+        # Every OpenAI id in the catalog contains "gpt-5", so every one of them
+        # matched the SDK's substring table. Checking several, because the bug
+        # looked like a single broken model purely because one was tried.
+        for model in (
+            'openai/gpt-5.5',
+            'openai/gpt-5.4',
+            'openai/gpt-5.4-mini',
+            'openai/gpt-5.6-luna',
+            'openai/gpt-5.3-codex',
+        ):
+            llm = self._llm(model, 'https://api.nimbusapi.net')
+            assert llm.uses_responses_api() is False, (
+                f'{model} would be sent to POST /responses, which the gateway '
+                'answers with not_found'
+            )
+
+    def test_a_customers_own_openai_endpoint_is_untouched(self):
+        """The reason this is keyed on base_url and not on model names.
+
+        A BYOK customer pointed at OpenAI directly should keep the Responses
+        API; we only know that OUR gateway does not serve it.
+        """
+        from openhands.nimbus_bootstrap.nimbus_responses_mode import (
+            install_responses_api_override,
+        )
+
+        install_responses_api_override()
+
+        llm = self._llm('openai/gpt-5.5', 'https://api.openai.com/v1')
+        assert llm.uses_responses_api() is True
+
+    def test_applying_it_twice_does_not_stack_wrappers(self):
+        from openhands.nimbus_bootstrap.nimbus_responses_mode import (
+            install_responses_api_override,
+        )
+
+        assert install_responses_api_override() is True
+        assert install_responses_api_override() is True
+        llm = self._llm('openai/gpt-5.5', 'https://api.nimbusapi.net')
+        assert llm.uses_responses_api() is False
