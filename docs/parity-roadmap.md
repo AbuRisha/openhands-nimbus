@@ -90,7 +90,7 @@ stale DONE costs the whole implementation.
 | 9 | **Find-in-conversation (Cmd+F)** | **DONE** | `284849fc4`. CSS Custom Highlight API — see the collapsed-rows limitation recorded there |
 | 10 | **@-mention picker with content search** | not started | **Needs a schema decision first** — content search, not filename match. See §11 |
 | 11 | **Tool-permission prompts + permission modes** | backend DONE, browser-reachable | See "Item 11, inventoried" below. Modes are S–M and purely frontend. Folder trust is separate and unbacked |
-| 12 | **Session fork + rewind** | **MERGED, DEPLOYED, AND HAS NEVER WORKED** | Every shipped image 404s on the first transport call. Fix in PR #19, unverified against a deployed artifact. See "Item 12" below before touching it |
+| 12 | **Session fork + rewind** | **fix now IN the deployed image; behaviour still unverified** | `routing2-20260808` / rev `0000097` carries all three `/api`-prefixed callsites, confirmed by image inspection. Nobody has yet driven a fork against it. See "Item 12" below before touching it |
 | 13 | **Server-side PTY terminal** | **half done, half blocked upstream** | Read-only agent terminal ships. Interactive shell impossible on this API: no stdin, no TTY, no session. See "Item 13, answered" |
 | 14 | **`/help` + built-in command set** | **DONE** | `0357cd459`. Help reads `BUILT_IN_COMMANDS` at render, so it cannot go stale |
 | 15 | **Shortcut registry + `Cmd+K` + `↑` recall** | **DONE** | Registry `35e333cdb`, recall `590286ea9`, palette `3c797261a`. Palette actions derive from `useSettingsNavItems`, so they cannot drift from the real nav |
@@ -115,6 +115,37 @@ why the health check passes while every functional call 404s.** All three paths
 were missing `/api`. `fork12-20260808`, `fork12v2-20260808`,
 `forkverify-20260808` and `bridgefix-20260808` all contain a fork that cannot
 fork.
+
+**Round three, 2026-08-08 14:14 — the fix is in the live image.** Verified by
+executing the deployed artifact rather than by reading the branch it was
+supposedly built from:
+
+    az acr run --registry nimbusacr4768 --file fc3.yaml .
+    # grep -rn 'execute_bash_command|api_base' inside
+    # nimbusacr4768.azurecr.io/openhands-nimbus:routing2-20260808
+
+`fork_state_transport.py` defines `api_base` at line 116, and all three real
+callsites use it — `{sandbox.api_base}/file/upload` (230),
+`/bash/execute_bash_command` (250), `/file/archive` (278). Live revision is
+`0000097`, and `/server_info` now reports
+`git_sha: 21873ce21624e2de5237a01763b16012f10a877e`, corroborated by the image
+containing that commit's source.
+
+**A first pass at this said three bare callsites remained. That was wrong, and
+wrong in the way this document keeps warning about.** The probe counted
+occurrences of `'/bash/execute_bash_command'` — which is a SUBSTRING of
+`'/api/bash/execute_bash_command'`, so every fixed callsite also scored as
+broken, and the leftovers were prose in docstrings. Same defect as the
+`path.endswith(...)` assertion that let 43 green tests sit on a dead feature,
+and as the containment check that once matched an author's own docstring and
+reported production broken. Counting substrings is not reading code; when the
+answer matters, print the lines.
+
+**What is still NOT established: that it works.** Contents are not behaviour —
+see `status_router.py` on why a matching sha proves the fix is present and never
+that it runs. The remaining step is one fork driven end-to-end against
+`0000097`, checking `halves_agree` and that the target's agent actually
+remembers. Until someone does that, this row says "unverified", not "done".
 
 **WHY 43 GREEN TESTS COULD NOT SEE IT.** Every assertion was
 
