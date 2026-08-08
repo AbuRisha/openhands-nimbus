@@ -122,6 +122,23 @@ were recovered byte-exact.
 Verify recovery with byte sizes and grep markers recorded *before* the loss, not
 by eye.
 
+## Worktrees share ONE `.git` — remote refs move under you mid-session
+
+`origin/<branch>` is stored once, in the common git dir, so a `git fetch` in ANY
+worktree — or another session pushing — updates it for all of them. Two
+`git diff origin/land/auth-gates` calls in the same session are not necessarily
+against the same commit.
+
+That misattributed a fix to the wrong PR: a diff taken before and after a push
+showed `use-websocket.ts` in the second, and the change was credited to a PR
+that never touched it.
+
+**Resolve to an explicit sha before any comparison that matters:**
+
+    BASE=$(git rev-parse origin/land/auth-gates)
+    git diff --stat "$BASE" HEAD     # stable
+    git diff --stat origin/land/auth-gates HEAD   # can move between two runs
+
 ## Diagnostic traps that produced false findings today
 
 Every one of these made a working thing look broken, or a present thing look

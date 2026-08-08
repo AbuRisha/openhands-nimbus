@@ -7,6 +7,23 @@ from openhands.app_server.status.system_stats import get_system_info
 # Baked in at image build time -- see containers/app/Dockerfile. Read ONCE at
 # import: these cannot change while the process lives, and re-reading per
 # request would imply they might.
+#
+# THESE ARE ADVISORY, NOT EVIDENCE. They are ENV vars, so
+# `az containerapp update --set-env-vars OPENHANDS_GIT_SHA=<anything>` can set
+# them on an already-deployed image without rebuilding. That is genuinely useful
+# -- it repairs provenance on an image built without the build args, for free
+# and without a rebuild -- but it means the value is an assertion by whoever ran
+# that command, not proof of what the image contains.
+#
+# When it MATTERS what is actually inside a deployed artifact, inspect the
+# artifact:
+#
+#     az acr run --registry <reg> --file inspect.yaml .
+#     # steps: [{cmd: <reg>/<repo>:<tag> python -c "...read the file..."}]
+#
+# That executes the image server-side, needs no local Docker, and cannot be
+# talked into lying. `build_version: "dev"` is the Dockerfile ARG default and
+# means the build passed no version arg -- a useful tell on its own.
 _BUILD_VERSION = os.getenv('OPENHANDS_BUILD_VERSION') or 'unknown'
 _GIT_SHA = os.getenv('OPENHANDS_GIT_SHA') or 'unknown'
 
