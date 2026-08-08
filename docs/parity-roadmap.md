@@ -86,9 +86,61 @@ because they are cheap and customer-visible.
 | 10 | **@-mention picker over indexed repo files, with content search** | M | Content search, not just filename match, is what makes it feel smart |
 | 11 | **Tool-permission prompts + permission modes + folder trust** | M | The trust substrate for everything unattended later |
 | 12 | **Session fork + rewind/checkpoint** | L | Agentic coding is speculative; getting *back* is the difference between trusting a 40-turn task and babysitting it |
-| 13 | **Server-side PTY terminal** (xterm.js over WebSocket) | M | They ship *two*: the agent's, and a user shell with retained scrollback |
+| 13 | **Server-side PTY terminal** — NOT buildable on the current agent-server API; see "Item 13, answered" below | L, blocked upstream | They ship *two*: the agent's, and a user shell with retained scrollback |
 | 14 | **`/help` and a real built-in command set** | M | We have exactly 3 built-ins (`/new`, `/btw`, `/model`) vs ~20. No `/help` at all |
 | 15 | **Central shortcut registry + `Cmd+K` + `↑` recall** | M | 7 ad-hoc `document` keydown listeners today, no registry, three owners claim Cmd+Enter |
+
+#### Item 13, answered 2026-08-07 — there is no PTY, and no stdin at all
+
+**What already exists:** `components/features/terminal/terminal.tsx` +
+`hooks/use-terminal.ts`, xterm.js with `@xterm/addon-fit`, wired and rendering.
+It is `disableStdin: true` — a read-only mirror of the agent's bash output. That
+is the FIRST of the two terminals Claude ships, and it is done.
+
+**What is missing is the interactive user shell, and the API cannot serve it.**
+Enumerated ALL 22 agent-server routers, not one:
+
+    agent_profiles auth bash conversation desktop event file git hooks init
+    llm mcp plugins profiles server_details settings skills sub_agents tool
+    vscode workspace workspaces
+
+No WebSocket endpoint. No PTY. The only shell surface is `bash_router`:
+`/start_bash_command`, `/execute_bash_command`, `/bash_events/`,
+`/bash_events/search`.
+
+And `bash_service.start_bash_command` forecloses it (bash_service.py:214-230):
+
+    process = await asyncio.create_subprocess_shell(
+        command.command, cwd=command.cwd,
+        stdout=PIPE, stderr=PIPE, shell=True,
+        env=sanitized_env(), start_new_session=True,
+    )
+
+Three separate blockers, each fatal on its own:
+
+  * **No stdin.** stdout and stderr are piped; stdin is not wired at all. There
+    is no channel to type INTO. A terminal you cannot type into is the one we
+    already have.
+  * **No TTY.** PIPEs, not a pty pair. No line discipline, no job control, no
+    Ctrl-C into a running process, and any program that checks `isatty()`
+    behaves differently.
+  * **No session.** A fresh `create_subprocess_shell` per command with
+    `start_new_session=True`, and `cwd` supplied per request — so `cd`,
+    `export`, shell functions and history do not carry between commands. There
+    is no shell to retain scrollback FOR.
+
+**What IS buildable today, and what it must not be called:** a command runner —
+type a command, POST `/execute_bash_command`, append output to the existing
+xterm view. Genuinely useful for one-shot commands. It is NOT a terminal, and
+labelling it one would be the same error as calling a summary-seeded
+conversation a fork: the name promises state that is not there, and the user
+discovers the gap by typing `cd` and watching it not take.
+
+A real PTY needs an upstream agent-server change — a WebSocket carrying a pty
+pair. Sized L and blocked upstream rather than M, because M invited an estimate
+against an API that cannot do it.
+
+---
 
 ### Tier 2 — high ceiling, honestly large
 
