@@ -105,10 +105,30 @@ def fork_conversation_state(
     Returns the number of event files copied.
 
     Args:
-        conversations_path: the SOURCE sandbox's conversations directory.
-        target_conversations_path: the TARGET sandbox's, when the fork lands in
-            a different sandbox — which is the normal case, since a forked
-            conversation gets its own. Defaults to the source's.
+        conversations_path: a LOCALLY VISIBLE directory holding the source
+            conversation. See the transport note below — this is not the remote
+            sandbox's path.
+        target_conversations_path: a LOCALLY VISIBLE directory to write into.
+            Defaults to the source's.
+
+    TRANSPORT IS NOT THIS FUNCTION'S JOB, and the parameter names above are a
+    trap if read as sandbox paths. This is a LOCAL filesystem primitive: it
+    takes `Path`s and copies with `shutil`. A forked conversation gets its OWN
+    sandbox — `SandboxGroupingStrategy.NO_GROUPING` is the default and its
+    comment says so outright — and two sandboxes are two containers whose
+    filesystems are not both mounted anywhere. So the app server can NEVER call
+    this with a source in sandbox A and a target in sandbox B.
+
+    The caller does the moving, and this function then runs against two local
+    temp trees, which is the shape it already supports:
+
+        GET  /file/archive on the SOURCE  -> pull the persistence dir
+        extract                           -> temp_src
+        fork_conversation_state(temp_src, src_id, new_id, cutoff, temp_tgt)
+        archive temp_tgt, POST /file/upload on the TARGET
+
+    Note `validate_session_key` refuses a non-RUNNING sandbox, so the parent's
+    sandbox must be started purely to be read from.
 
     The cutoff is INCLUSIVE and an unknown id copies everything, matching
     ``EventService.copy_events_until`` exactly. The two halves of a fork

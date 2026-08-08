@@ -77,18 +77,161 @@ because they are cheap and customer-visible.
 
 ### Tier 1 — highest value ÷ cost
 
-| # | Item | Size | Note |
+**STATUS IS RECORDED HERE. Keep it current.** This table read as if nothing had
+shipped for a full day after six of its items landed, and two sessions
+independently rebuilt #19 off a stale entry. A wrong size costs an estimate; a
+stale DONE costs the whole implementation.
+
+| # | Item | Status | Note |
 |---|---|---|---|
-| 6 | **Inline diffs in the transcript** | L | Biggest visual gap. `FileDiffViewer` already exists but is used only by `routes/changes-tab.tsx`. Reviewing agent output *is* the core loop |
-| 7 | **Queued-message control** — cancel, reorder, promote | S–M | Builds on Tier 0 #2 |
-| 8 | **Cross-session transcript search** | S–M | They built a dedicated worker for it, which says hot path |
-| 9 | **Find-in-conversation (Ctrl/Cmd+F)** | M | Native Ctrl+F is free; a real overlay with next/prev is M |
-| 10 | **@-mention picker over indexed repo files, with content search** | M | Content search, not just filename match, is what makes it feel smart |
-| 11 | **Tool-permission prompts + permission modes + folder trust** | M | The trust substrate for everything unattended later |
-| 12 | **Session fork + rewind/checkpoint** | L | Agentic coding is speculative; getting *back* is the difference between trusting a 40-turn task and babysitting it |
-| 13 | **Server-side PTY terminal** — NOT buildable on the current agent-server API; see "Item 13, answered" below | L, blocked upstream | They ship *two*: the agent's, and a user shell with retained scrollback |
-| 14 | **`/help` and a real built-in command set** | M | We have exactly 3 built-ins (`/new`, `/btw`, `/model`) vs ~20. No `/help` at all |
-| 15 | **Central shortcut registry + `Cmd+K` + `↑` recall** | M | 7 ad-hoc `document` keydown listeners today, no registry, three owners claim Cmd+Enter |
+| 6 | **Inline diffs in the transcript** | **DONE** | `unified-diff.ts` + the diff render path; edits render as diffs, not whole files |
+| 7 | **Queued-message control** | **DONE** | real queue store, cancel/reorder/promote |
+| 8 | **Cross-session transcript search** | **DONE** | `8f555ac2f` |
+| 9 | **Find-in-conversation (Cmd+F)** | **DONE** | `284849fc4`. CSS Custom Highlight API — see the collapsed-rows limitation recorded there |
+| 10 | **@-mention picker with content search** | not started | **Needs a schema decision first** — content search, not filename match. See §11 |
+| 11 | **Tool-permission prompts + permission modes + folder trust** | not started | The trust substrate for anything unattended. Most strategically important item left |
+| 12 | **Session fork + rewind** | **half built** | State-copier merged (13 tests). Transport + endpoint specced, unbuilt. Founder decision pending — and do not call it "fork" in the UI |
+| 13 | **Server-side PTY terminal** | **half done, half blocked upstream** | Read-only agent terminal ships. Interactive shell impossible on this API: no stdin, no TTY, no session. See "Item 13, answered" |
+| 14 | **`/help` + built-in command set** | **DONE** | `0357cd459`. Help reads `BUILT_IN_COMMANDS` at render, so it cannot go stale |
+| 15 | **Shortcut registry + `Cmd+K` + `↑` recall** | **2 of 3 done** | Registry `35e333cdb`, recall `590286ea9`. **Cmd+K is the smallest remaining Tier 1 item** and the registry is its natural consumer |
+
+#### Items 20-26, inventoried 2026-08-08 — three are largely built, two unserved
+
+Backend surfaces enumerated per item rather than sized from the frontend.
+
+| # | Backend | Frontend | Real state |
+|---|---|---|---|
+| 20 Artifacts | none | none | genuinely unbuilt |
+| 21 Workspaces | NOT what it looks like | none | unbuilt — see correction |
+| 22 Scheduled tasks | none | none | genuinely unbuilt |
+| 23 Memory | see below | `/settings/condenser` | **label promises more than the page does** |
+| 24 Plugin marketplaces | `skills_router` | `skills-settings.tsx` | **ALREADY BUILT** |
+| 25 MCP management | `mcp_router` (4) | `mcp-settings.tsx` | largely built |
+| 26 Side chat | n/a | none | unbuilt, needs no backend |
+
+**CORRECTED 2026-08-08. Both items this table called "shovel-ready" were wrong,
+and the error was mine in both directions.**
+
+**#24 is ALREADY BUILT.** `skills-settings.tsx:233-250` maps
+`preview.plugins` into `type: "plugin"` rows and `skills-table.tsx:155` renders
+them with their own branch. Plugins are read-only there by design — enablement
+is governed by the parent marketplace — and the app-server endpoint that feeds
+them is `user/skills_router.py`, not the agent server's `plugins_router`. I
+concluded "no UI" from the absence of a `plugins-settings.tsx` route and a grep
+for "plugin" in `marketplace-modal.tsx` that returned nothing. Both were true;
+neither answered the question, because the feature lives inside the skills page.
+
+**#21's backend is a DIFFERENT FEATURE that shares a word.** The agent server's
+`workspaces_router` is, in its own docstring, "local directories the GUI
+surfaces in its workspace picker" — persisted so several clients of one
+agent-server see the same list. That is a directory picker. Roadmap #21 is
+Claude's Workspaces: grouped folders and links, auto-summary, session
+auto-classification, per-workspace memory. Nothing of that exists, and citing
+those five endpoints as its backend was name-matching.
+
+**The lesson, since it defeated the remedy for the previous one:** "read the
+backend before quoting a size" is not enough if you match on ROUTER NAMES. A
+`plugins_router` existing did not mean plugins were unserved; a
+`workspaces_router` existing did not mean Workspaces was served. Read what the
+code DOES. This is the same accurate-answer-to-a-narrower-question failure the
+rest of this document catalogues, committed while applying its own fix.
+
+Also: `skills_router` (9) is served and `skills-settings.tsx` exists.
+
+**#23 IS THE ONE TO LOOK AT, and it is a naming problem rather than a gap.**
+The settings nav maps "Memory" to `/settings/condenser`, and the comment there
+is honest about why: a condenser compacts conversation context so a long
+session survives, which is what memory means to the person using it.
+
+That rename is good for the eleven other items it sits beside. But Claude's
+"Memory" is a different feature — global and per-account memory FILES that the
+user reads, edits and resets. A customer who clicks "Memory" expecting to edit
+what the assistant remembers about them finds a context-compaction setting.
+
+Same shape as "do not call the fork a fork": the label promises state the page
+does not hold. Two ways out, and it should be a deliberate pick —
+either build the editable memory files behind that nav entry, or name the
+current page for what it is. What should not happen is the entry quietly
+staying where it is because it reads well in a sidebar.
+
+**#21 and #24 are the cheapest remaining wins:** both have a live backend and
+no UI at all, which is the inverse of most of this roadmap and the only place
+where a pure frontend estimate would have been RIGHT.
+
+#### Item 16, inventoried 2026-08-08 — the pane is built and the rest is a security decision
+
+**BUILT:** `components/features/preview/preview-panel.tsx` plus
+`sandbox/preview_proxy_router.py` (`/preview/{id}/ports` and the
+`/preview/{id}/{port}/{path}` proxy). The pane works.
+
+**ALSO ALREADY THERE:** the agent has its own browser — `tools/browser_use/` in
+the SDK — so "screenshot back to the model" and "model-driven navigation" are
+served for the AGENT'S browser today. That is most of what the item asks for,
+just not through the user's pane.
+
+**THE REST IS BLOCKED BY A DELIBERATE SECURITY CHOICE, not by missing work.**
+The preview iframe is `sandbox="allow-scripts allow-forms"` with NO
+`allow-same-origin` (preview-panel.tsx:152). That is what stops a previewed app
+— which is arbitrary code the agent just wrote — from reaching the parent page,
+its cookies, or the session. It also makes cross-frame introspection impossible
+by design:
+
+  * click-to-select an element   — needs DOM access into the frame
+  * console logs to the model    — needs to hook the frame's console
+
+Both require `allow-same-origin`, and granting it to a frame serving
+agent-authored code from the same origin as the app is precisely what the
+attribute exists to prevent.
+
+**So #16 is a decision, not an estimate.** Three honest options:
+
+  1. Leave it. The agent's own browser already gives the model screenshots,
+     navigation and console access — the model does not need the user's pane to
+     see the page.
+  2. Serve the preview from a SEPARATE ORIGIN and grant `allow-same-origin`
+     there. Cross-origin then blocks parent access structurally rather than by
+     attribute. This is the real fix and it is deployment work, not frontend.
+  3. Add a small opt-in agent shim injected into the previewed page that posts
+     selections and console lines out via `postMessage`. No `allow-same-origin`
+     needed, works with the sandbox as-is, but only for pages the agent
+     instruments.
+
+Option 1 is free and probably right until someone asks for click-to-select by
+name. Do NOT quietly add `allow-same-origin` to make the feature work — that
+converts a contained preview into a same-origin frame running agent-written
+code.
+
+#### Items 17 and 18, inventoried 2026-08-08 — sizes were quoted without checking the backend
+
+Both were sized from the frontend's side. The backend serves one half of each.
+
+**GIT, READ — served.** Agent server `git_router`: `/changes`, `/diff`,
+`/commits`, `/commits/{sha}/changes`. The app server proxies the first two at
+`app_conversation_router.py:1336,1363`. So diff and per-file patch are
+buildable today, and `FileDiffViewer` already exists (Tier 1 #6 used it).
+
+**GIT, WRITE — no endpoint anywhere.** Enumerated both routers rather than one:
+the agent server's git router is entirely GET, and the app server's
+`git/git_router.py` is four GETs (`installations/search`,
+`repositories/search`, `branches/search`, `suggested-tasks/search`). There is
+no commit, no stash, no push, no branch-create. The "commit/stash" half of #17
+cannot be built without an upstream change — the same shape as #13.
+
+A dirty-tree WARNING is buildable from `/changes` alone, and is the useful part
+of #17 that needs nothing new.
+
+**PR CREATION — already exists, and not where anyone would look for it.** It is
+MCP tools, not REST: `create_pr`, `create_mr`, `create_bitbucket_pr`,
+`create_bitbucket_data_center_pr` in `mcp/mcp_router.py`, plus
+`save_pr_metadata` and `get_conversation_link`. That is the surface the
+anonymous-auth fix was protecting. So "open a PR from the chat" is served today
+by a path the roadmap never mentions.
+
+**PR CONSOLE — not served.** Checks, annotations, rerun, review comments and
+merge have no endpoint on either server. Those are per-provider REST calls that
+would live in `integrations/{github,gitlab,bitbucket,azure_devops}`, so #18 is
+FOUR implementations, not one — which is the part that makes L optimistic
+rather than the method count.
 
 #### Item 13, answered 2026-08-07 — there is no PTY, and no stdin at all
 
@@ -146,9 +289,9 @@ against an API that cannot do it.
 
 | # | Item | Size |
 |---|---|---|
-| 16 | **Live preview loop**: preview pane, click-to-select an element, screenshot back to the model, console logs to the model, model-driven navigation | L |
-| 17 | **Git review surface**: diff, per-file patch, dirty-tree warning, commit/stash | M–L |
-| 18 | **Full PR console**: checks, annotations, rerun, review comments, merge (~20 methods on their side) | L |
+| 16 | **Live preview loop** — pane BUILT; the introspection half is a SECURITY TRADEOFF, not a build task; see below | M, needs a decision |
+| 17 | **Git review surface** — READ half is served, WRITE half has no endpoint at all; see "Items 17 and 18, inventoried" | M for read, blocked upstream for write |
+| 18 | **PR console** — CREATION already exists via MCP; checks/annotations/rerun/merge do not; see below | L |
 | 19 | **Live sub-agent progress + nested tool calls.** NOT a rendering gap — see "Item 19, answered" below. Needs the SDK to emit a mid-task event; no frontend work reaches it | L, blocked upstream |
 | 20 | **Artifacts**: gallery, versions, restore, share, auto-publish, print-to-PDF; artifacts that can call tools and query the model | L |
 | 21 | **Workspaces**: group folders/projects/links, auto-summary, auto-classify sessions, per-workspace memory | M–L |
@@ -201,6 +344,12 @@ emit something mid-task. No amount of frontend work reaches it, which is why thi
 is marked blocked upstream rather than L.
 
 ### Tier 3 — cheap wins, do when passing
+
+**SIZES HERE ARE UNVERIFIED FRONTEND GUESSES.** Eleven of eleven Tier 2 sizes
+were wrong once checked against the backend, in the same direction each time.
+Assume the same of everything below until someone reads the backend for it.
+"Cheap" is a hypothesis, not a finding.
+
 
 Archive/unarchive, share a session, session pre-warm, theme mode, locale
 switching, incognito-as-ephemeral-session, web notifications, support bundle,
@@ -530,6 +679,21 @@ and the bad edit is still on disk. Whatever affordance ships has to say so.
 
 Full design, sequence and four gotchas: `docs/fork-conversation-design.md`.
 Not implemented; not scheduled.
+
+**`fork_conversation_state` is a LOCAL primitive and the transport is the
+caller's job.** Two sandboxes are two containers whose filesystems are not both
+mounted anywhere, so it can never be called with a source in sandbox A and a
+target in sandbox B. The wrapper is `GET /file/archive` on the source →
+extract to a temp tree → the function against two temp trees → archive →
+`POST /file/upload` on the target. Note `validate_session_key` refuses a
+non-RUNNING sandbox, so the parent's must be started purely to be read from.
+
+**CALL IT SOMETHING OTHER THAN "FORK" IN THE UI.** This follows from the
+working-tree gotcha rather than being a matter of taste: the operation rewinds
+the CONVERSATION, and someone reading "fork" expects a branch of the whole
+world, files included. "Retry from here" or "New attempt from this message"
+promises only what it delivers. Decide before the affordance exists — renaming
+it afterwards is worse than naming it right once.
 
 Frontend affordance stays unbuilt until the endpoint exists. A fork action
 that produces an amnesiac fork is worse than no fork action.
