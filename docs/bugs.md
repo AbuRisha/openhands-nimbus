@@ -155,3 +155,50 @@ while another previews will produce this for the builder.
 
 VERIFIED SEPARATELY, and the thing people actually want to know: the merged
 `land/auth-gates` tip BUILDS CLEAN.
+
+## 2026-08-08, LATER — CORRECTION: 1008 DOES reach the browser now. The two entries above were true this morning and are not now.
+
+Production is revision `0000099`, image `respapi2-20260808`, sha `a8f6d0e76`,
+deployed 14:38:18Z. Verified against the actual sha rather than against main:
+
+    git merge-base --is-ancestor 088fe0f76 a8f6d0e76   -> IN
+    git merge-base --is-ancestor 4d43a8a3b a8f6d0e76   -> IN
+    git show a8f6d0e76:frontend/src/hooks/use-websocket.ts | grep -c TERMINAL_CLOSE_CODES  -> 0
+    git show a8f6d0e76:frontend/src/hooks/use-websocket.ts | grep -c classifyCloseCode     -> 2
+
+TWO CONSEQUENCES, both the opposite of what is written above:
+
+1. THE 1001 REGRESSION IS NOT LIVE. `TERMINAL_CLOSE_CODES` is absent from the
+   deployed tree; `classifyCloseCode` is what runs, and its PERMANENT set is
+   {1008, 4401, 4403}. A server restart no longer stops reconnection forever.
+
+2. THE ACCEPT-THEN-CLOSE SERVER CHANGE IS LIVE, so an intentional rejection
+   CAN now deliver 1008 to a browser. Anyone testing reconnect against
+   production from now on should expect 1008 on the intentional path, not the
+   1006 the entry above predicts.
+
+`everOpenedRef` / `handshake-refused` is still correct and still earns its
+place — it covers the three pre-accept paths that no close code can reach:
+`proxy_events_socket` catching only HTTPException, the SPA catch-all where
+`StaticFiles.__call__` asserts `scope["type"] == "http"`, and whatever sits in
+front of the app server. But the argument that justified re-adding it ("the
+server change is in no build") expired at 14:38Z today.
+
+HOW THIS HAPPENED, and it is the part worth keeping: that deploy was cut for
+the Responses-API work and CARRIED THE ENTIRE land/auth-gates LINEAGE WITH IT
+as a side effect — `088fe0f76`, `4d43a8a3b`, `6bc22a182`, `bb54296e0`. None of
+it was chosen for release. The deployed sha is also NOT an ancestor of
+`origin/main`, so whatever governs deploys here, it is not main.
+
+ALSO NOW LIVE, unreleased and unannounced: the artifacts BACKEND
+(`bb54296e0`) — `artifact_router` is registered in the deployed `v1_router.py`,
+so eight `/api/v1/artifacts` routes are serving. The artifacts UI is NOT live
+(`94a04d29a` and `631153e6f` are both OUT, and `routes.ts` in the deployed
+tree has no `artifacts` route). Low risk — the routes are auth-gated and
+per-user and nothing links to them — but it is live surface nobody reviewed
+for release.
+
+THE RULE THIS ARGUES FOR: check what is deployed against the DEPLOYED SHA, not
+against a branch and not against main. Every claim in the two entries above was
+verified correct when written and was falsified by a deploy nobody in this
+lane made.
