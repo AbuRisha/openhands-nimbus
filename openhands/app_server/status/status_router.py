@@ -24,6 +24,17 @@ from openhands.app_server.status.system_stats import get_system_info
 # That executes the image server-side, needs no local Docker, and cannot be
 # talked into lying. `build_version: "dev"` is the Dockerfile ARG default and
 # means the build passed no version arg -- a useful tell on its own.
+#
+# BUT INSPECTION PROVES CONTENTS, NOT BEHAVIOUR, and the difference has already
+# bitten us once. litellm resolves endpoint shape from a cost map it FETCHES AT
+# IMPORT from raw.githubusercontent.com, falling back silently to the bundled
+# copy when the fetch fails -- so two containers running a byte-identical image
+# can route the same model two different ways depending on whether one HTTP call
+# succeeded at start. See openhands/nimbus_bootstrap/nimbus_responses_mode.py.
+#
+# So a matching sha answers "is the fix in there", never "is it behaving". When
+# something breaks with no deploy on our side, a correct sha is not exculpatory
+# -- look for runtime-fetched state before concluding the image is fine.
 _BUILD_VERSION = os.getenv('OPENHANDS_BUILD_VERSION') or 'unknown'
 _GIT_SHA = os.getenv('OPENHANDS_GIT_SHA') or 'unknown'
 
