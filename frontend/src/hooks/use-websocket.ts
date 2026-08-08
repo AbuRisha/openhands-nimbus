@@ -100,13 +100,25 @@ export const useWebSocket = <T = string>(
   /*
    * Has this hook instance EVER reached `onopen`?
    *
-   * This is the only signal that distinguishes "the server refused the
-   * upgrade" from "the connection dropped", and against the server that is
-   * actually deployed today it is the ONLY one that fires at all: the
-   * accept-then-close path that makes 1008 reach the browser is on
-   * lane/backend and in no build, so every rejection in production arrives as
-   * 1006. A frontend relying solely on close codes cannot see the failure it
-   * was written for until that ships.
+   * The only signal that separates "the server refused the upgrade" from "the
+   * connection dropped", because a refused upgrade carries no close code — the
+   * browser synthesises 1006, which is also what an unreachable server looks
+   * like.
+   *
+   * ORIGINALLY JUSTIFIED by the accept-then-close server change being in no
+   * build, which made close codes useless in production. THAT EXPIRED on
+   * 2026-08-08 at 14:38Z: it shipped in `a8f6d0e76` and 1008 now reaches the
+   * browser on the intentional path. This still earns its place, but for a
+   * narrower reason — three paths reject BEFORE accept and no close code can
+   * ever describe them:
+   *
+   *   - `proxy_events_socket` catches only `HTTPException`, so a store or DB
+   *     failure escapes before `accept()`
+   *   - the SPA catch-all: `StaticFiles.__call__` asserts
+   *     `scope["type"] == "http"`, so a websocket to an unmatched path dies
+   *     there — the "route renamed / router not registered" case
+   *   - anything in front of the app server, which cannot be verified from
+   *     this repo at all
    *
    * A ref, not state: it is read inside `onclose`, which closes over the
    * render that created the socket.
