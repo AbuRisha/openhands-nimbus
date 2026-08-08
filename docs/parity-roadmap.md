@@ -90,6 +90,38 @@ because they are cheap and customer-visible.
 | 14 | **`/help` and a real built-in command set** | M | We have exactly 3 built-ins (`/new`, `/btw`, `/model`) vs ~20. No `/help` at all |
 | 15 | **Central shortcut registry + `Cmd+K` + `↑` recall** | M | 7 ad-hoc `document` keydown listeners today, no registry, three owners claim Cmd+Enter |
 
+#### Items 17 and 18, inventoried 2026-08-08 — sizes were quoted without checking the backend
+
+Both were sized from the frontend's side. The backend serves one half of each.
+
+**GIT, READ — served.** Agent server `git_router`: `/changes`, `/diff`,
+`/commits`, `/commits/{sha}/changes`. The app server proxies the first two at
+`app_conversation_router.py:1336,1363`. So diff and per-file patch are
+buildable today, and `FileDiffViewer` already exists (Tier 1 #6 used it).
+
+**GIT, WRITE — no endpoint anywhere.** Enumerated both routers rather than one:
+the agent server's git router is entirely GET, and the app server's
+`git/git_router.py` is four GETs (`installations/search`,
+`repositories/search`, `branches/search`, `suggested-tasks/search`). There is
+no commit, no stash, no push, no branch-create. The "commit/stash" half of #17
+cannot be built without an upstream change — the same shape as #13.
+
+A dirty-tree WARNING is buildable from `/changes` alone, and is the useful part
+of #17 that needs nothing new.
+
+**PR CREATION — already exists, and not where anyone would look for it.** It is
+MCP tools, not REST: `create_pr`, `create_mr`, `create_bitbucket_pr`,
+`create_bitbucket_data_center_pr` in `mcp/mcp_router.py`, plus
+`save_pr_metadata` and `get_conversation_link`. That is the surface the
+anonymous-auth fix was protecting. So "open a PR from the chat" is served today
+by a path the roadmap never mentions.
+
+**PR CONSOLE — not served.** Checks, annotations, rerun, review comments and
+merge have no endpoint on either server. Those are per-provider REST calls that
+would live in `integrations/{github,gitlab,bitbucket,azure_devops}`, so #18 is
+FOUR implementations, not one — which is the part that makes L optimistic
+rather than the method count.
+
 #### Item 13, answered 2026-08-07 — there is no PTY, and no stdin at all
 
 **What already exists:** `components/features/terminal/terminal.tsx` +
@@ -147,8 +179,8 @@ against an API that cannot do it.
 | # | Item | Size |
 |---|---|---|
 | 16 | **Live preview loop**: preview pane, click-to-select an element, screenshot back to the model, console logs to the model, model-driven navigation | L |
-| 17 | **Git review surface**: diff, per-file patch, dirty-tree warning, commit/stash | M–L |
-| 18 | **Full PR console**: checks, annotations, rerun, review comments, merge (~20 methods on their side) | L |
+| 17 | **Git review surface** — READ half is served, WRITE half has no endpoint at all; see "Items 17 and 18, inventoried" | M for read, blocked upstream for write |
+| 18 | **PR console** — CREATION already exists via MCP; checks/annotations/rerun/merge do not; see below | L |
 | 19 | **Live sub-agent progress + nested tool calls.** NOT a rendering gap — see "Item 19, answered" below. Needs the SDK to emit a mid-task event; no frontend work reaches it | L, blocked upstream |
 | 20 | **Artifacts**: gallery, versions, restore, share, auto-publish, print-to-PDF; artifacts that can call tools and query the model | L |
 | 21 | **Workspaces**: group folders/projects/links, auto-summary, auto-classify sessions, per-workspace memory | M–L |
