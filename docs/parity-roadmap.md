@@ -97,12 +97,39 @@ Backend surfaces enumerated per item rather than sized from the frontend.
 | # | Backend | Frontend | Real state |
 |---|---|---|---|
 | 20 Artifacts | none | none | genuinely unbuilt |
-| 21 Workspaces | `workspaces_router` (5) | none | backend exists, no UI |
+| 21 Workspaces | NOT what it looks like | none | unbuilt — see correction |
 | 22 Scheduled tasks | none | none | genuinely unbuilt |
 | 23 Memory | see below | `/settings/condenser` | **label promises more than the page does** |
-| 24 Plugin marketplaces | `plugins_router` (8) | none | backend exists, no UI |
+| 24 Plugin marketplaces | `skills_router` | `skills-settings.tsx` | **ALREADY BUILT** |
 | 25 MCP management | `mcp_router` (4) | `mcp-settings.tsx` | largely built |
 | 26 Side chat | n/a | none | unbuilt, needs no backend |
+
+**CORRECTED 2026-08-08. Both items this table called "shovel-ready" were wrong,
+and the error was mine in both directions.**
+
+**#24 is ALREADY BUILT.** `skills-settings.tsx:233-250` maps
+`preview.plugins` into `type: "plugin"` rows and `skills-table.tsx:155` renders
+them with their own branch. Plugins are read-only there by design — enablement
+is governed by the parent marketplace — and the app-server endpoint that feeds
+them is `user/skills_router.py`, not the agent server's `plugins_router`. I
+concluded "no UI" from the absence of a `plugins-settings.tsx` route and a grep
+for "plugin" in `marketplace-modal.tsx` that returned nothing. Both were true;
+neither answered the question, because the feature lives inside the skills page.
+
+**#21's backend is a DIFFERENT FEATURE that shares a word.** The agent server's
+`workspaces_router` is, in its own docstring, "local directories the GUI
+surfaces in its workspace picker" — persisted so several clients of one
+agent-server see the same list. That is a directory picker. Roadmap #21 is
+Claude's Workspaces: grouped folders and links, auto-summary, session
+auto-classification, per-workspace memory. Nothing of that exists, and citing
+those five endpoints as its backend was name-matching.
+
+**The lesson, since it defeated the remedy for the previous one:** "read the
+backend before quoting a size" is not enough if you match on ROUTER NAMES. A
+`plugins_router` existing did not mean plugins were unserved; a
+`workspaces_router` existing did not mean Workspaces was served. Read what the
+code DOES. This is the same accurate-answer-to-a-narrower-question failure the
+rest of this document catalogues, committed while applying its own fix.
 
 Also: `skills_router` (9) is served and `skills-settings.tsx` exists.
 
