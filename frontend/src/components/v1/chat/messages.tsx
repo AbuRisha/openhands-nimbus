@@ -4,6 +4,8 @@ import { OpenHandsEvent } from "#/types/v1/core";
 import { EventMessage } from "./event-message";
 import { ChatMessage } from "../../features/chat/chat-message";
 import { ModelMessages } from "../../features/chat/model-messages";
+import { HelpMessages } from "../../features/chat/help-messages";
+import { useHelpStore } from "#/stores/help-store";
 import { useOptimisticUserMessageStore } from "#/stores/optimistic-user-message-store";
 import { useModelStore } from "#/stores/model-store";
 import { usePlanPreviewEvents } from "./hooks/use-plan-preview-events";
@@ -45,6 +47,20 @@ export const Messages: React.FC<MessagesProps> = React.memo(
       return ids.size > 0 ? ids : null;
     }, [modelEntries]);
 
+    // Same shape as the model anchors above. /help entries carry no content —
+    // the renderer reads BUILT_IN_COMMANDS — so this only needs the ids.
+    const helpEntries = useHelpStore((s) =>
+      conversationId ? s.entriesByConversation[conversationId] : undefined,
+    );
+    const helpAnchorIds = React.useMemo(() => {
+      if (!helpEntries || helpEntries.length === 0) return null;
+      const ids = new Set<string>();
+      for (const entry of helpEntries) {
+        if (entry.anchorEventId !== null) ids.add(entry.anchorEventId);
+      }
+      return ids.size > 0 ? ids : null;
+    }, [helpEntries]);
+
     // TODO: Implement microagent functionality for V1 if needed
     // For now, we'll skip microagent features
 
@@ -79,6 +95,12 @@ export const Messages: React.FC<MessagesProps> = React.memo(
           />
           {modelAnchorIds?.has(messageId) && (
             <ModelMessages
+              conversationId={conversationId}
+              anchorEventId={messageId}
+            />
+          )}
+          {helpAnchorIds?.has(messageId) && (
+            <HelpMessages
               conversationId={conversationId}
               anchorEventId={messageId}
             />

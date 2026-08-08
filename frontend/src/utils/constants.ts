@@ -33,8 +33,7 @@ export const JSON_VIEW_THEME = {
 
 export const DOCUMENTATION_URL = {
   MICROAGENTS: {
-    MICROAGENTS_OVERVIEW:
-      "https://docs.nimbusapi.net/prompting/microagents",
+    MICROAGENTS_OVERVIEW: "https://docs.nimbusapi.net/prompting/microagents",
     ORGANIZATION_AND_USER_MICROAGENTS:
       "https://docs.nimbusapi.net/prompting/microagents-org",
   },
@@ -81,6 +80,9 @@ export const BTW_COMMAND = "/btw";
 /** The /model slash command — lists or switches the conversation's LLM profile. */
 export const MODEL_COMMAND = "/model";
 
+/** The /help slash command — lists the built-in commands inline in the chat. */
+export const HELP_COMMAND = "/help";
+
 /** Built-in slash commands surfaced in the menu for V1 conversations. */
 export const BUILT_IN_COMMANDS: SlashCommandItem[] = [
   {
@@ -110,6 +112,15 @@ export const BUILT_IN_COMMANDS: SlashCommandItem[] = [
       triggers: [MODEL_COMMAND],
     },
     command: MODEL_COMMAND,
+  },
+  {
+    skill: {
+      name: "help",
+      type: "agentskills",
+      content: "Show the built-in slash commands and what each one does",
+      triggers: [HELP_COMMAND],
+    },
+    command: HELP_COMMAND,
   },
 ];
 

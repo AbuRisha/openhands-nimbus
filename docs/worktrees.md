@@ -19,9 +19,29 @@ Created with `git worktree add -b <lane> <path> land/auth-gates`.
 to check out one branch in two worktrees. That constraint is doing you a favour
 — it is what makes the indexes independent, which is the whole point.
 
-`node_modules` and `.venv` are Windows junctions to the main tree rather than
-copies: 745MB each otherwise, and all lanes share a lockfile. If a lane changes
-`package.json`, that lane needs a real `npm ci` instead.
+### Setting up a lane
+
+Run a real `npm ci` in `<worktree>/frontend`. It takes ~20 seconds.
+
+**Do NOT junction `node_modules` from the main tree.** That was the first thing
+tried here, to save 745MB per lane, and it is a false economy in both
+directions: `npm ci` is fast, and the junction silently breaks TypeScript module
+resolution — `tsc` reports `Cannot find type definition file for 'vite/client'`
+and `npx` resolves the wrong `tsc` entirely. **Tests still passed through the
+junction**, which is what makes it dangerous: it looks like it works right up
+until you typecheck.
+
+`node_modules` is a symlink farm, so `ls node_modules` returns 0 entries in Git
+Bash even when the install is fine. Do not read that as missing — it reads
+exactly like a broken install and is not one.
+
+A frontend lane does not need the Python env. The backend pre-commit hook aborts
+there (`pre-commit` is not installed in the lane's poetry env), but every one of
+its hooks reports "no files to check" for a frontend-only change. Either run
+`poetry install` in the lane, or run the frontend gates explicitly —
+`npx eslint <files>`, `npm run typecheck`, `npm run check-translation-completeness`
+— and commit with `--no-verify`, stating both the reason and the compensation in
+the message.
 
 ## What this actually fixes
 
