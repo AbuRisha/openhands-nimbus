@@ -5,6 +5,7 @@ import { useConversationId } from "#/hooks/use-conversation-id";
 import { useV1PauseConversation } from "#/hooks/mutation/use-v1-pause-conversation";
 import { useV1ResumeConversation } from "#/hooks/mutation/use-v1-resume-conversation";
 import { ChangeAgentButton } from "../change-agent-button";
+import { PermissionModeButton } from "../permission-mode-button";
 import { SwitchAcpModelButton } from "../switch-acp-model-button";
 import { ContextUsageRing } from "../context-usage-ring";
 import { VoiceInputButton } from "../voice-input-button";
@@ -36,14 +37,18 @@ export function ChatInputActions({ disabled }: ChatInputActionsProps) {
 
   return (
     <div className="w-full flex items-center justify-between">
-      {/* Four controls, not six. Model and effort share one pill because they
-          are one decision (see ComposerModelChip); the ACP model button is
-          mutually exclusive with that chip — each hides itself for the
-          conversation kind the other serves — so only one is ever visible. */}
+      {/* Five controls. Model and effort share one pill because they are one
+          decision (see ComposerModelChip); the ACP model button is mutually
+          exclusive with that chip — each hides itself for the conversation kind
+          the other serves — so only one is ever visible.
+          Permission mode sits beside Code/Plan because both answer "how should
+          the agent behave", and because the moment you want to change it is the
+          moment the agent is about to do something you are unsure about. */}
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-4">
           <Tools />
           <ChangeAgentButton />
+          <PermissionModeButton />
           <ComposerModelChip />
           <SwitchAcpModelButton />
           <VoiceInputButton disabled={disabled} />

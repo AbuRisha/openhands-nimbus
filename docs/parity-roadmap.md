@@ -89,7 +89,7 @@ stale DONE costs the whole implementation.
 | 8 | **Cross-session transcript search** | **DONE** | `8f555ac2f` |
 | 9 | **Find-in-conversation (Cmd+F)** | **DONE** | `284849fc4`. CSS Custom Highlight API — see the collapsed-rows limitation recorded there |
 | 10 | **@-mention picker with content search** | not started | **Needs a schema decision first** — content search, not filename match. See §11 |
-| 11 | **Tool-permission prompts + permission modes + folder trust** | not started | The trust substrate for anything unattended. Most strategically important item left |
+| 11 | **Tool-permission prompts + permission modes** | backend DONE, browser-reachable | See "Item 11, inventoried" below. Modes are S–M and purely frontend. Folder trust is separate and unbacked |
 | 12 | **Session fork + rewind** | **half built** | State-copier merged (13 tests). Transport + endpoint specced, unbuilt. Founder decision pending — and do not call it "fork" in the UI |
 | 13 | **Server-side PTY terminal** | **half done, half blocked upstream** | Read-only agent terminal ships. Interactive shell impossible on this API: no stdin, no TTY, no session. See "Item 13, answered" |
 | 14 | **`/help` + built-in command set** | **DONE** | `0357cd459`. Help reads `BUILT_IN_COMMANDS` at render, so it cannot go stale |
@@ -232,6 +232,46 @@ merge have no endpoint on either server. Those are per-provider REST calls that
 would live in `integrations/{github,gitlab,bitbucket,azure_devops}`, so #18 is
 FOUR implementations, not one — which is the part that makes L optimistic
 rather than the method count.
+
+#### Item 11, inventoried 2026-08-08 — the backend is done and the browser can already reach it
+
+**Three permission modes exist in the SDK** as real policies
+(`sdk/security/confirmation_policy.py`): `AlwaysConfirm`, `NeverConfirm`,
+`ConfirmRisky` — exactly Claude's always-ask / never-ask / ask-on-risky.
+
+**The endpoint is reachable from the browser TODAY.** Verified link by link:
+
+    browser  POST /api/conversations/{id}/confirmation_policy
+       |     `/api/conversations` is in _EXEMPT_PREFIXES, authenticated by
+       |     X-Session-API-Key
+    proxy    agent_proxy_router.py:152  `/api/conversations/{rest:path}`
+       |
+    agent    api.py `/api` + conversation_router prefix `/conversations`
+             + `/{conversation_id}/confirmation_policy`
+
+No backend work required. Sized M and "not started"; the modes half is S–M and
+purely frontend.
+
+**WHAT IS MISSING is that the modes are not expressible as a CHOICE.**
+`_select_confirmation_policy` (app_conversation_service_base.py:676) derives
+the policy from TWO settings:
+
+    confirmation_mode = False               -> NeverConfirm
+    confirmation_mode = True  + llm         -> ConfirmRisky
+    confirmation_mode = True  + no analyzer -> AlwaysConfirm
+
+Surfaced as a boolean and an analyzer string on a schema-driven page called
+"Verification". Someone who wants "ask me before risky actions" has to know
+that means confirmation_mode ON *and* analyzer set to llm. The capability is
+complete; the affordance is a puzzle.
+
+Parity is a mode selector where the work happens — the composer's control row,
+beside the model and Code/Plan controls — writing straight to that endpoint.
+The confirmation PROMPTS already exist (`confirmation-buttons.tsx` /
+`v1-confirmation-buttons.tsx`).
+
+**Folder trust is a different item**, has no backing here, and should not be
+bundled into this one.
 
 #### Item 13, answered 2026-08-07 — there is no PTY, and no stdin at all
 
