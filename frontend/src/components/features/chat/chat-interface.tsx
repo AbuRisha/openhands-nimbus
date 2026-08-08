@@ -57,6 +57,8 @@ export function ChatInterface() {
   const isSessionExpired = useSessionExpiredStore(
     (state) => state.isSessionExpired,
   );
+  // How sure we are about WHY, which decides what the banner may claim.
+  const sessionEndReason = useSessionExpiredStore((state) => state.reason);
   const { isTask, taskStatus, taskDetail } = useTaskPolling();
   const conversationWebSocket = useConversationWebSocket();
   const { send } = useSendMessage();
@@ -491,7 +493,9 @@ export function ChatInterface() {
           {/* The expired banner REPLACES the error banner rather than stacking
               with it. Both describe the same dead socket, and only one of them
               names something the user can do about it. */}
-          {isSessionExpired && <SessionExpiredBanner />}
+          {isSessionExpired && (
+            <SessionExpiredBanner reason={sessionEndReason} />
+          )}
 
           {!isSessionExpired && errorMessage && (
             <ErrorMessageBanner

@@ -10,10 +10,35 @@ import {
  * Why the connection stopped, when it stopped for good.
  *
  * `session-expired` is a rejection no retry can fix — the caller has to get a
- * new session key, which in practice means reloading the page.
- * `unreachable` means the transient budget ran out.
+ * new session key, which in practice means reloading the page. It is only
+ * reachable when the server CLOSES AFTER ACCEPTING, because a close code
+ * cannot survive a refused upgrade.
+ *
+ * `handshake-refused` is the same failure seen from a server that rejects
+ * BEFORE accepting: the upgrade is answered with an HTTP status, the socket
+ * never opens, and the browser reports 1006 — which is also exactly what a
+ * pulled network cable looks like. We provably cannot tell those apart from
+ * the client, so this reason does not pretend to: see the copy it drives.
+ *
+ * `unreachable` means the transient budget ran out on a socket that HAD
+ * opened at least once — a mid-session drop rather than a refusal.
  */
-export type WebSocketFailureReason = "session-expired" | "unreachable";
+export type WebSocketFailureReason =
+  | "session-expired"
+  | "handshake-refused"
+  | "unreachable";
+
+/**
+ * A socket that has NEVER opened gets a much smaller budget than one that
+ * dropped mid-session.
+ *
+ * The two failures are not alike. A mid-session drop is usually a blip and is
+ * worth waiting out. A handshake that is refused on the first attempt is
+ * usually refused for a structural reason — most often a session key minted by
+ * a revision that no longer exists — and twenty attempts at that is twenty
+ * ways of saying nothing while the customer stares at a dead chat.
+ */
+const HANDSHAKE_MAX_ATTEMPTS = 3;
 
 export interface WebSocketHookOptions {
   queryParams?: Record<string, string | boolean>;
@@ -28,6 +53,16 @@ export interface WebSocketHookOptions {
    * the bug this separation exists to prevent.
    */
   onPermanentClose?: (event: CloseEvent) => void;
+  /**
+   * The socket never opened, and the handshake budget is spent.
+   *
+   * Separate from `onPermanentClose` because the CERTAINTY differs and the
+   * copy must differ with it. `onPermanentClose` means the server said 1008 —
+   * we know it was a rejection. This means the upgrade was answered with an
+   * HTTP status and the browser gave us 1006, which is also what an
+   * unreachable server looks like. Same remedy, weaker claim.
+   */
+  onHandshakeRefused?: (event: CloseEvent) => void;
   reconnect?: {
     enabled?: boolean;
     /** Defaults to DEFAULT_MAX_RECONNECT_ATTEMPTS. Was previously unbounded. */
@@ -52,6 +87,30 @@ export const useWebSocket = <T = string>(
   const attemptCountRef = React.useRef(0);
   const reconnectTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const shouldReconnectRef = React.useRef(true); // Only set to false by disconnect()
+  /*
+   * Has this hook instance EVER reached `onopen`?
+   *
+   * This is the only signal that distinguishes "the server refused the
+   * upgrade" from "the connection dropped", and against the server that is
+   * actually deployed today it is the ONLY one that fires at all: the
+   * accept-then-close path that makes 1008 reach the browser is on
+   * lane/backend and in no build, so every rejection in production arrives as
+   * 1006. A frontend relying solely on close codes cannot see the failure it
+   * was written for until that ships.
+   *
+   * A ref, not state: it is read inside `onclose`, which closes over the
+   * render that created the socket.
+   */
+  const everOpenedRef = React.useRef(false);
+  /*
+   * Guards `onHandshakeRefused` to the TRANSITION rather than the state.
+   *
+   * Without it the callback fires on every close once the budget is spent, not
+   * just on the one that spends it — the give-up branch is reached again by
+   * any later close event. Harmless against a boolean store, wrong for a
+   * caller that logs or shows a toast, and wrong as a contract either way.
+   */
+  const handshakeRefusedFiredRef = React.useRef(false);
   // Track which WebSocket instances are allowed to reconnect using a WeakSet
   const allowedToReconnectRef = React.useRef<WeakSet<WebSocket>>(new WeakSet());
 
@@ -88,6 +147,9 @@ export const useWebSocket = <T = string>(
       setError(null); // Clear any previous errors
       setIsReconnecting(false);
       setFailureReason(null);
+      everOpenedRef.current = true;
+      // A later refusal is a NEW failure and must be reportable again.
+      handshakeRefusedFiredRef.current = false;
       attemptCountRef.current = 0; // Reset attempt count on successful connection
       optionsRef.current?.onOpen?.(event);
     };
@@ -138,8 +200,20 @@ export const useWebSocket = <T = string>(
         (reconnectConfig?.enabled ?? false) &&
         canReconnect &&
         shouldReconnectRef.current;
+      /*
+       * Two budgets, chosen by whether the socket ever opened. See
+       * HANDSHAKE_MAX_ATTEMPTS — a refused handshake and a mid-session drop
+       * fail for different reasons and deserve different patience.
+       *
+       * The caller's explicit `maxAttempts` still wins in both cases; this
+       * only changes the DEFAULT, and both call sites pass `{ enabled: true }`
+       * and nothing else.
+       */
       const maxAttempts =
-        reconnectConfig?.maxAttempts ?? DEFAULT_MAX_RECONNECT_ATTEMPTS;
+        reconnectConfig?.maxAttempts ??
+        (everOpenedRef.current
+          ? DEFAULT_MAX_RECONNECT_ATTEMPTS
+          : HANDSHAKE_MAX_ATTEMPTS);
 
       if (wantsReconnect && attemptCountRef.current < maxAttempts) {
         setIsReconnecting(true);
@@ -156,8 +230,27 @@ export const useWebSocket = <T = string>(
 
       setIsReconnecting(false);
       if (wantsReconnect) {
-        // Wanted to retry, had no attempts left.
-        setFailureReason("unreachable");
+        /*
+         * Wanted to retry, had no attempts left. WHICH failure it was is
+         * decided by whether the socket ever opened, not by the close code —
+         * the code is 1006 either way once the upgrade is refused.
+         *
+         * `handshake-refused` deliberately does NOT claim the session expired.
+         * The two causes — a dead session key and an unreachable server — are
+         * indistinguishable from here, and asserting the first would tell
+         * someone whose network dropped a specific untrue thing about their
+         * account. The copy it drives offers the reload, which is the action
+         * that helps in both cases, without naming a cause we cannot see.
+         */
+        if (everOpenedRef.current) {
+          setFailureReason("unreachable");
+        } else {
+          setFailureReason("handshake-refused");
+          if (!handshakeRefusedFiredRef.current) {
+            handshakeRefusedFiredRef.current = true;
+            optionsRef.current?.onHandshakeRefused?.(event);
+          }
+        }
       }
     };
 

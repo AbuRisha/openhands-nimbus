@@ -30802,5 +30802,22 @@
     "ca": "Artefacte sense títol",
     "tr": "Adsız yapıt",
     "uk": "Артефакт без назви"
+  },
+  "STATUS$CONNECTION_REFUSED_RELOAD": {
+    "en": "Could not reconnect. Reload the page to try again.",
+    "ja": "再接続できませんでした。ページを再読み込みしてください。",
+    "zh-CN": "无法重新连接。请刷新页面后重试。",
+    "zh-TW": "無法重新連線。請重新整理頁面後再試。",
+    "ko-KR": "다시 연결하지 못했습니다. 페이지를 새로고침해 다시 시도하세요.",
+    "no": "Kunne ikke koble til igjen. Last inn siden på nytt for å prøve igjen.",
+    "ar": "تعذرت إعادة الاتصال. أعد تحميل الصفحة للمحاولة مرة أخرى.",
+    "de": "Verbindung konnte nicht wiederhergestellt werden. Laden Sie die Seite neu, um es erneut zu versuchen.",
+    "fr": "Reconnexion impossible. Rechargez la page pour réessayer.",
+    "it": "Impossibile riconnettersi. Ricarica la pagina per riprovare.",
+    "pt": "Não foi possível reconectar. Recarregue a página para tentar de novo.",
+    "es": "No se pudo reconectar. Recarga la página para volver a intentarlo.",
+    "ca": "No s'ha pogut tornar a connectar. Torna a carregar la pàgina per intentar-ho de nou.",
+    "tr": "Yeniden bağlanılamadı. Tekrar denemek için sayfayı yenileyin.",
+    "uk": "Не вдалося повторно підключитися. Перезавантажте сторінку, щоб спробувати ще раз."
   }
 }
