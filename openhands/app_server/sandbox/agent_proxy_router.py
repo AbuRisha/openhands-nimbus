@@ -186,13 +186,15 @@ async def proxy_events_socket(websocket: WebSocket, conversation_id: str) -> Non
     the session key as the ``session_api_key`` query parameter instead of
     ``X-Session-API-Key``. Same validation either way.
     """
-    # Imported here rather than at module scope: this is the only code path that
-    # needs it, and keeping it local means a missing optional dep degrades the
-    # socket instead of preventing the whole app from importing.
-    import websockets
-
     key = websocket.query_params.get('session_api_key')
     try:
+        # Imported here rather than at module scope: this is the only code path
+        # that needs it, and keeping it local means a missing optional dep
+        # degrades the socket instead of preventing the whole app from
+        # importing. It sits INSIDE the try because that degradation used to
+        # land pre-accept — see the 1011 branch.
+        import websockets
+
         base = await _resolve(key)
     except HTTPException:
         # ACCEPT FIRST, then close. This looks backwards and is not.
@@ -220,6 +222,33 @@ async def proxy_events_socket(websocket: WebSocket, conversation_id: str) -> Non
         await websocket.accept()
         await websocket.close(
             code=status.WS_1008_POLICY_VIOLATION, reason='invalid session key'
+        )
+        return
+    except Exception:  # noqa: BLE001 - every pre-accept escape is a 1006
+        # The same accept-first reasoning, for the failures that are NOT the
+        # customer's credential. `validate_session_key` documents only
+        # HTTPException, but it builds an InjectorState and reaches the sandbox
+        # store, so a store or driver fault escapes as something else — and the
+        # local `import websockets` above can raise ImportError, which is the
+        # optional-dependency degradation this function's own comment describes.
+        # Either one used to die before accept and reach the browser as 1006,
+        # indistinguishable from a dropped network.
+        #
+        # 1011, NOT 1008. Reporting an infrastructure fault as a policy
+        # violation would tell the customer their session expired and to reload
+        # — advice that cannot work, since the next attempt hits the same fault.
+        # 1011 classifies as transient client-side, so it retries the bounded
+        # budget, which is the correct response to something that recovers.
+        #
+        # The reason string is deliberately generic: it crosses to the browser,
+        # and an exception message can carry connection strings and paths.
+        _logger.exception(
+            'agent proxy: event socket failed before accept for %s',
+            conversation_id,
+        )
+        await websocket.accept()
+        await websocket.close(
+            code=status.WS_1011_INTERNAL_ERROR, reason='proxy unavailable'
         )
         return
 
