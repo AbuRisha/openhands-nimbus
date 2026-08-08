@@ -4,6 +4,7 @@ import { FILE_SERVICE_HANDLERS } from "./file-service-handlers";
 import { TASK_SUGGESTIONS_HANDLERS } from "./task-suggestions-handlers";
 import { SECRETS_HANDLERS } from "./secrets-handlers";
 import { ORG_HANDLERS } from "./org-handlers";
+import { MEMORY_HANDLERS } from "./memory-handlers";
 import { GIT_REPOSITORY_HANDLERS } from "./git-repository-handlers";
 import {
   SETTINGS_HANDLERS,
@@ -18,6 +19,8 @@ import { V1_GIT_HANDLERS } from "./v1-git-handlers";
 import { ANALYTICS_HANDLERS } from "./analytics-handlers";
 
 export const handlers = [
+  ...MEMORY_HANDLERS,
+
   ...ORG_HANDLERS,
   ...API_KEYS_HANDLERS,
   ...BILLING_HANDLERS,

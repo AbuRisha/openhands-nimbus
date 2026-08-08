@@ -761,12 +761,30 @@ extract to a temp tree → the function against two temp trees → archive →
 `POST /file/upload` on the target. Note `validate_session_key` refuses a
 non-RUNNING sandbox, so the parent's must be started purely to be read from.
 
-**CALL IT SOMETHING OTHER THAN "FORK" IN THE UI.** This follows from the
-working-tree gotcha rather than being a matter of taste: the operation rewinds
-the CONVERSATION, and someone reading "fork" expects a branch of the whole
-world, files included. "Retry from here" or "New attempt from this message"
-promises only what it delivers. Decide before the affordance exists — renaming
-it afterwards is worse than naming it right once.
+**DECIDED 2026-08-08: the UI verb is "Retry from here".**
+
+What other providers do, and why none of their words fit unchanged:
+
+  * ChatGPT and Claude both surface this as EDITING a message, which silently
+    creates a branch, with `< 2/3 >` arrows to move between them. The verb is
+    "Edit". That works for them because editing is the only way to reach it —
+    but our operation does NOT require changing the message, so "Edit" would
+    describe the wrong thing.
+  * Cursor calls the neighbouring idea "Restore checkpoint". That implies the
+    FILES come back, which is exactly what does not happen here.
+  * "Fork" and "Branch" are the accurate computer-science words and are both
+    wrong IN THIS PRODUCT, because it is a coding agent: a developer reading
+    "branch" in a tool that manages git will read it as a git branch. Being
+    right about the general concept and wrong about the local one is the worst
+    kind of correct.
+
+So: **"Retry from here"**, and where an arrow-pair is needed to move between
+attempts, follow ChatGPT's `< 2/3 >` — that pattern is near-universal and
+carries no promise about files.
+
+The affordance must ALSO say that files do not rewind. The working tree stays
+as the parent left it, so someone who retries past a bad edit still has the bad
+edit on disk. One line under the action is enough; unsaid, it reads as a bug.
 
 Frontend affordance stays unbuilt until the endpoint exists. A fork action
 that produces an amnesiac fork is worse than no fork action.

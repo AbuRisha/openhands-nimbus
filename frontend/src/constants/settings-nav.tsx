@@ -253,11 +253,23 @@ export const OSS_NAV_ITEMS: SettingsNavItem[] = [
   },
   {
     icon: <MemoryIcon width={22} height={22} />,
-    to: "/settings/condenser",
-    // "Memory". A condenser compacts conversation context so a long session
-    // survives — which is what memory means to the person using it. The word
-    // "condenser" describes the mechanism to the people who built it.
+    to: "/settings/memory",
+    // "Memory" now points at the DURABLE PER-CUSTOMER DOCUMENT — the thing the
+    // assistant knows about you, carried into every conversation you start.
+    //
+    // It used to point at the condenser. Both get called "memory" by someone
+    // describing the mechanism, but only one is what a customer means when
+    // they click Memory, and the entry promised state the page did not hold.
     text: "SETTINGS$NAV_MEMORY",
+    section: "customize",
+  },
+  {
+    icon: <MemoryIcon width={22} height={22} />,
+    to: "/settings/condenser",
+    // Named for what it does rather than for what it resembles: it compacts a
+    // single long conversation so the session survives. That is not the same
+    // thing as remembering you between conversations.
+    text: "SETTINGS$NAV_CONVERSATION_LENGTH",
     section: "customize",
     disabledByAcp: true,
   },
