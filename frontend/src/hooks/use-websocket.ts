@@ -1,5 +1,26 @@
 import React from "react";
 
+/**
+ * Close codes that reconnecting can NEVER fix.
+ *
+ * 1008 POLICY_VIOLATION is what `agent_proxy_router` sends — before accept —
+ * when `session_api_key` does not resolve to a live sandbox. The sandbox store
+ * (`process_sandbox_service._processes`) is a module-level in-memory dict and
+ * the sandbox is a CHILD PROCESS of the app container, so a revision swap kills
+ * both: every previously minted key becomes permanently unvalidatable. The
+ * credential is not stale, it is dead, and no number of retries can revive it.
+ *
+ * Retrying anyway is what stranded every open chat tab in a silent 3-second
+ * loop after a deploy — forever, because `maxAttempts` defaulted to Infinity and
+ * both call sites pass only `{ enabled: true }`. The user sees a chat that never
+ * reconnects and no reason why; only a reload fixes it, and nothing tells them
+ * to reload.
+ *
+ * 1000 and 1001 are normal/going-away and are also not worth retrying — the
+ * peer closed deliberately.
+ */
+const TERMINAL_CLOSE_CODES = new Set([1000, 1001, 1008]);
+
 export interface WebSocketHookOptions {
   queryParams?: Record<string, string | boolean>;
   onOpen?: (event: Event) => void;
@@ -10,6 +31,12 @@ export interface WebSocketHookOptions {
     enabled?: boolean;
     maxAttempts?: number;
   };
+  /**
+   * Called when the connection is gone for good — a terminal close code, or
+   * attempts exhausted. This is the hook telling the UI to stop waiting and say
+   * something, which is the part that was missing.
+   */
+  onUnrecoverable?: (event: CloseEvent) => void;
 }
 
 export const useWebSocket = <T = string>(
@@ -21,6 +48,7 @@ export const useWebSocket = <T = string>(
   const [messages, setMessages] = React.useState<T[]>([]);
   const [error, setError] = React.useState<Error | null>(null);
   const [isReconnecting, setIsReconnecting] = React.useState(false);
+  const [isUnrecoverable, setIsUnrecoverable] = React.useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
   const attemptCountRef = React.useRef(0);
   const reconnectTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -57,6 +85,9 @@ export const useWebSocket = <T = string>(
     allowedToReconnectRef.current.add(ws);
 
     ws.onopen = (event) => {
+      // A successful open clears it: reconnect churn should not leave the UI
+      // permanently claiming the session is dead.
+      setIsUnrecoverable(false);
       setIsConnected(true);
       setError(null); // Clear any previous errors
       setIsReconnecting(false);
@@ -92,12 +123,16 @@ export const useWebSocket = <T = string>(
       // Attempt reconnection if enabled and allowed
       // IMPORTANT: Only reconnect if this specific instance is allowed to reconnect
       const reconnectEnabled = optionsRef.current?.reconnect?.enabled ?? false;
-      const maxAttempts =
-        optionsRef.current?.reconnect?.maxAttempts ?? Infinity;
+      // Bounded by DEFAULT. Infinity was the old default and it is the wrong
+      // one: an unbounded retry with no surfacing is indistinguishable from a
+      // hung UI. 20 attempts at 3s covers a minute of ordinary restart churn.
+      const maxAttempts = optionsRef.current?.reconnect?.maxAttempts ?? 20;
+      const isTerminal = TERMINAL_CLOSE_CODES.has(event.code);
 
       if (
         reconnectEnabled &&
         canReconnect &&
+        !isTerminal &&
         shouldReconnectRef.current &&
         attemptCountRef.current < maxAttempts
       ) {
@@ -109,6 +144,12 @@ export const useWebSocket = <T = string>(
         }, 3000); // 3 second delay
       } else {
         setIsReconnecting(false);
+        // Only when we were actually trying to hold this connection open. A
+        // deliberate disconnect() is not an unrecoverable failure.
+        if (reconnectEnabled && canReconnect && shouldReconnectRef.current) {
+          setIsUnrecoverable(true);
+          optionsRef.current?.onUnrecoverable?.(event);
+        }
       }
     };
 
@@ -186,6 +227,12 @@ export const useWebSocket = <T = string>(
     socket: wsRef.current,
     sendMessage,
     isReconnecting,
+    /**
+     * True when the connection is gone for good. Callers should tell the user to
+     * reload rather than continue showing a live-looking chat: after a deploy
+     * the session key cannot be revived, so nothing else will fix it.
+     */
+    isUnrecoverable,
     attemptCount: attemptCountRef.current,
     disconnect,
   };
