@@ -13,6 +13,8 @@ import {
 import { CONVERSATION_HANDLERS } from "./conversation-handlers";
 import { AUTH_HANDLERS } from "./auth-handlers";
 import { FEEDBACK_HANDLERS } from "./feedback-handlers";
+import { NIMBUS_ACCOUNT_HANDLERS } from "./nimbus-account-handlers";
+import { V1_GIT_HANDLERS } from "./v1-git-handlers";
 import { ANALYTICS_HANDLERS } from "./analytics-handlers";
 
 export const handlers = [
@@ -28,6 +30,8 @@ export const handlers = [
   ...AUTH_HANDLERS,
   ...FEEDBACK_HANDLERS,
   ...ANALYTICS_HANDLERS,
+  ...NIMBUS_ACCOUNT_HANDLERS,
+  ...V1_GIT_HANDLERS,
 ];
 
 export { MOCK_DEFAULT_USER_SETTINGS, resetTestHandlersMockSettings };

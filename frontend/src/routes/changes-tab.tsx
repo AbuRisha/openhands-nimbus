@@ -51,7 +51,18 @@ function GitChanges() {
           I18nKey.DIFF_VIEWER$ASK_OH,
         ]);
       } else {
-        setStatusMessage([errorMessage]);
+        // A human line FIRST, then the raw detail — not the raw detail alone.
+        //
+        // Every other branch here renders a sentence; this one fell through to
+        // whatever axios said, so a 500 read as "Request failed with status code
+        // 500" in the middle of the panel. That is the only line in this tab
+        // that tells a customer nothing, and it is the one they get when
+        // something is actually wrong.
+        //
+        // The detail is kept rather than swallowed: it is what support needs,
+        // and `t()` passes a non-key string through unchanged, so it renders as
+        // a second line under the explanation.
+        setStatusMessage([I18nKey.DIFF_VIEWER$LOAD_FAILED, errorMessage]);
       }
     } else if (loadingGitChanges) {
       setStatusMessage([I18nKey.DIFF_VIEWER$LOADING]);

@@ -30139,5 +30139,22 @@
     "ca": "L'historial del nou intent i el que recorda l'agent s'han tallat en punts diferents. Comprova-ho abans de confiar-hi.",
     "tr": "Yeni denemenin geçmişi ile aracının hatırladıkları farklı noktalardan kesildi. Güvenmeden önce kontrol edin.",
     "uk": "Історію нової спроби та те, що пам'ятає агент, обрізано в різних місцях. Перевірте, перш ніж покладатися."
+  },
+  "DIFF_VIEWER$LOAD_FAILED": {
+    "en": "Could not load your changes.",
+    "ja": "変更を読み込めませんでした。",
+    "zh-CN": "无法加载你的更改。",
+    "zh-TW": "無法載入你的變更。",
+    "ko-KR": "변경 사항을 불러올 수 없습니다.",
+    "no": "Kunne ikke laste endringene dine.",
+    "it": "Impossibile caricare le tue modifiche.",
+    "pt": "Não foi possível carregar as suas alterações.",
+    "es": "No se pudieron cargar tus cambios.",
+    "ar": "تعذّر تحميل تغييراتك.",
+    "fr": "Impossible de charger vos modifications.",
+    "tr": "Değişiklikleriniz yüklenemedi.",
+    "de": "Ihre Änderungen konnten nicht geladen werden.",
+    "uk": "Не вдалося завантажити ваші зміни.",
+    "ca": "No s'han pogut carregar els teus canvis."
   }
 }
