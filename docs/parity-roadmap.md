@@ -315,12 +315,61 @@ it, and check whether the agent's own context reflects them. If it does not, the
 fork needs to replay through the agent server rather than the event store, and
 that is a different endpoint.
 
-### The endpoint, once that is answered
+### ANSWERED 2026-08-07, from source — and the answer invalidates the endpoint below
+
+**Restoring events into the app-server event store is NOT sufficient for the
+agent to reason.** It is sufficient for the transcript to RENDER, which is
+exactly what makes this dangerous: the proposed endpoint would have produced a
+fork that looks complete and whose agent remembers none of it.
+
+Four links, each read rather than inferred:
+
+1. **The agent's context lives in its own EventLog, inside the sandbox.**
+   `ConversationState.create` (sdk/conversation/state.py:446) has a resume path:
+   it reads `BASE_STATE` from a `LocalFileStore` rooted at `persistence_dir` and
+   rebuilds `EventLog(file_store, dir_path=EVENTS_DIR)`. That store is the
+   agent's memory.
+
+2. **Events flow agent → app-server, one way only.** `save_event` is called
+   from exactly one place in normal operation: the webhook at
+   `event_callback/webhook_router.py:546`, fed by the agent server POSTing.
+   `process_sandbox_service.py:311` states it outright — "Events reach durable
+   storage exactly one way in this runtime". The app-server store is a
+   downstream DISPLAY MIRROR. Nothing writes back.
+
+3. **The agent server has no event-injection endpoint.** Its conversation
+   router offers start, pause, interrupt, run, goal, goal/stop, goal/resume,
+   secrets, confirmation_policy, security_analyzer, switch_profile, switch_llm.
+   There is no import, no replay, no set-history.
+
+4. **`StartConversationRequest` cannot carry prior events.** Its fields are
+   workspace, worktree, conversation_id, confirmation_policy,
+   security_analyzer, initial_message (sdk/conversation/request.py:77). A grep
+   for an events field returns zero.
+
+So there is NO API path that gives a forked conversation the original's memory.
+
+**What a correct fork actually requires.** The resume path keys on the
+conversation id and raises `ValueError` on mismatch (state.py:524), so the fork
+cannot simply point at the source's persistence_dir. It needs the sandbox's
+persistence directory COPIED — the agent's own EventLog plus base_state.json —
+with the conversation id rewritten and the log truncated at the cutoff. That is
+filesystem work inside the sandbox, not an app-server API call, and it is a
+materially bigger job than the endpoint sketched below.
+
+### The endpoint as originally sketched — DO NOT BUILD THIS AS-IS
 
 `POST /app-conversations/{id}/fork` with `{ "up_to_event_id": "..." }` →
-start a conversation (existing path), `copy_events_until` into it, return the
-new conversation. Frontend needs a fork action on a message and a way to open
-the result.
+start a conversation, `copy_events_until` into it, return the new conversation.
+
+Kept because the shape is still right and `copy_events_until` is still the
+load-bearing half for the TRANSCRIPT. But on its own it ships the
+looks-right-behaves-wrong fork this section was written to prevent. Pair it
+with the sandbox persistence copy, or do not ship a fork action at all.
+
+An honest smaller feature, if the full fork is too large: "start a new
+conversation seeded with a summary of this one" is buildable today with no
+sandbox work, and is not the same thing — so it must not be labelled fork.
 
 ---
 
