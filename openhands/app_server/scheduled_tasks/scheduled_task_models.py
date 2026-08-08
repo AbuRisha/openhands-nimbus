@@ -95,9 +95,7 @@ class ScheduledTask(BaseModel):
     daily_at: str | None = None
 
     enabled: bool = True
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_run_at: datetime | None = None
     runs: list[TaskRun] = Field(default_factory=list)
 
@@ -144,15 +142,19 @@ class ScheduledTask(BaseModel):
             if not self.daily_at:
                 return None
             hh, mm = (int(p) for p in self.daily_at.split(':'))
-            candidate = now.replace(
-                hour=hh, minute=mm, second=0, microsecond=0
-            )
+            candidate = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
             # Already fired within this minute today -> tomorrow.
             if self.last_run_at is not None and self.last_run_at >= candidate:
                 return candidate + timedelta(days=1)
             return candidate
 
-        return None
+        # Unreachable to mypy, because `kind` is a Literal of exactly the two
+        # branches above. That is a static claim about a value we deserialize
+        # from the database, so it holds until a row says otherwise - an older
+        # kind, a hand-edited row, a half-finished migration. Scheduling nothing
+        # is the safe answer there; falling off the end and returning an
+        # implicit None would be the same behaviour with no statement saying so.
+        return None  # type: ignore[unreachable]
 
     def is_due(self, now: datetime) -> bool:
         due = self.next_due_at(now)
