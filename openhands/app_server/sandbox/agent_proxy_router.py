@@ -43,8 +43,10 @@ Container Apps.
 
 from __future__ import annotations
 
+import base64
 import logging
 from typing import Final
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, WebSocket, status
@@ -178,20 +180,85 @@ async def proxy_file(request: Request, rest: str) -> StreamingResponse:
     return await _proxy_http(request)
 
 
+SESSION_KEY_SUBPROTOCOL = 'nimbus-session-key'
+
+
+def _key_from_subprotocol(websocket: WebSocket) -> str | None:
+    """Read the session key out of ``Sec-WebSocket-Protocol``.
+
+    A browser cannot set arbitrary headers on a WebSocket handshake, which is
+    why the key used to travel in the query string. It CAN set subprotocols --
+    ``new WebSocket(url, [name, value])`` becomes
+    ``Sec-WebSocket-Protocol: name, value`` -- so the key rides a header after
+    all, and never reaches a URL that ingress logs.
+
+    The value is base64url WITHOUT padding, because ``=`` is not a legal
+    subprotocol token character (RFC 6455 defers to RFC 7230 tokens; the
+    base64url alphabet is otherwise legal).
+    """
+    raw = websocket.headers.get('sec-websocket-protocol')
+    if not raw:
+        return None
+    parts = [p.strip() for p in raw.split(',')]
+    if len(parts) < 2 or parts[0] != SESSION_KEY_SUBPROTOCOL:
+        return None
+    encoded = parts[1]
+    try:
+        padded = encoded + '=' * (-len(encoded) % 4)
+        return base64.urlsafe_b64decode(padded.encode()).decode()
+    except (ValueError, UnicodeDecodeError):
+        # A malformed value is treated as absent rather than raising: it then
+        # falls through to the query parameter, and failing that to _resolve's
+        # own rejection, which already closes the socket properly.
+        return None
+
+
+def _upstream_query(websocket: WebSocket, key: str | None) -> str:
+    """Build the query string for the UPSTREAM leg.
+
+    THE SANDBOX ONLY ACCEPTS THE KEY AS A QUERY PARAMETER. Its socket signature
+    is ``session_api_key: Annotated[str | None, Query(...)]`` (SDK
+    ``agent_server/sockets.py``) with no header alternative, so this leg cannot
+    move to a header the way the browser leg just did, and stripping the key
+    here would authenticate nothing and break every conversation.
+
+    That is a smaller exposure and worth stating precisely rather than waving
+    at: this leg is server-to-server inside the container or private network and
+    never crosses ingress, which is the log the browser leg was landing in.
+    """
+    params = [
+        (k, v) for k, v in websocket.query_params.multi_items()
+        if k != 'session_api_key'
+    ]
+    if key is not None:
+        params.append(('session_api_key', key))
+    return urlencode(params)
+
+
 @agent_proxy_router.websocket('/sockets/events/{conversation_id}')
 async def proxy_events_socket(websocket: WebSocket, conversation_id: str) -> None:
     """Bidirectional pump for the agent event stream.
 
-    A browser cannot set headers on a WebSocket handshake, so the client passes
-    the session key as the ``session_api_key`` query parameter instead of
-    ``X-Session-API-Key``. Same validation either way.
+    The session key arrives EITHER in ``Sec-WebSocket-Protocol`` (preferred; see
+    ``_key_from_subprotocol``) OR as the ``session_api_key`` query parameter.
+
+    BOTH ARE ACCEPTED ON PURPOSE, and the fallback is not dead weight. This is
+    every chat session's auth on a hot path: a browser tab that is already open,
+    or one holding a cached copy of the previous bundle, still connects the old
+    way. Dropping the query parameter in the same release that adds the header
+    would have disconnected every live session at the moment of the swap. The
+    parameter can be removed once no bundle in circulation sends it.
     """
     # Imported here rather than at module scope: this is the only code path that
     # needs it, and keeping it local means a missing optional dep degrades the
     # socket instead of preventing the whole app from importing.
     import websockets
 
-    key = websocket.query_params.get('session_api_key')
+    subprotocol_key = _key_from_subprotocol(websocket)
+    key = subprotocol_key or websocket.query_params.get('session_api_key')
+    # Only echo a subprotocol we were actually offered. Selecting one the client
+    # did not send makes a conforming client fail the connection (RFC 6455 4.1).
+    agreed = SESSION_KEY_SUBPROTOCOL if subprotocol_key is not None else None
     try:
         base = await _resolve(key)
     except HTTPException:
@@ -217,20 +284,20 @@ async def proxy_events_socket(websocket: WebSocket, conversation_id: str) -> Non
             'agent proxy: refused event socket for %s (invalid session key)',
             conversation_id,
         )
-        await websocket.accept()
+        await websocket.accept(subprotocol=agreed)
         await websocket.close(
             code=status.WS_1008_POLICY_VIOLATION, reason='invalid session key'
         )
         return
 
-    query = websocket.url.query
+    query = _upstream_query(websocket, key)
     upstream_url = (
         base.replace('http://', 'ws://', 1).replace('https://', 'wss://', 1)
         + f'/sockets/events/{conversation_id}'
         + (f'?{query}' if query else '')
     )
 
-    await websocket.accept()
+    await websocket.accept(subprotocol=agreed)
     try:
         async with websockets.connect(upstream_url, max_size=None) as upstream:
             import asyncio

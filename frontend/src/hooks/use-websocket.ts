@@ -17,6 +17,16 @@ export type WebSocketFailureReason = "session-expired" | "unreachable";
 
 export interface WebSocketHookOptions {
   queryParams?: Record<string, string | boolean>;
+  /**
+   * WebSocket subprotocols, passed straight to the `WebSocket` constructor.
+   *
+   * This is how a secret reaches the server WITHOUT going in the URL. A browser
+   * cannot set arbitrary headers on a WS handshake, so anything the server needs
+   * has historically had to ride the query string -- where ingress and access
+   * logs record it in plaintext. Subprotocols become the
+   * `Sec-WebSocket-Protocol` REQUEST HEADER, which those logs do not capture.
+   */
+  protocols?: string[];
   onOpen?: (event: Event) => void;
   onClose?: (event: CloseEvent) => void;
   onMessage?: (event: MessageEvent) => void;
@@ -78,7 +88,11 @@ export const useWebSocket = <T = string>(
       wsUrl = `${url}?${params.toString()}`;
     }
 
-    const ws = new WebSocket(wsUrl);
+    const protocols = optionsRef.current?.protocols;
+    const ws =
+      protocols && protocols.length > 0
+        ? new WebSocket(wsUrl, protocols)
+        : new WebSocket(wsUrl);
     wsRef.current = ws;
     // Mark this WebSocket instance as allowed to reconnect
     allowedToReconnectRef.current.add(ws);
