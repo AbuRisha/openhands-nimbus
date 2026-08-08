@@ -1,4 +1,40 @@
-# Row-level security: measured, not assumed
+# Row-level security in the OPENHANDS database
+
+**There are two databases and this file describes one of them.** Naming which
+is not pedantry: the same query returns opposite answers, and a correction
+carried across would replace a true statement with a false one.
+
+| | **this file** — openhands | **Nimbus business DB** |
+|---|---|---|
+| where | inside the container, Azure | OVH box, `15.204.252.63` |
+| role | `nimbusadmin` | `nimbus` |
+| `rolsuper` | **False** | **True** |
+| `rolbypassrls` | True | True |
+| public tables | **9** | **75** |
+
+`SELECT ... WHERE rolname='nimbusadmin'` against the Nimbus DB returns no rows —
+the role does not exist there. The table count is the quickest tell that you are
+looking at the wrong system.
+
+The two also have OPPOSITE hazards, from the same pair of facts. Here, every
+application role still has `BYPASSRLS`, so a policy written today does nothing
+until the flag drops — safe, and inert. On the Nimbus side the flag half is
+already done (`nimbus_app`, `nimbus_gw`, `nimbus_proxy_ovh` are all
+`NOSUPERUSER NOBYPASSRLS`, demonstrated with a live policy: `nimbus` saw 2 rows,
+`nimbus_app` saw 1), so a policy takes effect **immediately** and a careless
+`ENABLE ROW LEVEL SECURITY` on a customer table starts denying reads to the live
+site the moment it lands.
+
+## What dominates the estimate on BOTH sides
+
+Setting the tenant key per connection when the app uses a **pool**.
+`SET app.current_customer` is session-scoped, so a value set for one request
+leaks into the next request that borrows the same connection — wrong tenant,
+silently, with no error to notice. It has to be `SET LOCAL` inside a
+transaction, which means every query path must run in one. That constraint, not
+the policies, is the work.
+
+## The openhands measurement
 
 Run against production from inside the running container on 2026-08-08, so the
 credentials never left it:
