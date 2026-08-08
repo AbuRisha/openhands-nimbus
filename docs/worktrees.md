@@ -31,20 +31,12 @@ and `npx` resolves the wrong `tsc` entirely. **Tests still passed through the
 junction**, which is what makes it dangerous: it looks like it works right up
 until you typecheck.
 
-**It does not merely fail to resolve — it resolves DIFFERENTLY, which is
-worse.** A junctioned lane reported six `TS2578 unused '@ts-expect-error'`
-errors in three test files nobody had touched, and they read exactly like real
-pre-existing breakage on the integration branch. Measured three ways at the
-same commit:
-
-    bare tsc, JUNCTIONED node_modules  -> six TS2578
-    bare tsc, REAL node_modules        -> 0
-    npm run typecheck (typegen + tsc)  -> clean
-
-Under broken resolution the mocked modules resolve wider, so directives that
-are genuinely NEEDED look redundant. A junction can therefore manufacture type
-errors in files you did not edit. Two sessions independently reached those six
-and both nearly filed them.
+**RETRACTED: junctions do not manufacture type errors.** This section briefly
+claimed they did, on the strength of six `TS2578 unused '@ts-expect-error'`
+errors that appeared under a junction and not under a real install. That
+comparison was CONFOUNDED — the real-install run happened to have a
+`.react-router/` directory from an earlier `npm run typecheck` and the
+junctioned run did not. Two variables, one credited. The real cause is below.
 
 **`rm -rf` FOLLOWS a junction and deletes the real target**, and so does
 `git worktree remove --force`. Delete the junction FIRST —
@@ -145,6 +137,26 @@ missing. A NEGATIVE result needs the instrument checked before the conclusion.
   returned 0 on a file with 15 tests, because they sit inside a class. The file
   was fine.
 - **`ls node_modules` returns 0 entries in Git Bash** on a healthy symlink farm.
+- **RUN THE PROJECT'S OWN CHECK, not a bare compiler.** `typecheck` is
+  `react-router typegen && tsc`. Bare `tsc` skips the codegen and typechecks
+  against route types that may be absent or stale, which emits six
+  `TS2578 unused '@ts-expect-error'` errors in test files nobody touched. They
+  look exactly like real pre-existing breakage. Controlled experiment, one
+  directory, single variable:
+
+        rm -rf .react-router && tsc   ->  6x TS2578
+        react-router typegen && tsc   ->  0
+
+  A bare compiler invocation is a DIFFERENT QUESTION from `npm run <script>`
+  whenever the script has a codegen step, and the difference is invisible until
+  it emits errors that look real. Three sessions read those six errors and the
+  first two explanations — "pre-existing on the integration branch" and "a
+  junction resolution artifact" — were both wrong.
+- **A baseline only isolates the variable you changed if both environments are
+  identical AND CORRECT.** Two environments that are identical and both missing
+  a codegen step will AGREE, and agreement reads as confirmation. Identical-and-
+  both-wrong is worse than a disagreement, because a disagreement makes you
+  look.
 - **A MISSING junction is indistinguishable from a wiped dependency.** A lane
   checked `.venv/Scripts/python.exe` in its OWN worktree, got a failure, and
   reported the SHARED venv as wiped to two other sessions — telling both their
