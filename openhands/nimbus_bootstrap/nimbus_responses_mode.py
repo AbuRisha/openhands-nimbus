@@ -47,10 +47,57 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Ids whose endpoint shape litellm gets wrong FOR US. Deliberately explicit
-# rather than "anything with mode == responses": a customer's own BYOR model
-# that genuinely needs the Responses API must keep using it.
-NIMBUS_FORCE_CHAT_MODE: tuple[str, ...] = ('gpt-5.3-codex',)
+# Every model in the Nimbus catalog, by bare id.
+#
+# This was one id — `gpt-5.3-codex` — and the scoping was right in principle and
+# too narrow in practice. `openai/gpt-5.5` started failing every chat turn in
+# production with the identical `not_found: POST /responses`, with no deploy on
+# our side, because litellm decides endpoint shape from a registry it FETCHES AT
+# IMPORT from raw.githubusercontent.com. That file is not ours, it changes, and
+# when the fetch fails litellm silently falls back to the map bundled with the
+# installed version. So two containers on the same image can route the same
+# model differently, and a model that worked for months can stop overnight.
+#
+# Listing the whole catalog is safe because the flip below only rewrites entries
+# whose mode is exactly "responses": for everything already on "chat" it is a
+# no-op. It also keeps the original guarantee that mattered — a customer's own
+# BYOR model that genuinely needs the Responses API is untouched, because it is
+# not in this list.
+#
+# Kept as a literal rather than imported from
+# config_api.nimbus_llm_model_service, which costs ~6.5s to import: this module
+# runs from sitecustomize on EVERY interpreter start in the image. The test in
+# tests/nimbus_bootstrap asserts the two stay in step, so drift is a failing
+# test rather than a model that quietly starts 400ing in production.
+NIMBUS_FORCE_CHAT_MODE: tuple[str, ...] = (
+    'claude-haiku-4.5',
+    'claude-opus-4.6',
+    'claude-opus-4.7',
+    'claude-opus-4.8',
+    'claude-opus-5',
+    'claude-sonnet-4.6',
+    'claude-sonnet-5',
+    'deepseek-v4-flash',
+    'deepseek-v4-pro',
+    'gemini-3-flash-preview',
+    'gemini-3.1-pro-preview',
+    'gemini-3.5-flash',
+    'glm-5',
+    'glm-5.1',
+    'glm-5.2',
+    'gpt-5.3-codex',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.5',
+    'gpt-5.6-luna',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'kimi-k2.6',
+    'kimi-k3',
+    'qwen3-coder',
+    'qwen3.7-max',
+    'qwen3.8-max',
+)
 
 
 def install_chat_mode_overrides() -> int:
@@ -73,6 +120,34 @@ def install_chat_mode_overrides() -> int:
     if not isinstance(registry, dict):
         return 0
 
+    # Say WHERE the registry came from. Routing is decided by this map, litellm
+    # fetches it over the network at import, and falls back to the bundled copy
+    # without raising - so two containers on the same image can route the same
+    # model differently and nothing in the logs says why. That is how gpt-5.5
+    # started 400ing in production with no deploy. One line here turns the next
+    # occurrence from a mystery into a lookup.
+    try:
+        # Not re-exported on the litellm package, so import from the module.
+        from litellm.litellm_core_utils.get_model_cost_map import (
+            get_model_cost_map_source_info,
+        )
+
+        source = get_model_cost_map_source_info()
+        logger.info(
+            'nimbus: litellm model registry source=%s forced_local=%s%s',
+            source.get('source'),
+            source.get('is_env_forced'),
+            (
+                f' fallback_reason={source["fallback_reason"]}'
+                if source.get('fallback_reason')
+                else ''
+            ),
+        )
+    except Exception:  # noqa: BLE001
+        # Older litellm has no such helper. Not knowing the source is not a
+        # reason to skip the override that fixes the routing.
+        logger.debug('nimbus: litellm model registry source unavailable')
+
     for bare in NIMBUS_FORCE_CHAT_MODE:
         # The registry is keyed on the bare id, but check the prefixed form too
         # so this keeps working if that ever changes.
@@ -81,7 +156,5 @@ def install_chat_mode_overrides() -> int:
             if isinstance(entry, dict) and entry.get('mode') == 'responses':
                 entry['mode'] = 'chat'
                 changed += 1
-                logger.info(
-                    'nimbus: forced chat mode for %s (was "responses")', key
-                )
+                logger.info('nimbus: forced chat mode for %s (was "responses")', key)
     return changed
