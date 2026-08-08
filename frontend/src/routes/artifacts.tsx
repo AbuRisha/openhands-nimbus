@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { History, RotateCcw, Trash2 } from "lucide-react";
+import { History, Printer, RotateCcw, Trash2 } from "lucide-react";
 import { I18nKey } from "#/i18n/declaration";
 import { useArtifact, useArtifacts } from "#/hooks/query/use-artifacts";
 import {
@@ -11,6 +11,7 @@ import {
 import { BrandButton } from "#/components/features/settings/brand-button";
 import { LoadingSpinner } from "#/components/shared/loading-spinner";
 import { ConfirmationModal } from "#/components/shared/modals/confirmation-modal";
+import { ArtifactPrintView } from "#/components/features/artifacts/artifact-print-view";
 import { cn } from "#/utils/utils";
 
 /**
@@ -152,6 +153,22 @@ function ArtifactsScreen() {
               >
                 {t(I18nKey.ARTIFACTS$SAVE_VERSION)}
               </BrandButton>
+              {/*
+               * Prints WHAT IS SAVED, not the draft in the editor. An unsaved
+               * edit is not a version and has no version number, so a printout
+               * of it would carry a header naming a version whose content is
+               * not what is on the page. The save button sits right here if
+               * the draft is what they meant to print.
+               */}
+              <button
+                type="button"
+                data-testid="artifact-print"
+                aria-label={t(I18nKey.ARTIFACTS$PRINT)}
+                onClick={() => window.print()}
+                className="button-base p-1.5 cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+              </button>
               <button
                 type="button"
                 data-testid="artifact-delete"
@@ -162,6 +179,20 @@ function ArtifactsScreen() {
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
+
+            {/*
+             * Mounted here rather than created when the button is pressed:
+             * window.print() is synchronous and captures the document as it
+             * stands, so a node mounted in the same tick may not have been
+             * committed. See ArtifactPrintView.
+             */}
+            <ArtifactPrintView
+              title={detail.title}
+              content={detail.content}
+              kind={detail.kind}
+              version={detail.current_version}
+              updatedAt={detail.updated_at}
+            />
 
             <div className="flex grow overflow-hidden">
               <textarea

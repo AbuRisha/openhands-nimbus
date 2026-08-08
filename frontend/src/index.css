@@ -90,3 +90,81 @@ code {
   background-color: #f5b301;
   color: #16171d;
 }
+
+/* ── Printing an artifact ─────────────────────────────────────────────────
+ *
+ * "Print to PDF" is the browser's own Save-as-PDF, driven by window.print().
+ * No PDF library: the browser already paginates, hyphenates and embeds fonts,
+ * and it honours the paper size the person actually chose. A JS generator
+ * would add a dependency and produce worse typography for markdown.
+ *
+ * Everything on screen is hidden and one print-only node is shown. The naive
+ * version — printing the page as-is — emits the gallery list, the nav and the
+ * editing chrome, and clips the document inside a fixed-height textarea.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #artifact-print-root,
+  #artifact-print-root * {
+    visibility: visible;
+  }
+
+  #artifact-print-root {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    padding: 0;
+    /* Print is paper, not the app's dark theme. Leaving the dark background on
+       either wastes toner or gets dropped by the browser's background-graphics
+       default, which then prints light text on white. */
+    background: #ffffff;
+    color: #000000;
+  }
+
+  /* THE FAILURE THIS EXISTS TO PREVENT: a long line of code running off the
+     right edge of the page and being silently cut. On screen it scrolls; on
+     paper there is nowhere to scroll to. */
+  #artifact-print-root pre,
+  #artifact-print-root code {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    background: #f4f4f5;
+    color: #000000;
+  }
+
+  /* Keep a heading with the text it introduces rather than orphaning it at a
+     page break. */
+  #artifact-print-root h1,
+  #artifact-print-root h2,
+  #artifact-print-root h3 {
+    break-after: avoid;
+  }
+
+  #artifact-print-root table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  #artifact-print-root th,
+  #artifact-print-root td {
+    border: 1px solid #999999;
+    padding: 4px 6px;
+  }
+
+  @page {
+    margin: 18mm;
+  }
+}
+
+/* Off-screen until printing. `display: none` would be simpler and wrong —
+   a hidden subtree is not laid out, and several browsers then print nothing. */
+#artifact-print-root {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 190mm;
+}

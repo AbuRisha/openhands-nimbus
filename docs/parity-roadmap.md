@@ -1024,9 +1024,36 @@ of, so a share that carries it leaks more than the thing being shared. This is
 the same class of question as the /mcp identity finding, and adding a `public`
 flag now would settle it by accident.
 
-**Print-to-PDF.** Real work, not a decision: needs a rendering path per kind
+~~**Print-to-PDF.** Real work, not a decision: needs a rendering path per kind
 (markdown, code, html) and it is the only one of the three that is purely
-additive. Best next.
+additive. Best next.~~ **BUILT 2026-08-08.**
+
+`window.print()` plus a print stylesheet, NOT a PDF library. The browser
+already paginates, hyphenates, embeds fonts and honours the paper size the
+person chose; a JS generator adds a dependency and produces worse typography
+for markdown. "Save as PDF" is a destination in the browser's own print
+dialog.
+
+The rendering path per kind resolved to TWO paths, not three. Markdown renders;
+code, text AND HTML print as SOURCE. The html case is a security decision
+rather than a formatting one: artifact content is agent-authored, and rendering
+it would inject agent markup into our own document. The preview pane only gets
+away with rendering agent HTML because it sits in a sandboxed iframe with no
+`allow-same-origin`, and a printed page has no equivalent.
+
+Two details that are easy to get wrong and are covered by tests:
+  - the print node is ALWAYS MOUNTED, off-screen, never `display: none`.
+    `window.print()` is synchronous and captures the document as it stands, so
+    a node mounted in the same tick may not have been committed; and a
+    `display: none` subtree is not laid out, which makes several browsers print
+    nothing.
+  - `pre`/`code` get `white-space: pre-wrap` + `overflow-wrap: anywhere` under
+    `@media print`. On screen a long line scrolls; on paper there is nowhere to
+    scroll to and it is silently cut at the page edge.
+
+It prints WHAT IS SAVED, not the editor draft — an unsaved edit has no version
+number, so a printout of it would carry a header naming a version whose content
+is not on the page.
 
 **Artifacts that call tools / query the model.** Not attempted. This is the
 item's real ceiling and it needs the agent to be able to CREATE artifacts in

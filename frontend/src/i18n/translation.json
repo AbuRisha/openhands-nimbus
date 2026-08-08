@@ -30819,5 +30819,22 @@
     "ca": "No s'ha pogut tornar a connectar. Torna a carregar la pàgina per intentar-ho de nou.",
     "tr": "Yeniden bağlanılamadı. Tekrar denemek için sayfayı yenileyin.",
     "uk": "Не вдалося повторно підключитися. Перезавантажте сторінку, щоб спробувати ще раз."
+  },
+  "ARTIFACTS$PRINT": {
+    "en": "Print or save as PDF",
+    "ja": "印刷 / PDF として保存",
+    "zh-CN": "打印或另存为 PDF",
+    "zh-TW": "列印或另存為 PDF",
+    "ko-KR": "인쇄 또는 PDF로 저장",
+    "no": "Skriv ut eller lagre som PDF",
+    "ar": "طباعة أو حفظ بصيغة PDF",
+    "de": "Drucken oder als PDF speichern",
+    "fr": "Imprimer ou enregistrer en PDF",
+    "it": "Stampa o salva come PDF",
+    "pt": "Imprimir ou guardar como PDF",
+    "es": "Imprimir o guardar como PDF",
+    "ca": "Imprimeix o desa com a PDF",
+    "tr": "Yazdır veya PDF olarak kaydet",
+    "uk": "Друк або збереження у PDF"
   }
 }
