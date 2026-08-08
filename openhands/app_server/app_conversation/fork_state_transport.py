@@ -13,27 +13,45 @@ runs in the SOURCE — where the state already is — and only an opaque archive
 crosses the app server. Customer conversation state is never expanded here. See
 docs/fork-conversation-design.md.
 
-VERIFIED VS ASSUMED
--------------------
-The endpoint signatures below were read out of ``openhands/agent_server/``:
-``GET /file/archive`` (``format`` must be ``tar.gz``; the default ``git-delta``
-is a git patch and needs a repo), ``POST /file/upload?path=`` (a single FILE,
-multipart field ``file``), ``POST /bash/execute_bash_command``
-(``ExecuteBashRequest`` -> ``BashOutput``).
+VERIFIED AGAINST A LIVE AGENT SERVER
+-----------------------------------
+``GET /api/file/archive`` (``format`` must be ``tar.gz``; the default
+``git-delta`` is a git patch and needs a repo), ``POST /api/file/upload?path=``
+(a single FILE, multipart field ``file``), ``POST
+/api/bash/execute_bash_command`` (``ExecuteBashRequest`` -> ``BashOutput``).
 
-What is NOT verified is the composition against a live agent server. The tests
-drive real httpx through ``MockTransport``, so the wire shape — methods, paths,
-query params, multipart encoding, headers — is asserted for real; what they
-cannot prove is that a running agent server answers those requests the way its
-source says it will. Treat a first live run as part of the change.
+THE ``/api`` PREFIX IS NOT COSMETIC AND WAS NOT ALWAYS HERE. These paths were
+originally written without it, which made every fork fail on its first call with
+``404 {"detail":"Not Found"}``. ``agent_server/api.py`` mounts bash, file, git,
+vscode and the rest under ``APIRouter(prefix='/api')``; only ``/alive``,
+``/server_info`` and the sockets router live at the root. Reading each router's
+own ``APIRouter(prefix='/bash')`` is therefore not enough — the mount point is a
+second, separate fact, and it is the one that decides the URL. See
+``SandboxEndpoint.api_base``.
 
-The sharpest of those unknowns is the archive's member framing: whether the
-tarball's paths are relative to the archived directory or include it. Guess wrong
-and ``tar`` still exits 0 while the state lands one level off, which reads as a
-successful fork whose agent remembers nothing. Rather than leave that as a
-caveat, ``_verify_landed`` checks the TARGET for the state the agent will
-actually open, so the wrong framing fails loudly on the first real fork instead
-of shipping an amnesiac one.
+The mock suite could not see that defect, and the reason is worth keeping: it
+asserted ``request.url.path.endswith('/bash/execute_bash_command')``, which is
+true of both the broken path and the correct one. A suffix assertion cannot
+observe a missing prefix. Those assertions now compare the FULL path.
+
+The archive's member framing was the sharpest remaining unknown — whether the
+tarball's paths are relative to the archived directory or include it. It is now
+confirmed to INCLUDE it: ``file_router.py`` builds ``arcname =
+f"{root.name}/{rel}"``, so extracting with ``-C conversations_path`` lands at
+``conversations_path/<hex>/base_state.json``, which is where the agent looks.
+
+Two things that read as harmless but are load-bearing for the guard below.
+``/api/file/archive`` INJECTS an ``archive_manifest.json`` member into every
+archive, so the extracted state dir holds a file the SDK never wrote; it is
+harmless because ``event_store`` logs and skips filenames that do not match
+``EVENT_NAME_RE``, and because it lands beside ``base_state.json`` rather than
+inside ``events/``, where it would otherwise inflate the count. And
+``_add_file_member`` SILENTLY SKIPS files that vanish mid-capture, so ``tar``
+exiting 0 genuinely does not imply a complete archive.
+
+That last point is why ``_verify_landed`` exists: it checks the TARGET for the
+state the agent will actually open, rather than trusting a count parsed from the
+SOURCE. A count is only evidence about the place it was counted.
 
 TWO SHARP EDGES, both handled below
 -----------------------------------
@@ -93,6 +111,20 @@ class SandboxEndpoint:
     @property
     def headers(self) -> dict[str, str]:
         return {'X-Session-API-Key': self.session_api_key}
+
+    @property
+    def api_base(self) -> str:
+        """Where the agent server's routers actually live.
+
+        ``agent_server/api.py`` mounts every functional router under
+        ``APIRouter(prefix='/api')`` — bash, file, git, vscode and the rest. Only
+        ``server_details_router`` (``/alive``, ``/server_info``) and
+        ``sockets_router`` sit at the root, which is why a health check against
+        ``base_url`` succeeds while a call to ``base_url/bash/...`` returns 404.
+        Every request this module makes goes through here so a bare ``base_url``
+        cannot be used by accident.
+        """
+        return f'{self.base_url.rstrip("/")}/api'
 
 
 def _parse_copied(stdout: str | None) -> int:
@@ -195,7 +227,7 @@ async def _upload(
     filename: str,
 ) -> None:
     response = await client.post(
-        f'{sandbox.base_url}/file/upload',
+        f'{sandbox.api_base}/file/upload',
         params={'path': remote_path},
         files={'file': (filename, content, 'application/octet-stream')},
         headers=sandbox.headers,
@@ -215,7 +247,7 @@ async def _bash(
     timeout: int = 300,
 ) -> str | None:
     response = await client.post(
-        f'{sandbox.base_url}/bash/execute_bash_command',
+        f'{sandbox.api_base}/bash/execute_bash_command',
         json={'command': command, 'timeout': timeout},
         headers=sandbox.headers,
     )
@@ -243,7 +275,7 @@ async def _archive(
     client: httpx.AsyncClient, sandbox: SandboxEndpoint, remote_dir: str
 ) -> bytes:
     response = await client.get(
-        f'{sandbox.base_url}/file/archive',
+        f'{sandbox.api_base}/file/archive',
         params={
             'path': remote_dir,
             # MUST be explicit. The default is git-delta, a git patch of

@@ -887,3 +887,51 @@ describing a prefix that tree's code did not use - the exact "confident
 description outlives the thing it described" failure documented in nimbus-v2's
 `docs/worktrees-and-shared-tree-traps.md`. Reverted. Check `pwd` in the same
 call as the edit, not in a previous one.
+
+### The third bug, found only by sending a real message
+
+With the collision fixed the agent built, and the first POST to /events came
+back 500 from the agent server:
+
+    PydanticSerializationError: Error calling function
+    `_serialize_by_kind`: RecursionError
+
+`_make_tool` created each class under a throwaway name and then assigned
+`__name__`. That reads as equivalent to naming it correctly and is not:
+pydantic captures the name when it builds the core schema, so the serializer
+knew the class as `_Tool` while instances reported the new name.
+`_serialize_by_kind` compares the two to decide whether a handler belongs to the
+current class; they never matched, so it delegated to `model_dump`, which
+re-entered the serializer, until the stack ran out. Built with
+`types.new_class` instead, which names the class at creation (`type()` would
+bypass ToolDefinition's metaclass).
+
+Three lessons, in order of how much time they would have saved:
+
+1. **Fixing a bug can reveal the next one rather than finish the job.** The
+   duplicate-name bug stopped the agent being built at all, so nothing ever
+   tried to serialize these tools, so this could not surface until the first fix
+   landed. "The P0 is fixed" was true and "the chat works" was not.
+2. **361 backend tests passed throughout.** Not one of them ever serialized a
+   tool. A green suite measures what it covers, and these three tools had been
+   constructed by tests but never round-tripped.
+3. **Only using the product found it.** Creating a conversation through the UI
+   and pressing send is what produced the 500. Every static check - imports,
+   registry, name sets - passed at every stage.
+
+Deployment sequence: `bridgefix-20260808` / revision --0000092 carried the
+rename; `bridgefix2-20260808` carries this. Rollback target before either is
+`fork12v2-20260808` / --0000091.
+
+### Two live bugs observed while testing, not yet fixed
+
+- **The events socket retry-loops 403 forever.** A tab whose conversation is
+  gone reconnects every ~4s indefinitely, with no backoff, no give-up and
+  nothing shown to the user. `validate_session_key` raises 401 for an unknown
+  key with NO log line (only the non-running-sandbox branch logs), so the most
+  common rejection is silent server-side too.
+- **`GET /api/v1/app-conversations?ids=<unknown>` returns `[null]`**, not `[]`
+  and not 404. A caller checking `.length` sees one result and a caller reading
+  `data[0].x` crashes.
+- The composer's send button has **no accessible name** - it is a bare `button`
+  in the a11y tree, so a screen-reader user cannot identify the send control.
