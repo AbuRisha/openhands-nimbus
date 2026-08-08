@@ -1,6 +1,7 @@
 import { setupWorker } from "msw/browser";
 import { handlers as wsHandlers } from "./handlers.ws";
 import { handlers, resetTestHandlersMockSettings } from "./handlers";
+import { seedDevOnlySettings } from "./settings-handlers";
 import { V1_CONVERSATION_HANDLERS } from "./v1-conversation-handlers";
 import { V1_EVENTS_WS_HANDLERS } from "./v1-events-ws";
 
@@ -25,6 +26,41 @@ import { V1_EVENTS_WS_HANDLERS } from "./v1-events-ws";
  * suite keeps its 404.
  */
 resetTestHandlersMockSettings();
+
+/*
+ * Dev-only, for the same reason as the seed above: the shared default has to
+ * stay minimal because the suite asserts on it.
+ *
+ * enable_sub_agents is TRUE here because that is what production does —
+ * nimbus_settings_store.py:180 turns it on for every new account, while the SDK
+ * default is off. A dev harness showing it disabled displays the opposite of
+ * what every real customer sees on first login, and gates the whole sub-agent
+ * surface out of review.
+ *
+ * mcp_config carries two servers of DIFFERENT transports because
+ * mcp-settings.tsx concatenates sse/stdio/shttp with per-type field mapping; a
+ * single-transport fixture leaves two of the three branches unexercised. Empty
+ * meant the Extensions page rendered "No servers configured" in every session.
+ */
+seedDevOnlySettings({
+  agent_settings: {
+    enable_sub_agents: true,
+    mcp_config: {
+      sse_servers: [],
+      stdio_servers: [
+        {
+          name: "filesystem",
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+          env: {},
+        },
+      ],
+      shttp_servers: [
+        { url: "https://mcp.example.com/shttp", api_key: null, timeout: 30 },
+      ],
+    },
+  },
+} as never);
 
 /*
  * The V1 conversation handlers are wired in HERE and not into the shared
