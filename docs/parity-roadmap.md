@@ -90,6 +90,42 @@ because they are cheap and customer-visible.
 | 14 | **`/help` and a real built-in command set** | M | We have exactly 3 built-ins (`/new`, `/btw`, `/model`) vs ~20. No `/help` at all |
 | 15 | **Central shortcut registry + `Cmd+K` + `↑` recall** | M | 7 ad-hoc `document` keydown listeners today, no registry, three owners claim Cmd+Enter |
 
+#### Items 20-26, inventoried 2026-08-08 — three are largely built, two unserved
+
+Backend surfaces enumerated per item rather than sized from the frontend.
+
+| # | Backend | Frontend | Real state |
+|---|---|---|---|
+| 20 Artifacts | none | none | genuinely unbuilt |
+| 21 Workspaces | `workspaces_router` (5) | none | backend exists, no UI |
+| 22 Scheduled tasks | none | none | genuinely unbuilt |
+| 23 Memory | see below | `/settings/condenser` | **label promises more than the page does** |
+| 24 Plugin marketplaces | `plugins_router` (8) | none | backend exists, no UI |
+| 25 MCP management | `mcp_router` (4) | `mcp-settings.tsx` | largely built |
+| 26 Side chat | n/a | none | unbuilt, needs no backend |
+
+Also: `skills_router` (9) is served and `skills-settings.tsx` exists.
+
+**#23 IS THE ONE TO LOOK AT, and it is a naming problem rather than a gap.**
+The settings nav maps "Memory" to `/settings/condenser`, and the comment there
+is honest about why: a condenser compacts conversation context so a long
+session survives, which is what memory means to the person using it.
+
+That rename is good for the eleven other items it sits beside. But Claude's
+"Memory" is a different feature — global and per-account memory FILES that the
+user reads, edits and resets. A customer who clicks "Memory" expecting to edit
+what the assistant remembers about them finds a context-compaction setting.
+
+Same shape as "do not call the fork a fork": the label promises state the page
+does not hold. Two ways out, and it should be a deliberate pick —
+either build the editable memory files behind that nav entry, or name the
+current page for what it is. What should not happen is the entry quietly
+staying where it is because it reads well in a sidebar.
+
+**#21 and #24 are the cheapest remaining wins:** both have a live backend and
+no UI at all, which is the inverse of most of this roadmap and the only place
+where a pure frontend estimate would have been RIGHT.
+
 #### Item 16, inventoried 2026-08-08 — the pane is built and the rest is a security decision
 
 **BUILT:** `components/features/preview/preview-panel.tsx` plus
