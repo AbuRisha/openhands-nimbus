@@ -7,6 +7,9 @@ from openhands.app_server.app_conversation import (
 from openhands.app_server.app_conversation.nimbus_memory_router import (
     router as nimbus_memory_router,
 )
+from openhands.app_server.artifacts.artifact_router import (
+    router as artifact_router,
+)
 from openhands.app_server.config_api.config_router import router as config_router
 from openhands.app_server.event import event_router
 from openhands.app_server.event_callback import (
@@ -49,3 +52,4 @@ router.include_router(git_router)
 router.include_router(config_router)
 router.include_router(nimbus_memory_router)
 router.include_router(nimbus_account_router)
+router.include_router(artifact_router)

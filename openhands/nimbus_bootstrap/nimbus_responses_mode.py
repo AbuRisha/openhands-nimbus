@@ -182,7 +182,31 @@ def install_responses_api_override() -> bool:
         from urllib.parse import urlparse
 
         try:
+            # NIMBUS_ONLY is the deployment saying every model goes through our
+            # gateway; there is no other endpoint to reach. That is a stronger
+            # and simpler fact than anything recoverable from the LLM object,
+            # and it is checked FIRST because the base_url on the instance is
+            # not reliably populated in the agent process - the first version of
+            # this patch keyed only on that field, installed correctly
+            # (`respapi:True` in the bootstrap markers) and still changed
+            # nothing, because the endpoint was arriving from the environment
+            # rather than from the field.
+            if os.environ.get('NIMBUS_ONLY', '').strip().lower() in (
+                '1',
+                'true',
+                'yes',
+            ):
+                return False
+
+            # Otherwise fall back to the endpoint actually in effect, resolved
+            # the way litellm resolves it: the field if set, else the
+            # environment.
             base = str(getattr(self, 'base_url', '') or '')
+            if not base:
+                for var in ('LLM_BASE_URL', 'OPENAI_BASE_URL', 'OPENAI_API_BASE'):
+                    base = os.environ.get(var) or ''
+                    if base:
+                        break
             if base:
                 host = (urlparse(base).hostname or '').lower()
                 if host in hosts:
