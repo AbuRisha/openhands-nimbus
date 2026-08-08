@@ -5,13 +5,9 @@ import {
   forkConversation,
   ForkConversationResponse,
 } from "#/api/fork-conversation";
-import {
-  forkErrorKey,
-  shouldWarnAboutHalves,
-} from "#/utils/fork-error-message";
+import { forkErrorKey } from "#/utils/fork-error-message";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import i18n from "#/i18n";
-import { I18nKey } from "#/i18n/declaration";
 
 interface RetryFromHereVariables {
   conversationId: string;
@@ -52,19 +48,40 @@ export const useForkConversation = () => {
       queryClient.invalidateQueries({ queryKey: ["user", "conversations"] });
 
       /*
-       * A 200 that describes a broken outcome. Nothing in the error path fires,
-       * which is exactly why this needs its own check: the agent's memory and
-       * the visible transcript were cut at different points, so the agent will
-       * eventually contradict the transcript sitting above it. Unattributable
-       * later, cheap to say now.
+       * `halves_agree` IS NOT SHOWN TO THE CUSTOMER, and this is deliberate
+       * after shipping the opposite and being wrong.
        *
-       * Not fatal — the conversation exists and is navigable — so this warns
-       * and still navigates.
+       * I originally surfaced `halves_agree === false` as an error toast
+       * reading "do not trust this conversation", reasoning that a 200 can
+       * describe a broken outcome. Another session then ran forks against
+       * production and reported the toast on EVERY SUCCESSFUL FORK. They were
+       * right, and the reason is that the flag compares two counts that are
+       * not comparable:
+       *
+       *   events_in_agent_state  counts FILES copied out of the sandbox's
+       *                          SDK EventLog directory
+       *                          (fork_conversation_state.py:194-200)
+       *   events_in_transcript   counts events yielded by the app server's
+       *                          own mirror, iter_events_for_export
+       *                          (event_service.py:38-41)
+       *
+       * Those are different stores holding different things. There is no
+       * reason for the counts to be equal even when BOTH copies are complete
+       * and correct, so `in_state == in_transcript` is false almost always and
+       * carries no information about whether this particular fork is sound.
+       *
+       * A warning that fires on every success is worse than no warning: it
+       * trains people to dismiss it, so the day it means something nobody
+       * reads it. Removed rather than softened.
+       *
+       * TO MAKE IT MEAN SOMETHING the server has to compare like with like —
+       * either count the same store twice, or resolve the cutoff in both id
+       * spaces and report whether the cutoff was FOUND on each side. The
+       * second is the useful signal, because "the cutoff id did not match any
+       * agent event" is exactly the failure that silently copies full memory
+       * against a truncated transcript. `shouldWarnAboutHalves` is left in
+       * fork-error-message.ts, unused, until that lands.
        */
-      if (shouldWarnAboutHalves(result)) {
-        displayErrorToast(i18n.t(I18nKey.FORK$HALVES_DISAGREE));
-      }
-
       navigate(`/conversations/${result.conversation_id}`);
     },
 
