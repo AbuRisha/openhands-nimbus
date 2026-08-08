@@ -93,7 +93,7 @@ stale DONE costs the whole implementation.
 | 12 | **Session fork + rewind** | **half built** | State-copier merged (13 tests). Transport + endpoint specced, unbuilt. Founder decision pending — and do not call it "fork" in the UI |
 | 13 | **Server-side PTY terminal** | **half done, half blocked upstream** | Read-only agent terminal ships. Interactive shell impossible on this API: no stdin, no TTY, no session. See "Item 13, answered" |
 | 14 | **`/help` + built-in command set** | **DONE** | `0357cd459`. Help reads `BUILT_IN_COMMANDS` at render, so it cannot go stale |
-| 15 | **Shortcut registry + `Cmd+K` + `↑` recall** | **2 of 3 done** | Registry `35e333cdb`, recall `590286ea9`. **Cmd+K is the smallest remaining Tier 1 item** and the registry is its natural consumer |
+| 15 | **Shortcut registry + `Cmd+K` + `↑` recall** | **DONE** | Registry `35e333cdb`, recall `590286ea9`, palette `3c797261a`. Palette actions derive from `useSettingsNavItems`, so they cannot drift from the real nav |
 
 #### Items 20-26, inventoried 2026-08-08 — three are largely built, two unserved
 
