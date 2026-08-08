@@ -351,6 +351,175 @@ class TestProcessSandboxService:
             assert sandbox_info.exposed_urls is None
 
 
+class TestProcessSandboxOwnershipScoping:
+    """`_processes` is a module-global shared by every request in the worker.
+
+    Listing it unfiltered handed each caller every other user's sandbox, and a
+    RUNNING sandbox's ``SandboxInfo`` carries its ``session_api_key`` -- the
+    credential the agent proxy accepts for file and git access into that sandbox.
+    Verified against production 2026-08-08: two freshly-minted sessions owning
+    nothing could both read a third user's sandbox and its key.
+
+    These tests assert on the OWNER of what comes back, not merely on the count,
+    so they still fail if a future filter keeps the right number of the wrong rows.
+    """
+
+    @staticmethod
+    def _running(user_id: str | None, key: str) -> ProcessInfo:
+        return ProcessInfo(
+            pid=1234,
+            port=9000,
+            user_id=user_id,
+            working_dir='/tmp/test',
+            session_api_key=key,
+            created_at=datetime.now(),
+            sandbox_spec_id='test-spec',
+        )
+
+    @pytest.fixture
+    def two_users_processes(self):
+        """One sandbox owned by the caller, one owned by somebody else."""
+        procs = {
+            'mine': self._running('test-user-id', 'my-key'),
+            'theirs': self._running('a-different-user', 'their-key'),
+        }
+        with patch(
+            'openhands.app_server.sandbox.process_sandbox_service._processes', procs
+        ):
+            yield procs
+
+    @pytest.mark.asyncio
+    async def test_search_returns_only_the_callers_sandbox(
+        self, process_sandbox_service, two_users_processes
+    ):
+        # MISSING status keeps _process_to_sandbox_info off the network; ownership
+        # filtering happens before status is ever consulted.
+        with patch('psutil.Process', side_effect=psutil.NoSuchProcess(1234)):
+            page = await process_sandbox_service.search_sandboxes()
+
+        assert [item.id for item in page.items] == ['mine']
+        assert all(item.created_by_user_id == 'test-user-id' for item in page.items)
+
+    @pytest.mark.asyncio
+    async def test_get_sandbox_hides_another_users_sandbox(
+        self, process_sandbox_service, two_users_processes
+    ):
+        with patch('psutil.Process', side_effect=psutil.NoSuchProcess(1234)):
+            mine = await process_sandbox_service.get_sandbox('mine')
+            theirs = await process_sandbox_service.get_sandbox('theirs')
+
+        assert mine is not None
+        # Absent rather than forbidden: callers map None to 404, and a 403 here
+        # would confirm the id exists.
+        assert theirs is None
+
+    @pytest.mark.asyncio
+    async def test_batch_get_nulls_out_another_users_sandbox(
+        self, process_sandbox_service, two_users_processes
+    ):
+        """The batch route fans out to get_sandbox, so it inherits the scoping."""
+        with patch('psutil.Process', side_effect=psutil.NoSuchProcess(1234)):
+            results = await process_sandbox_service.batch_get_sandboxes(
+                ['mine', 'theirs']
+            )
+
+        assert results[0] is not None
+        assert results[1] is None
+
+    @pytest.mark.asyncio
+    async def test_session_api_key_of_another_user_is_never_returned(
+        self, process_sandbox_service
+    ):
+        """The point of the whole fix, asserted on the credential itself.
+
+        A RUNNING sandbox is the only case that populates `session_api_key`, so
+        this is the state that actually leaked -- the earlier tests use MISSING
+        processes and would pass even if RUNNING rows were exempt from filtering.
+        """
+        procs = {'theirs': self._running('a-different-user', 'their-secret-key')}
+        mock_process = MagicMock()
+        mock_process.is_running.return_value = True
+        mock_process.status.return_value = psutil.STATUS_RUNNING
+
+        response = MagicMock()
+        response.status_code = 200
+        process_sandbox_service.httpx_client.get = AsyncMock(return_value=response)
+
+        with (
+            patch(
+                'openhands.app_server.sandbox.process_sandbox_service._processes', procs
+            ),
+            patch('psutil.Process', return_value=mock_process),
+        ):
+            page = await process_sandbox_service.search_sandboxes()
+            direct = await process_sandbox_service.get_sandbox('theirs')
+
+        assert page.items == []
+        assert direct is None
+
+    @pytest.mark.asyncio
+    async def test_session_key_lookup_stays_unscoped(self, process_sandbox_service):
+        """Server-to-server key auth must NOT be user-scoped.
+
+        `validate_session_key` runs with no user context -- the key itself is the
+        credential. Scoping this lookup would break the agent proxy and the
+        in-sandbox secrets endpoints for every user at once, so it is asserted
+        here to stop a later "make it consistent" change from doing that.
+        """
+        procs = {'theirs': self._running('a-different-user', 'their-key')}
+        with (
+            patch(
+                'openhands.app_server.sandbox.process_sandbox_service._processes', procs
+            ),
+            patch('psutil.Process', side_effect=psutil.NoSuchProcess(1234)),
+        ):
+            found = await process_sandbox_service.get_sandbox_by_session_api_key(
+                'their-key'
+            )
+            record = await (
+                process_sandbox_service.get_sandbox_record_by_session_api_key(
+                    'their-key'
+                )
+            )
+
+        assert found is not None and found.id == 'theirs'
+        assert record is not None and record.created_by_user_id == 'a-different-user'
+
+    @pytest.mark.asyncio
+    async def test_single_user_server_still_sees_its_own_sandboxes(
+        self, mock_httpx_client, temp_dir
+    ):
+        """A falsy user id must not be special-cased into "see everything".
+
+        With auth off, both the service and its processes carry ``user_id=None``,
+        so equality matches and the operator still sees their sandboxes -- without
+        reintroducing an `if user_id:` escape hatch that would fail open.
+        """
+        service = ProcessSandboxService(
+            user_id=None,
+            sandbox_spec_service=MockSandboxSpecService(),
+            base_working_dir=temp_dir,
+            base_port=9000,
+            python_executable='python',
+            agent_server_module='openhands.agent_server',
+            health_check_path='/alive',
+            httpx_client=mock_httpx_client,
+        )
+        procs = {
+            'anon': self._running(None, 'anon-key'),
+            'owned': self._running('somebody', 'owned-key'),
+        }
+        with (
+            patch(
+                'openhands.app_server.sandbox.process_sandbox_service._processes', procs
+            ),
+            patch('psutil.Process', side_effect=psutil.NoSuchProcess(1234)),
+        ):
+            page = await service.search_sandboxes()
+
+        assert [item.id for item in page.items] == ['anon']
+
+
 class TestProcessSandboxServiceInjector:
     """Test cases for ProcessSandboxServiceInjector."""
 
