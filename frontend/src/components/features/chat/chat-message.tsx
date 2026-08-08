@@ -13,6 +13,18 @@ interface ChatMessageProps {
     icon: React.ReactNode;
     onClick: () => void;
     tooltip?: string;
+    isDisabled?: boolean;
+    /**
+     * Keep the action bar on screen even when the pointer has left.
+     *
+     * The bar is hover-only, which is right for copy — instant, and clutter
+     * otherwise. It is wrong for anything long-running: branching a
+     * conversation takes tens of seconds, and without this the only evidence
+     * that it is happening disappears the moment the mouse moves. The customer
+     * then has a UI showing nothing while a sandbox boots, which reads as a
+     * dead click and invites a second one.
+     */
+    keepVisible?: boolean;
   }>;
   isFromPlanningAgent?: boolean;
 }
@@ -26,6 +38,8 @@ export function ChatMessage({
 }: React.PropsWithChildren<ChatMessageProps>) {
   const [isHovering, setIsHovering] = React.useState(false);
   const [isCopy, setIsCopy] = React.useState(false);
+
+  const hasPinnedAction = actions?.some((action) => action.keepVisible) ?? false;
 
   const handleCopyToClipboard = async () => {
     await navigator.clipboard.writeText(message);
@@ -64,7 +78,7 @@ export function ChatMessage({
       <div
         className={cn(
           "absolute -top-2.5 -right-2.5",
-          !isHovering ? "hidden" : "flex",
+          !isHovering && !hasPinnedAction ? "hidden" : "flex",
           "items-center gap-1",
         )}
       >
@@ -74,7 +88,13 @@ export function ChatMessage({
               <button
                 type="button"
                 onClick={action.onClick}
-                className="button-base p-1 cursor-pointer"
+                disabled={action.isDisabled}
+                className={cn(
+                  "button-base p-1",
+                  action.isDisabled
+                    ? "cursor-default opacity-60"
+                    : "cursor-pointer",
+                )}
                 aria-label={action.tooltip}
               >
                 {action.icon}
@@ -85,7 +105,13 @@ export function ChatMessage({
               key={index}
               type="button"
               onClick={action.onClick}
-              className="button-base p-1 cursor-pointer"
+              disabled={action.isDisabled}
+              className={cn(
+                "button-base p-1",
+                action.isDisabled
+                  ? "cursor-default opacity-60"
+                  : "cursor-pointer",
+              )}
               aria-label={`Action ${index + 1}`}
             >
               {action.icon}

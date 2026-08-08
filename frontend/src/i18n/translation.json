@@ -30462,5 +30462,22 @@
     "de": "Seite neu laden",
     "uk": "Перезавантажити сторінку",
     "ca": "Torna a carregar la pàgina"
+  },
+  "FORK$RETRYING": {
+    "en": "Retrying… this takes a moment",
+    "ja": "再試行中… 少し時間がかかります",
+    "zh-CN": "正在重试… 需要一点时间",
+    "zh-TW": "正在重試… 需要一點時間",
+    "ko-KR": "다시 시도 중… 잠시 걸립니다",
+    "no": "Prøver på nytt … dette tar et øyeblikk",
+    "ar": "جارٍ إعادة المحاولة… يستغرق ذلك لحظة",
+    "de": "Neuer Versuch … das dauert einen Moment",
+    "fr": "Nouvelle tentative… cela prend un moment",
+    "it": "Nuovo tentativo… richiede un momento",
+    "pt": "A tentar de novo… demora um momento",
+    "es": "Reintentando… tarda un momento",
+    "ca": "Reintentant… triga un moment",
+    "tr": "Yeniden deneniyor… biraz sürer",
+    "uk": "Повторна спроба… це триває якусь мить"
   }
 }

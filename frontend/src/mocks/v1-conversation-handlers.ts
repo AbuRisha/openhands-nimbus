@@ -138,6 +138,40 @@ export const V1_CONVERSATION_HANDLERS = [
     return HttpResponse.json(conversation("1", "New conversation"));
   }),
 
+  /*
+   * Retry-from-here.
+   *
+   * DECLARED BEFORE the generic ":conversationId" POST would be a concern —
+   * MSW matches in registration order and this path is more specific, but the
+   * ordering is stated rather than assumed because a later refactor that moves
+   * it below a wildcard would silently stop matching.
+   *
+   * The delay is deliberately LONG. Against the real server this request holds
+   * until a fresh sandbox is RUNNING and its persistence directory has been
+   * written — tens of seconds. A mock that answers instantly would make the
+   * pending state untestable by hand and would hide exactly the UI problem
+   * this feature has to get right: a control that must stay visible and
+   * disabled while nothing appears to happen.
+   *
+   * `halves_agree: true` here. To exercise the warning path, flip it — the UI
+   * must warn and still navigate.
+   */
+  http.post(
+    "/api/v1/app-conversations/:conversationId/fork",
+    async ({ params }) => {
+      await delay(4000);
+      const forkedId = `forked-${params.conversationId}`;
+      CONVERSATIONS.unshift(conversation(forkedId, "Retried conversation"));
+      return HttpResponse.json({
+        conversation_id: forkedId,
+        sandbox_id: "mock-sandbox",
+        events_in_agent_state: 6,
+        events_in_transcript: 6,
+        halves_agree: true,
+      });
+    },
+  ),
+
   // Sandbox specs: unmocked, this 500s and takes the settings screens with it.
   http.get("/api/v1/sandbox-specs/search", async () => {
     await delay();
