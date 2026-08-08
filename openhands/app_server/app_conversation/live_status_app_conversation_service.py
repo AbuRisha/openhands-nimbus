@@ -254,9 +254,20 @@ def _add_nimbus_extra_tools(tools: list) -> list:
             # Same PYTHONPATH constraint, same gate: these live in
             # nimbus_bootstrap and a stock agent-server image has never
             # heard of them.
-            'browser_read_page',
-            'browser_navigate',
-            'browser_list_tabs',
+            # PAIRED_ prefix, not the bare names. The SDK ships its own
+            # browser_use toolset whose tools are titled `browser_navigate` and
+            # `browser_list_tabs` (tools/browser_use/definition.py:186,494), and
+            # reusing those names put two tools with one name in front of the
+            # agent — which the SDK refuses with "Duplicate tool names found",
+            # blocking every message send rather than degrading.
+            #
+            # They are also genuinely different tools and the model must not
+            # confuse them: the SDK's drive a sandboxed headless browser, these
+            # drive the CUSTOMER'S OWN Chrome over the extension bridge. The
+            # prefix matches the "Paired browsers" panel in settings.
+            'paired_browser_read_page',
+            'paired_browser_navigate',
+            'paired_browser_list_tabs',
         ]
     else:
         _logger.info(
