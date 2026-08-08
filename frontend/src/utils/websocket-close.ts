@@ -59,6 +59,38 @@ export const DEFAULT_RECONNECT_BASE_DELAY_MS = 1000;
 /** Ceiling for the doubling, so attempt 20 does not schedule itself for next week. */
 export const DEFAULT_RECONNECT_MAX_DELAY_MS = 30000;
 
+/**
+ * Attempts allowed when the socket has NEVER opened.
+ *
+ * A never-opened close is a REFUSED HANDSHAKE, and the browser reports it as
+ * 1006 — the same code as a yanked cable — because a handshake that never
+ * completed has no closing frame to carry the server's real code. So a close
+ * code cannot classify this case and the never-opened fact has to.
+ *
+ * This is a BACKSTOP, deliberately narrow. `proxy_events_socket` now closes
+ * after accepting, so its rejections arrive as a real 1008 and never reach
+ * here. What still lands here is what that fix cannot reach: a websocket path
+ * matching no route (it falls to the SPA `StaticFiles` mount, whose `__call__`
+ * opens `assert scope["type"] == "http"`), and any 403 from in front of the app
+ * server. Both are unactionable by waiting, and both are exactly the case where
+ * a reload prompt is the only useful thing to show.
+ *
+ * Do not widen this into a general "never opened means give up" rule — an
+ * established connection that drops gets the full budget, because that one
+ * genuinely recovers.
+ */
+export const HANDSHAKE_MAX_ATTEMPTS = 3;
+
+/**
+ * First backoff step for a socket that has never opened.
+ *
+ * Slower than the general 1s, and fewer attempts: three tries at 3s/6s/12s
+ * spans ~21s, which covers a sandbox still coming up. The general base is
+ * tuned for a blip on a live connection, where the first retry is usually
+ * free; applying it here would call a cold start dead in seven seconds.
+ */
+export const HANDSHAKE_BASE_DELAY_MS = 3000;
+
 export interface ReconnectDelayOptions {
   baseDelayMs?: number;
   maxDelayMs?: number;

@@ -15,7 +15,11 @@
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useWebSocket } from "#/hooks/use-websocket";
-import { DEFAULT_MAX_RECONNECT_ATTEMPTS } from "#/utils/websocket-close";
+import {
+  DEFAULT_MAX_RECONNECT_ATTEMPTS,
+  HANDSHAKE_MAX_ATTEMPTS,
+  HANDSHAKE_BASE_DELAY_MS,
+} from "#/utils/websocket-close";
 
 class FakeWebSocket {
   static readonly CONNECTING = 0;
@@ -79,6 +83,20 @@ const closeAndAdvance = async (code: number, ms: number, reason = "") => {
   });
   await act(async () => {
     vi.advanceTimersByTime(ms);
+  });
+};
+
+/**
+ * Complete the handshake.
+ *
+ * Load-bearing in every "had opened" test below: a socket that never opened
+ * takes the refused-handshake path, which is a DIFFERENT budget and a
+ * different terminal state. Tests that skip this are testing the backstop
+ * while appearing to test reconnection.
+ */
+const open = async () => {
+  await act(async () => {
+    FakeWebSocket.latest.open();
   });
 };
 
@@ -185,9 +203,10 @@ describe("useWebSocket reconnection", () => {
     });
   });
 
-  describe("a transient close", () => {
+  describe("a transient close on a connection that HAD opened", () => {
     it("retries on an exponential backoff", async () => {
       renderHook(() => useWebSocket(URL, { reconnect: { enabled: true } }));
+      await open();
 
       // 1s, 2s, 4s, 8s — asserted a millisecond either side of each step, so a
       // regression to the old flat 3s fails rather than merely running slower.
@@ -211,6 +230,7 @@ describe("useWebSocket reconnection", () => {
       const { result } = renderHook(() =>
         useWebSocket(URL, { reconnect: { enabled: true } }),
       );
+      await open();
 
       // Enough clock for every step, including the 30s ceiling.
       for (let i = 0; i < DEFAULT_MAX_RECONNECT_ATTEMPTS; i += 1) {
@@ -238,6 +258,7 @@ describe("useWebSocket reconnection", () => {
       renderHook(() =>
         useWebSocket(URL, { reconnect: { enabled: true, maxAttempts: 2 } }),
       );
+      await open();
 
       for (let i = 0; i < 5; i += 1) {
         // eslint-disable-next-line no-await-in-loop
@@ -253,13 +274,12 @@ describe("useWebSocket reconnection", () => {
       renderHook(() =>
         useWebSocket(URL, { reconnect: { enabled: true, maxAttempts: 2 } }),
       );
+      await open();
 
       await closeAndAdvance(1006, 60_000, "Connection failed");
       expect(FakeWebSocket.instances).toHaveLength(2);
 
-      await act(async () => {
-        FakeWebSocket.latest.open();
-      });
+      await open();
 
       for (let i = 0; i < 3; i += 1) {
         // eslint-disable-next-line no-await-in-loop
@@ -274,15 +294,14 @@ describe("useWebSocket reconnection", () => {
       const { result } = renderHook(() =>
         useWebSocket(URL, { reconnect: { enabled: true, maxAttempts: 1 } }),
       );
+      await open();
 
       await closeAndAdvance(1006, 60_000, "Connection failed");
       await closeAndAdvance(1006, 60_000, "Connection failed");
       expect(result.current.failureReason).toBe("unreachable");
 
       // A later render with a live socket must not keep showing the failure.
-      await act(async () => {
-        FakeWebSocket.latest.open();
-      });
+      await open();
 
       expect(result.current.failureReason).toBe(null);
       expect(result.current.isConnected).toBe(true);
@@ -296,6 +315,97 @@ describe("useWebSocket reconnection", () => {
       expect(FakeWebSocket.instances).toHaveLength(1);
       // Nothing was going to retry, so there is no budget to have exhausted.
       expect(result.current.failureReason).toBe(null);
+    });
+  });
+
+  describe("a handshake that never opened", () => {
+    /**
+     * The backstop for what the server fix cannot reach.
+     *
+     * `proxy_events_socket` now closes AFTER accepting, so its rejections
+     * arrive as a real 1008 and never land here. What still lands here: a
+     * websocket path matching no route (it falls through to the SPA
+     * StaticFiles mount, whose __call__ asserts an http scope), and any 403
+     * from in front of the app server. Both reach the browser as 1006, which
+     * carries no information, so the never-opened fact is the only signal.
+     */
+    it("stops after the handshake budget, not the full one", async () => {
+      renderHook(() => useWebSocket(URL, { reconnect: { enabled: true } }));
+
+      for (let i = 0; i < 6; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await closeAndAdvance(1006, 600_000, "Connection failed");
+      }
+
+      expect(FakeWebSocket.instances).toHaveLength(HANDSHAKE_MAX_ATTEMPTS + 1);
+      expect(HANDSHAKE_MAX_ATTEMPTS).toBeLessThan(
+        DEFAULT_MAX_RECONNECT_ATTEMPTS,
+      );
+    });
+
+    it("surfaces the reload prompt rather than failing silently", async () => {
+      // The whole point. Six silent attempts and no banner is what the
+      // reconciliation left behind when the heuristic was dropped.
+      const onPermanentClose = vi.fn();
+      const { result } = renderHook(() =>
+        useWebSocket(URL, { reconnect: { enabled: true }, onPermanentClose }),
+      );
+
+      for (let i = 0; i < 4; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await closeAndAdvance(1006, 600_000, "Connection failed");
+      }
+
+      expect(result.current.isSessionExpired).toBe(true);
+      expect(onPermanentClose).toHaveBeenCalledOnce();
+    });
+
+    it("waits longer between tries than an established connection would", async () => {
+      // 3s/6s/12s, not 1s/2s/4s. A cold sandbox must not be called dead in
+      // seven seconds.
+      renderHook(() => useWebSocket(URL, { reconnect: { enabled: true } }));
+
+      await closeAndAdvance(1006, HANDSHAKE_BASE_DELAY_MS - 1);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(FakeWebSocket.instances).toHaveLength(2);
+    });
+
+    it("does not fire until the budget is actually spent", async () => {
+      // A single failed attempt is not evidence of anything.
+      const { result } = renderHook(() =>
+        useWebSocket(URL, { reconnect: { enabled: true } }),
+      );
+
+      await closeAndAdvance(1006, 600_000, "Connection failed");
+
+      expect(result.current.isSessionExpired).toBe(false);
+      expect(result.current.isReconnecting).toBe(true);
+    });
+
+    it("hands the budget back once the socket finally opens", async () => {
+      // A slow start must not leave a permanently shortened budget behind.
+      const { result } = renderHook(() =>
+        useWebSocket(URL, { reconnect: { enabled: true } }),
+      );
+
+      await closeAndAdvance(1006, 600_000, "Connection failed");
+      await open();
+
+      for (let i = 0; i < DEFAULT_MAX_RECONNECT_ATTEMPTS; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await closeAndAdvance(1006, 600_000, "Connection failed");
+      }
+
+      // Full budget, and the established-connection terminal state.
+      expect(FakeWebSocket.instances).toHaveLength(
+        DEFAULT_MAX_RECONNECT_ATTEMPTS + 2,
+      );
+      await closeAndAdvance(1006, 600_000, "Connection failed");
+      expect(result.current.failureReason).toBe("unreachable");
     });
   });
 

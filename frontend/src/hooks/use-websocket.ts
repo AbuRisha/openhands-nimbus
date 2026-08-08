@@ -4,6 +4,8 @@ import {
   describeCloseEvent,
   getReconnectDelayMs,
   DEFAULT_MAX_RECONNECT_ATTEMPTS,
+  HANDSHAKE_MAX_ATTEMPTS,
+  HANDSHAKE_BASE_DELAY_MS,
 } from "#/utils/websocket-close";
 
 /**
@@ -50,6 +52,13 @@ export const useWebSocket = <T = string>(
     React.useState<WebSocketFailureReason | null>(null);
   const wsRef = React.useRef<WebSocket | null>(null);
   const attemptCountRef = React.useRef(0);
+  /**
+   * Did the CURRENT run of attempts ever reach `onopen`?
+   *
+   * The only thing that separates a refused handshake from a dropped network:
+   * both arrive as 1006. See HANDSHAKE_MAX_ATTEMPTS.
+   */
+  const everOpenedRef = React.useRef(false);
   const reconnectTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const shouldReconnectRef = React.useRef(true); // Only set to false by disconnect()
   // Track which WebSocket instances are allowed to reconnect using a WeakSet
@@ -89,6 +98,7 @@ export const useWebSocket = <T = string>(
       setIsReconnecting(false);
       setFailureReason(null);
       attemptCountRef.current = 0; // Reset attempt count on successful connection
+      everOpenedRef.current = true;
       optionsRef.current?.onOpen?.(event);
     };
 
@@ -138,8 +148,20 @@ export const useWebSocket = <T = string>(
         (reconnectConfig?.enabled ?? false) &&
         canReconnect &&
         shouldReconnectRef.current;
-      const maxAttempts =
+
+      // A socket that never opened was REFUSED, not interrupted — and the
+      // refusal cannot say so, because a handshake that never completed
+      // reaches the browser as 1006. Fewer attempts, spaced further apart.
+      const neverOpened = !everOpenedRef.current;
+      const configuredMax =
         reconnectConfig?.maxAttempts ?? DEFAULT_MAX_RECONNECT_ATTEMPTS;
+      const maxAttempts = neverOpened
+        ? Math.min(configuredMax, HANDSHAKE_MAX_ATTEMPTS)
+        : configuredMax;
+      const delayConfig =
+        neverOpened && reconnectConfig?.baseDelayMs === undefined
+          ? { ...reconnectConfig, baseDelayMs: HANDSHAKE_BASE_DELAY_MS }
+          : reconnectConfig;
 
       if (wantsReconnect && attemptCountRef.current < maxAttempts) {
         setIsReconnecting(true);
@@ -149,7 +171,7 @@ export const useWebSocket = <T = string>(
           () => {
             connectWebSocket();
           },
-          getReconnectDelayMs(attemptCountRef.current, reconnectConfig),
+          getReconnectDelayMs(attemptCountRef.current, delayConfig),
         );
         return;
       }
@@ -157,7 +179,15 @@ export const useWebSocket = <T = string>(
       setIsReconnecting(false);
       if (wantsReconnect) {
         // Wanted to retry, had no attempts left.
-        setFailureReason("unreachable");
+        if (neverOpened) {
+          // Nothing here can be fixed by waiting: no route, or something in
+          // front refusing the upgrade. Same terminal state as a real 1008,
+          // because the only useful action is the same one — reload.
+          setFailureReason("session-expired");
+          optionsRef.current?.onPermanentClose?.(event);
+        } else {
+          setFailureReason("unreachable");
+        }
       }
     };
 
@@ -171,6 +201,7 @@ export const useWebSocket = <T = string>(
     // Reset shouldReconnect flag and attempt count when creating a new connection
     shouldReconnectRef.current = true;
     attemptCountRef.current = 0;
+    everOpenedRef.current = false;
     setFailureReason(null);
 
     // Only attempt connection if we have a valid URL
