@@ -78,3 +78,56 @@ isolation that does not isolate.
 
 Nine tables and zero policies is a fact with a date on it. The command is above;
 it takes seconds.
+
+
+---
+
+# A falsy user id is not always a bug — read what it MEANS first
+
+Recorded because two of us nearly "fixed" the same guard in opposite directions
+on the same afternoon.
+
+`ProcessSandboxService` needed an ownership check and got one that compares by
+EQUALITY (`process_info.user_id == self.user_id`), because there a falsy id must
+not disable the filter. That is right *for that service*.
+
+`remote_sandbox_service._secure_select` uses `if user_id:` and looks like the
+same bug with the failure mode inverted. **It is not a bug and must not be
+"made consistent".**
+
+    ADMIN = SpecifyUserContext(user_id=None)     # specifiy_user_context.py:67
+
+`None` is the ADMIN SENTINEL, not a failure to identify the caller, and the
+remote service sets it deliberately (`remote_sandbox_service.py:901, 991`) for a
+background job that lists every running sandbox. Always applying the WHERE would
+scope that job to `created_by_user_id IS NULL` and silently return nothing.
+
+The guard resolves to three cases, all correct:
+
+| caller | user_id | result |
+|---|---|---|
+| admin background job | `None` (sentinel) | unscoped — intended |
+| OSS single-user | `None` (`auth_user_context.py:39`) | unscoped — there is one user |
+| multi-tenant authenticated | set | scoped |
+
+Residual risk is narrow and worth a note rather than a patch: a multi-tenant
+deployment that ever produced an authenticated user with a `None` id would show
+that user everything. The comment says that happens only in OSS mode.
+
+**The rule: enumerate what the value MEANS before gating on it.** "Make this
+consistent with the other implementation" is how a working admin path becomes an
+outage — the same trap as the `*_by_session_api_key` lookups, which authenticate
+by the key itself and have no user context to compare against.
+
+## The process-service fix also closed a second bug
+
+Worth knowing because it was not the point of the change. `SandboxService`'s
+pause-oldest cleanup iterates `search_sandboxes` and its own docstring says *"In
+a multi user environment, this will pause sandboxes only for the current
+user."* With the listing unscoped, that was false — the cleanup could pause
+ANOTHER user's running sandbox. Scoping the listing made the code match its
+docstring.
+
+`live_status_app_conversation_service.py:1055` was already filtering
+`created_by_user_id == user_id` client-side, so it is unaffected and now
+filtered on both sides.
