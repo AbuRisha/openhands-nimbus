@@ -107,7 +107,7 @@ Backend surfaces enumerated per item rather than sized from the frontend.
 | 23 Memory | see below | `/settings/condenser` | **label promises more than the page does** |
 | 24 Plugin marketplaces | `skills_router` | `skills-settings.tsx` | **ALREADY BUILT** |
 | 25 MCP management | `mcp_router` (4) | `mcp-settings.tsx` | largely built |
-| 26 Side chat | n/a | none | unbuilt, needs no backend |
+| 26 Side chat | `ask_agent` (stateless) | `/btw` + btw-store | **one-shot BUILT; continuity is the gap** — see below |
 
 **CORRECTED 2026-08-08. Both items this table called "shovel-ready" were wrong,
 and the error was mine in both directions.**
@@ -232,6 +232,39 @@ merge have no endpoint on either server. Those are per-provider REST calls that
 would live in `integrations/{github,gitlab,bitbucket,azure_devops}`, so #18 is
 FOUR implementations, not one — which is the part that makes L optimistic
 rather than the method count.
+
+#### Item 26, inventoried 2026-08-08 — the one-shot exists; a THREAD does not
+
+**BUILT:** `/btw <question>` routes through `askV1Agent` -> the SDK's
+`ask_agent`, with `btw-store` holding pending/resolved answers and
+`BtwMessages` rendering them inline. That is the core of a side chat: ask
+something without derailing the main task.
+
+**THE GAP IS CONTINUITY, and it is a backend property rather than a missing
+component.** `ask_agent`'s own docstring (sdk/conversation/base.py:334) is
+explicit:
+
+    "a simple, STATELESS question ... does not modify, persist, or become part
+     of the conversation state. The request is not remembered by the main
+     agent, no events are recorded"
+
+So every `/btw` is independent. There is no follow-up, because there is nothing
+for a follow-up to attach to. A side chat in the Claude sense is a THREAD —
+you ask, read, and ask again about the answer.
+
+**Two ways forward, and they are not equivalent:**
+
+  1. Approximate it — keep the Q&A locally and re-send prior turns inside the
+     next question. Works today with no backend change. Costs tokens linearly,
+     and drifts, because the agent is not actually remembering; it is being
+     re-told. Honest only if the UI does not promise a conversation.
+  2. Give it real state — a genuine sub-conversation. That is `TaskToolSet` /
+     sub-agent territory, not `ask_agent`, and is a backend piece.
+
+**Do not label option 1 a side chat.** Same rule as the fork: a name that
+promises state the thing does not hold gets discovered by the user, at the
+point they rely on it. "Ask a one-off question" is what `/btw` does and what it
+should keep being called until option 2 exists.
 
 #### Item 11, inventoried 2026-08-08 — the backend is done and the browser can already reach it
 
