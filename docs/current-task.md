@@ -62,10 +62,10 @@ is a flag. All four violations are fixed — 9 eslint + 1 a11y in the panel, myp
    - **#26 side-chat continuity** — one-shot `ask_agent` is built; continuity
      needs real sub-conversation state.
 
-Then **P13 — live preview tab**, fully designed against this codebase (P13 task
-and roadmap §7). Phase 1 is a ~150-line sibling of
-`sandbox/agent_proxy_router.py`, which already solves HTTP+WS proxying into the
-sandbox.
+~~Then **P13 — live preview tab**~~ — BUILT, see the audit note below. What
+remains of #16 is the INTROSPECTION half (reading console/network out of the
+iframe), which is a security tradeoff awaiting a founder decision, not a build
+task.
 
 ## Where the two lanes stand (2026-08-06, late)
 
@@ -73,22 +73,31 @@ Isolation is real: the other session moved to a worktree.
   openhands-nimbus       [land/auth-gates]       <- this lane
   openhands-lane-queue   [lane/queued-messages]  <- theirs
 
+> **ALL THREE CLAIMS BELOW ARE STALE — audited 2026-08-08.** Every "unclaimed"
+> or "not built" item in this section is now built and on the branch. Struck
+> through rather than deleted so the old status is still legible, but do NOT
+> pick work from here: use "Next three actions" at the top.
+
 **Mine, landed:** P17 (all four violation classes, hooks passing).
-**Mine, landed:** P15 CORE only — `src/utils/refusal-failover.ts`, 14 tests
+~~**Mine, landed:** P15 CORE only — `src/utils/refusal-failover.ts`, 14 tests
 (`596116e25`). Pure decision logic. The UI is NOT built: the three-option
 prompt, the 300s self-answer, and the post-turn restore wiring are all still to
-do. Do not describe P15 as done.
+do. Do not describe P15 as done.~~
+**P15 IS DONE**, and this paragraph contradicted the corrected entry at the top
+of the file until 2026-08-08. Mounted at `chat-interface.tsx:41-43, :203, :211,
+:513`; the five `refusal-*` testids render in a live browser.
 
-**Mine, unclaimed and ready:** P13 Phase 1 FRONTEND. Their backend is landed and
-tested — preview proxy (`ba9708c85`) and `GET /preview/{id}/ports`
-(`b44494b49`). Build the tab, an iframe with `sandbox="allow-scripts
-allow-forms"` and deliberately NO `allow-same-origin` so agent-written JS gets
-an opaque origin, and a port picker fed by that endpoint. Design in
-`docs/parity-roadmap.md` §7.
+~~**Mine, unclaimed and ready:** P13 Phase 1 FRONTEND.~~ **P13 IS BUILT.**
+`components/features/preview/preview-panel.tsx` exists and its iframe carries
+`sandbox="allow-scripts allow-forms"` at :152 with NO `allow-same-origin` — the
+property this entry asked for, with the reasoning in its own docstring at :19.
+The tab is reachable (`conversation-tab-preview` is in the DOM). Backend
+`GET /preview/{id}/ports` (`b44494b49`) is wired.
 
-**Mine, unclaimed:** P11 FRONTEND. Their backend is on `lane/queued-messages`
-(`ee7cc2df6`), one commit ahead of this branch and NOT yet merged — merging it
-is this lane's call. Two contracts to honour when building against it:
+~~**Mine, unclaimed:** P11 FRONTEND.~~ **P11 IS BUILT** except reorder/promote.
+`use-pending-messages.ts` queries the collection and `pending-messages.tsx`
+renders each entry with its own cancel. The contracts below WERE honoured —
+keeping them because they are the reasoning, not a task list:
   - Cancel is scoped to conversation AND message id, always both. Matching on
     the id alone would let anyone holding one cancel a message in someone
     else's conversation.
