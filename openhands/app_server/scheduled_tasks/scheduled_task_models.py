@@ -11,6 +11,35 @@ validated completely and neither of which can express "constantly".
 Cron can be added later behind the same `next_due_at` interface without moving
 anything else.
 
+WHAT IS NOT BUILT, AND THE DECISION IT NEEDS FIRST
+--------------------------------------------------
+There is no runner. Nothing here fires, and NO UI SHIPS UNTIL ONE DOES — a
+schedule a customer can create and that silently never runs is worse than the
+absence of the feature.
+
+Enumeration is solved: `FileStore.list()` exists (sdk/io/base.py:37), so the
+scheduler can walk `users/` and read each `scheduled_tasks.json`.
+
+The blocker is IDENTITY, and it is a security decision rather than plumbing.
+`AppConversationService` requires a `UserContext`
+(app_conversation_service_base.py:98) and calls `get_user_info()` on it; today
+that is constructed from a request's session cookie. A scheduler has no
+request. So firing a task means giving background code a way to ACT AS A
+CUSTOMER — starting conversations and spending their credit — with no
+authenticated caller anywhere in the chain.
+
+That is the same shape as the /mcp finding on this codebase: an identity
+derived from something that carries none, which resolved to a real, shared
+bucket. It should be decided deliberately rather than invented, and the
+question to answer is narrow:
+
+    what constructs a UserContext for a user id with no request, what bounds
+    it, and what stops a bug in the scheduler from spending the wrong
+    customer's money?
+
+Until that is answered, this module is a validated data model with a store and
+nothing that runs.
+
 WHY THE HISTORY IS BOUNDED AND STORED WITH THE TASK
 ---------------------------------------------------
 "Did last night's run work?" is the only question a schedule owner actually
