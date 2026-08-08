@@ -51,10 +51,11 @@ is a flag. All four violations are fixed — 9 eslint + 1 a11y in the panel, myp
    still unbuilt and still blocked on the same missing ordering column.
 
 **NEXT, and these are actually open** (see docs/parity-roadmap.md for evidence):
-   - **#20 print-to-PDF** — the one remaining piece of artifacts that is purely
-     additive. Share/auto-publish is NOT next: it needs a decision on whether
-     version history travels with a shared link, and history is the part that
-     leaks.
+   - ~~**#20 print-to-PDF**~~ **DONE 2026-08-08** (`6f9cbbe76`). window.print()
+     plus an @media print stylesheet, no PDF library. #20's only remaining
+     piece is share/auto-publish, which is NOT a build task: it needs a
+     decision on whether version history travels with a shared link, and
+     history is the part that leaks.
    - **#22 scheduled-tasks runner** — model and store exist with 21 tests, and
      no runner. Blocked on ONE security decision, not on plumbing: a scheduler
      has no request, so firing a task means letting background code act as a
