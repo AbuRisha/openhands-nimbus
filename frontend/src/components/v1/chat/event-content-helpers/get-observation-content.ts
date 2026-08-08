@@ -1,6 +1,7 @@
 import { ObservationEvent } from "#/types/v1/core";
+import { buildUnifiedDiff } from "#/utils/unified-diff";
 import { getObservationResult } from "./get-observation-result";
-import { getDefaultEventContent, MAX_CONTENT_LENGTH } from "./shared";
+import { getDefaultEventContent, truncateForDisplay } from "./shared";
 import i18n from "#/i18n";
 import {
   MCPToolObservation,
@@ -37,15 +38,36 @@ const getFileEditorObservationContent = (
 
   const successMessage = getObservationResult(event) === "success";
 
-  // For view commands or successful edits with content changes, format as code block
-  if (
-    (successMessage &&
-      "old_content" in observation &&
-      "new_content" in observation &&
-      observation.old_content &&
-      observation.new_content) ||
-    observation.command === "view"
-  ) {
+  const hasBeforeAndAfter =
+    "old_content" in observation &&
+    "new_content" in observation &&
+    typeof observation.old_content === "string" &&
+    typeof observation.new_content === "string";
+
+  // An EDIT renders as a diff, because "what changed" is the only question a
+  // reader has. This used to print the entire new file in an untagged code
+  // block, so a two-line change to a four-hundred-line file printed four
+  // hundred lines to hide it — technically the truth, and useless for the one
+  // thing the transcript exists to support: reviewing the agent's work.
+  //
+  // ```diff is coloured by Prism through the existing markdown code renderer,
+  // so this needs no new rendering path and no new dependency.
+  if (successMessage && hasBeforeAndAfter) {
+    const diff = buildUnifiedDiff(
+      observation.old_content as string,
+      observation.new_content as string,
+      { path: observation.path },
+    );
+    // null means the file is byte-identical. Saying so beats rendering an
+    // empty diff block, which looks like a failure.
+    if (diff === null) {
+      return "_No changes — the file already matched._";
+    }
+    return `\`\`\`diff\n${diff}\n\`\`\``;
+  }
+
+  // A VIEW is not a change; show the file as it is.
+  if (observation.command === "view") {
     // Prefer content over output for view commands, fallback to output if content is not available
     const displayContent = textContent || observation.output;
     return `\`\`\`\n${displayContent}\n\`\`\``;
@@ -69,9 +91,7 @@ const getTerminalObservationContent = (
 
   let content = textContent || "";
 
-  if (content.length > MAX_CONTENT_LENGTH) {
-    content = `${content.slice(0, MAX_CONTENT_LENGTH)}...`;
-  }
+  content = truncateForDisplay(content);
 
   // Build the output string
   let output = "";
@@ -112,9 +132,7 @@ const getBrowserObservationContent = (
     contentDetails += "Browser action completed successfully.";
   }
 
-  if (contentDetails.length > MAX_CONTENT_LENGTH) {
-    contentDetails = `${contentDetails.slice(0, MAX_CONTENT_LENGTH)}...(truncated)`;
-  }
+  contentDetails = truncateForDisplay(contentDetails);
 
   return contentDetails;
 };
@@ -138,9 +156,7 @@ const getMCPToolObservationContent = (
     content += `**Result:**\n${textContent}`;
   }
 
-  if (content.length > MAX_CONTENT_LENGTH) {
-    content = `${content.slice(0, MAX_CONTENT_LENGTH)}...`;
-  }
+  content = truncateForDisplay(content);
 
   return content;
 };
@@ -247,9 +263,7 @@ const getGlobObservationContent = (
     content += observation.files.map((f) => `- \`${f}\``).join("\n");
   }
 
-  if (content.length > MAX_CONTENT_LENGTH) {
-    content = `${content.slice(0, MAX_CONTENT_LENGTH)}...(truncated)`;
-  }
+  content = truncateForDisplay(content);
 
   return content;
 };
@@ -282,9 +296,7 @@ const getGrepObservationContent = (
     content += observation.matches.map((f) => `- \`${f}\``).join("\n");
   }
 
-  if (content.length > MAX_CONTENT_LENGTH) {
-    content = `${content.slice(0, MAX_CONTENT_LENGTH)}...(truncated)`;
-  }
+  content = truncateForDisplay(content);
 
   return content;
 };

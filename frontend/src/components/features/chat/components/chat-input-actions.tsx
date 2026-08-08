@@ -6,10 +6,9 @@ import { useV1PauseConversation } from "#/hooks/mutation/use-v1-pause-conversati
 import { useV1ResumeConversation } from "#/hooks/mutation/use-v1-resume-conversation";
 import { ChangeAgentButton } from "../change-agent-button";
 import { SwitchAcpModelButton } from "../switch-acp-model-button";
-import { SwitchProfileButton } from "../switch-profile-button";
-import { EffortSliderButton } from "../effort-slider-popover";
 import { ContextUsageRing } from "../context-usage-ring";
 import { VoiceInputButton } from "../voice-input-button";
+import { ComposerModelChip } from "./composer-model-chip";
 
 interface ChatInputActionsProps {
   disabled: boolean;
@@ -37,13 +36,16 @@ export function ChatInputActions({ disabled }: ChatInputActionsProps) {
 
   return (
     <div className="w-full flex items-center justify-between">
+      {/* Four controls, not six. Model and effort share one pill because they
+          are one decision (see ComposerModelChip); the ACP model button is
+          mutually exclusive with that chip — each hides itself for the
+          conversation kind the other serves — so only one is ever visible. */}
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-4">
           <Tools />
           <ChangeAgentButton />
-          <SwitchProfileButton />
+          <ComposerModelChip />
           <SwitchAcpModelButton />
-          <EffortSliderButton />
           <VoiceInputButton disabled={disabled} />
         </div>
       </div>

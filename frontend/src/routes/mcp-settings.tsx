@@ -12,6 +12,7 @@ import { I18nKey } from "#/i18n/declaration";
 import { MCPServerList } from "#/components/features/settings/mcp-settings/mcp-server-list";
 import { MCPServerForm } from "#/components/features/settings/mcp-settings/mcp-server-form";
 import { KeyStatusIcon } from "#/components/features/settings/key-status-icon";
+import { PairedBrowsers } from "#/components/features/settings/paired-browsers";
 import { SettingsInput } from "#/components/features/settings/settings-input";
 import { ConfirmationModal } from "#/components/shared/modals/confirmation-modal";
 import { BrandButton } from "#/components/features/settings/brand-button";
@@ -278,6 +279,14 @@ function MCPSettingsScreen() {
           </div>
         </section>
       ) : null}
+
+      {/* The Nimbus browser extension. It lives under Extensions rather than
+          Connectors because that is what it is — a browser extension the user
+          installs — and because a paired Chrome is not a credential-bearing
+          third-party connector like the git providers next door. */}
+      <div className="border-t border-tertiary pt-8">
+        <PairedBrowsers />
+      </div>
 
       {confirmationModalIsVisible && serverToDelete && (
         <ConfirmationModal

@@ -35,7 +35,19 @@ import { getStatusColor, getStatusText } from "#/utils/utils";
 import { useNewConversationCommand } from "#/hooks/mutation/use-new-conversation-command";
 import { I18nKey } from "#/i18n/declaration";
 import { ArchivedBanner } from "./archived-banner";
+import { PendingMessages } from "./pending-messages";
+import { RefusalPrompt } from "./refusal-prompt";
+import { useRefusalFailover } from "#/hooks/chat/use-refusal-failover";
+import { useApplyRefusalChoice } from "#/hooks/chat/use-apply-refusal-choice";
+import { useLlmProfiles } from "#/hooks/query/use-llm-profiles";
+import { useSwitchLlmProfileAndLog } from "#/hooks/mutation/use-switch-llm-profile-and-log";
+import { useActiveConversation } from "#/hooks/query/use-active-conversation";
+import { useResumeThenSend } from "#/hooks/use-resume-then-send";
 import { useModelStore } from "#/stores/model-store";
+import { useShortcut } from "#/hooks/use-shortcut";
+import { ShortcutLayer } from "#/utils/shortcut-registry";
+import { useFindInConversation } from "#/hooks/chat/use-find-in-conversation";
+import { FindInConversation } from "./find-in-conversation";
 
 export function ChatInterface() {
   const { setMessageToSend } = useConversationStore();
@@ -77,32 +89,165 @@ export function ChatInterface() {
     curAgentState === AgentState.RUNNING ||
     curAgentState === AgentState.LOADING;
 
-  // Global keyboard shortcut for Build button (Cmd+Enter / Ctrl+Enter)
-  // This is placed here instead of PlanPreview to avoid duplicate listeners
-  // when multiple PlanPreview components exist in the chat
-  React.useEffect(() => {
-    if (isAgentRunning) {
-      return undefined;
-    }
+  // Build button (Cmd+Enter / Ctrl+Enter), at COMPOSER priority.
+  //
+  // It sits here rather than in PlanPreview because several PlanPreviews can be
+  // in the transcript at once and each would bind its own listener. The
+  // registry makes that hoist unnecessary — duplicate registrations of one
+  // chord resolve to a single winner — but there is still no reason for N
+  // registrations where one will do, so it stays.
+  //
+  // CONFIRMATION outranks COMPOSER, which is the fix for a real collision: this
+  // effect is gated on `isAgentRunning`, which covers only RUNNING and LOADING.
+  // AWAITING_USER_CONFIRMATION is neither, so while the agent waited for
+  // approval both this and the confirmation buttons were listening, and one
+  // Cmd+Enter approved a tool call AND started a plan build. The old
+  // `stopPropagation()` here never prevented that: both listeners were on
+  // `document`, and stopPropagation does not stop siblings on the same node.
+  useShortcut(
+    { key: "Enter", mod: true },
+    (event) => {
+      handleBuildPlanClick(event);
+      scrollDomToBottom();
+    },
+    { priority: ShortcutLayer.COMPOSER, when: () => !isAgentRunning },
+  );
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Check for Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux)
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        event.preventDefault();
-        event.stopPropagation();
-        handleBuildPlanClick(event);
-        scrollDomToBottom();
-      }
-    };
+  const find = useFindInConversation(scrollRef, [v1FullEvents]);
 
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isAgentRunning, handleBuildPlanClick, scrollDomToBottom]);
+  // Cmd/Ctrl+F. This one DOES belong in the registry — it is a global chord,
+  // unlike the composer's Up/Down recall, which is a cursor key that only means
+  // something in one element.
+  //
+  // It takes the browser's own find bar, which is a real cost. What it buys:
+  // a match count scoped to the transcript, next/prev that scrolls the chat
+  // container rather than the window, and highlighting that survives the
+  // transcript re-rendering underneath it.
+  //
+  // WHAT IT DOES NOT BUY, measured rather than assumed: it does NOT see inside
+  // collapsed tool rows. Their content is not hidden, it is UNMOUNTED — a
+  // conversation showing five collapsed rows has `document.body.textContent`
+  // containing exactly one "total" while the underlying events contain many.
+  // So on collapsed content this is no better than native find, and anyone
+  // extending it should know that before assuming a low count is a bug. The
+  // fix is to search event DATA and expand the owning row on match; that is a
+  // real change, not a tweak, and it is not done here.
+  //
+  // `allowInInput` so it opens while the composer has focus, which is where
+  // focus normally sits.
+  useShortcut({ key: "f", mod: true }, () => find.open(), {
+    priority: ShortcutLayer.GLOBAL,
+    allowInInput: true,
+  });
 
   const params = useParams();
+
+  /*
+   * A ref, because the resend path below is wired BEFORE handleSendMessage is
+   * defined and a retry must go through the same function a typed message
+   * does — it carries the archived-sandbox resume and the queueing behaviour,
+   * and a second near-identical send path would drift from it silently.
+   */
+  const handleSendMessageRef = React.useRef<
+    ((content: string, images: File[], files: File[]) => Promise<void>) | null
+  >(null);
+
+  // A missing sandbox is infrastructure churn, not a decision the user made.
+  // Rather than replacing the composer with a dead end, resume on send.
+  const { ensureLive, resumeState } = useResumeThenSend(params.conversationId);
+
+  /*
+   * Model failover when a model refuses.
+   *
+   * All four pieces are unit-tested on their own; this is the wiring, and the
+   * wiring is where the interesting mistakes live — every one of them is a
+   * silent no-op rather than an error.
+   */
+  const { data: conversation } = useActiveConversation();
+  const { data: llmProfiles } = useLlmProfiles();
+  const { switchAndLog } = useSwitchLlmProfileAndLog();
+
+  // {name, model} is exactly the catalog shape, and the profile NAME is what
+  // switching takes — mapping back through this is why the catalog carries
+  // both.
+  const failoverCatalog = React.useMemo(
+    () =>
+      (llmProfiles?.profiles ?? [])
+        .filter((profile) => !!profile.model)
+        .map((profile) => ({
+          name: profile.name,
+          model: profile.model as string,
+        })),
+    [llmProfiles],
+  );
+
+  const profileNameForModel = React.useCallback(
+    (model: string) =>
+      failoverCatalog.find((entry) => entry.model === model)?.name ?? null,
+    [failoverCatalog],
+  );
+
+  const currentModel = conversation?.llm_model ?? null;
+  const currentModelName =
+    failoverCatalog.find((entry) => entry.model === currentModel)?.name ??
+    currentModel ??
+    "";
+
+  const { refusal, resolve } = useRefusalFailover({
+    events: v1FullEvents,
+    isRunning: isAgentRunning,
+    currentModel,
+    currentModelName,
+    catalog: failoverCatalog,
+  });
+
+  const { apply } = useApplyRefusalChoice({
+    isRunning: isAgentRunning,
+    switchToProfile: (profileName) => {
+      if (params.conversationId)
+        switchAndLog(params.conversationId, profileName);
+    },
+    profileNameForModel,
+    // Resend through the same path a typed message takes, so a retry gets the
+    // archived-sandbox resume and the queueing behaviour rather than a second,
+    // subtly different send.
+    resend: (text) => {
+      // .catch rather than `void`: handleSendMessage surfaces its own failures
+      // as toasts, so this only stops an unhandled rejection and hides nothing.
+      handleSendMessageRef.current?.(text, [], []).catch(() => {});
+    },
+  });
+
+  /*
+   * The refused request comes from the last USER message, not the optimistic
+   * store — by the time a refusal has come back that store has been cleared,
+   * and reading it would resend an empty string. A silent no-op, which is why
+   * it is worth naming here rather than trusting.
+   */
+  const lastUserText = React.useMemo(() => {
+    for (let i = v1FullEvents.length - 1; i >= 0; i -= 1) {
+      const message = (
+        v1FullEvents[i] as {
+          llm_message?: {
+            role?: string;
+            content?: { type?: string; text?: string }[];
+          };
+        }
+      ).llm_message;
+      if (message?.role !== "user" || !Array.isArray(message.content)) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const text = message.content
+        .filter(
+          (part) => part?.type === "text" && typeof part.text === "string",
+        )
+        .map((part) => part.text)
+        .join("\n");
+      if (text) return text;
+    }
+    return "";
+  }, [v1FullEvents]);
   const { mutateAsync: uploadFiles } = useUnifiedUploadFiles();
 
   const optimisticUserMessage = getOptimisticUserMessage();
@@ -150,6 +295,17 @@ export function ChatInterface() {
       return;
     }
 
+    // If the sandbox died under us (deploy, recycle, crash), bring it back
+    // before the message goes anywhere. ensureLive is a no-op when the sandbox
+    // is already running, so this costs nothing on the normal path.
+    if (isArchived) {
+      const live = await ensureLive();
+      if (!live) {
+        displayErrorToast(t(I18nKey.CONVERSATION$RESUME_FAILED));
+        return;
+      }
+    }
+
     // Create mutable copies of the arrays
     const images = [...originalImages];
     const files = [...originalFiles];
@@ -178,16 +334,31 @@ export function ChatInterface() {
     const prompt =
       uploadedFiles.length > 0 ? `${content}\n\n${filePrompt}` : content;
 
-    const result = await send(
-      createChatMessage(prompt, imageUrls, uploadedFiles, timestamp),
-    );
-    // Only show optimistic UI if message was sent immediately via WebSocket
-    // If queued for later delivery, the message will appear when actually delivered
-    if (!result.queued) {
-      setOptimisticUserMessage(content);
-    }
+    await send(createChatMessage(prompt, imageUrls, uploadedFiles, timestamp));
+    // Show it whether it went out now or was queued.
+    //
+    // Queued sends used to render nothing at all, on the reasoning that the
+    // message "will appear when actually delivered". But the composer is
+    // cleared on the very next line, so between those two moments the user's
+    // text simply vanished — no bubble, no pending state, nothing — for as long
+    // as the agent stayed busy. The only available reading is that it was lost,
+    // and the natural response is to type it again.
+    //
+    // The optimistic bubble is cleared when the real message echoes back over
+    // the websocket, so this cannot double up: it shows the text until the
+    // thing it stands for exists.
+    //
+    // KNOWN LIMIT: the store holds one message, so queueing a second replaces
+    // the first in the display. Both are still delivered and both appear for
+    // real. Showing every queued message (and letting them be cancelled or
+    // reordered) needs an actual queue store — see docs/parity-roadmap.md.
+    setOptimisticUserMessage(content);
     setMessageToSend("");
   };
+
+  // Kept current every render: the retry path holds this ref, and a stale one
+  // would resend through a closure over last render's state.
+  handleSendMessageRef.current = handleSendMessage;
 
   // Auto-scroll to bottom when new messages arrive
   React.useEffect(() => {
@@ -255,6 +426,17 @@ export function ChatInterface() {
           )}
         {/* Note: We only hide chat suggestions when there's a user message */}
 
+        <FindInConversation
+          isOpen={find.isOpen}
+          query={find.query}
+          matchCount={find.matchCount}
+          currentMatch={find.currentMatch}
+          onQueryChange={find.setQuery}
+          onNext={find.next}
+          onPrevious={find.previous}
+          onClose={find.close}
+        />
+
         <div
           ref={scrollRef}
           onScroll={(e) => onChatBodyScroll(e.currentTarget)}
@@ -308,14 +490,31 @@ export function ChatInterface() {
             />
           )}
 
-          {isArchived && <ArchivedBanner />}
-
-          {!isArchived && (
-            <InteractiveChatBox
-              onSubmit={handleSendMessage}
-              disabled={isNewConversationPending}
+          {/* The composer is ALWAYS available. Hiding it behind an archived
+              banner made routine infrastructure churn look like the end of the
+              conversation — the user could not even type. Sending resumes
+              first; the only visible cost is a brief reconnect on the first
+              message after a restart. */}
+          {refusal && (
+            <RefusalPrompt
+              refusedModel={refusal.refusedModel}
+              fallback={refusal.fallback}
+              onChoose={(choice) => {
+                apply(resolve(choice), lastUserText, currentModel);
+              }}
             />
           )}
+
+          {resumeState === "failed" && <ArchivedBanner />}
+
+          {/* Above the composer: what you typed while the agent was busy is
+              still yours, and still cancellable, until it is delivered. */}
+          <PendingMessages />
+
+          <InteractiveChatBox
+            onSubmit={handleSendMessage}
+            disabled={isNewConversationPending || resumeState === "resuming"}
+          />
         </div>
       </div>
     </ScrollProvider>

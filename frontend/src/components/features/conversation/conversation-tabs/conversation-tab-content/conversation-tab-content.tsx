@@ -15,6 +15,7 @@ const EditorTab = lazy(() => import("#/routes/changes-tab"));
 const BrowserTab = lazy(() => import("#/routes/browser-tab"));
 const VSCodeTab = lazy(() => import("#/routes/vscode-tab"));
 const PlannerTab = lazy(() => import("#/routes/planner-tab"));
+const PreviewTab = lazy(() => import("#/routes/preview-tab"));
 const TaskListTab = lazy(() => import("#/routes/task-list-tab"));
 
 const TAB_CONFIG = {
@@ -29,6 +30,10 @@ const TAB_CONFIG = {
   browser: {
     component: BrowserTab,
     titleKey: I18nKey.COMMON$BROWSER,
+  },
+  preview: {
+    component: PreviewTab,
+    titleKey: I18nKey.PREVIEW$TITLE,
   },
   vscode: {
     component: VSCodeTab,

@@ -15,6 +15,10 @@ import { AgentErrorEvent } from "./core/events/observation-event";
 import { MessageEvent } from "./core/events/message-event";
 import { ActionEvent } from "./core/events/action-event";
 import {
+  CondensationEvent,
+  CondensationSummaryEvent,
+} from "./core/events/condensation-event";
+import {
   ConversationStateUpdateEvent,
   ConversationStateUpdateEventAgentStatus,
   ConversationStateUpdateEventFullState,
@@ -286,3 +290,30 @@ export function isV0Event(
     ("action" in event || "observation" in event)
   );
 }
+
+/**
+ * Condensation: the agent dropped earlier history from the model's view.
+ *
+ * THE WIRE VALUE IS NOT THE TYPESCRIPT NAME. The SDK sets `kind` to
+ * `self.__class__.__name__` (utils/models.py), and the Python classes are
+ * `Condensation`, `CondensationRequest` and `CondensationSummaryEvent` — so
+ * only the third matches the interface it is typed as here. A guard written
+ * from the TS name (`"CondensationEvent"`) compiles, reads correctly, and
+ * NEVER MATCHES. Checked against the SDK rather than inferred from the type,
+ * because a guard that silently never fires is indistinguishable from a
+ * feature nobody uses.
+ */
+export const isCondensationEvent = (
+  event: OpenHandsEvent,
+): event is CondensationEvent =>
+  "kind" in event && event.kind === "Condensation";
+
+export const isCondensationSummaryEvent = (
+  event: OpenHandsEvent,
+): event is CondensationSummaryEvent =>
+  "kind" in event && event.kind === "CondensationSummaryEvent";
+
+/** A REQUEST to condense is an internal trigger, not an outcome. It carries no
+ *  information a reader can act on, so it is deliberately not rendered. */
+export const isCondensationRequestEvent = (event: OpenHandsEvent): boolean =>
+  "kind" in event && event.kind === "CondensationRequest";

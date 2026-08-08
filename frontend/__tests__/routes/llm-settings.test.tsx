@@ -216,7 +216,7 @@ function buildSettingsWithAdvancedToggle(
   return buildSettings({ ...overrides, agent_settings_schema: schema });
 }
 
-async function selectProvider(providerLabel: "OpenHands" | "OpenAI") {
+async function selectProvider(providerLabel: "Nimbus" | "OpenAI") {
   const providerInput = screen.getByTestId("llm-provider-input");
   await userEvent.click(providerInput);
   await userEvent.click(await screen.findByText(providerLabel));
@@ -688,7 +688,7 @@ describe("LlmSettingsScreen", () => {
     expect(screen.queryByTestId("agent-input")).not.toBeInTheDocument();
   });
 
-  it("uses the docs.openhands.dev domain for the API key help link", async () => {
+  it("uses the Nimbus docs domain for the API key help link", async () => {
     vi.spyOn(SettingsService, "getSettings").mockResolvedValue(
       buildSettings({
         llm_model: "openai/gpt-4o",
@@ -710,7 +710,7 @@ describe("LlmSettingsScreen", () => {
 
     expect(helpLink.querySelector("a")).toHaveAttribute(
       "href",
-      "https://docs.openhands.dev/usage/local-setup#getting-an-api-key",
+      "https://docs.nimbusapi.net",
     );
   });
 
@@ -1929,7 +1929,7 @@ describe("LlmSettingsScreen", () => {
       const providerInput = within(basicForm).getByTestId("llm-provider-input");
 
       await waitFor(() => {
-        expect(providerInput).toHaveValue("OpenHands");
+        expect(providerInput).toHaveValue("Nimbus");
       });
 
       expect(
@@ -1978,7 +1978,7 @@ describe("LlmSettingsScreen", () => {
       const providerInput = within(basicForm).getByTestId("llm-provider-input");
 
       await waitFor(() => {
-        expect(providerInput).toHaveValue("OpenHands");
+        expect(providerInput).toHaveValue("Nimbus");
       });
 
       expect(
@@ -2033,7 +2033,7 @@ describe("LlmSettingsScreen", () => {
         ).toBeInTheDocument();
       });
 
-      await selectProvider("OpenHands");
+      await selectProvider("Nimbus");
 
       expect(
         within(basicForm).queryByTestId("llm-api-key-input"),
@@ -2822,7 +2822,7 @@ describe("LlmSettingsScreen", () => {
 
       // The managed OpenHands provider keeps it hidden in SaaS mode (keys
       // are auto-provisioned).
-      await selectProvider("OpenHands");
+      await selectProvider("Nimbus");
       expect(screen.queryByTestId("llm-api-key-input")).not.toBeInTheDocument();
     });
 
@@ -3029,7 +3029,7 @@ describe("LlmSettingsScreen", () => {
       await screen.findByTestId("llm-settings-form-basic");
       await waitFor(() => {
         expect(screen.getByTestId("llm-provider-input")).toHaveValue(
-          "OpenHands",
+          "Nimbus",
         );
         expect(screen.getByTestId("llm-model-input")).toHaveValue(
           "claude-sonnet-4-5-20250929",
@@ -3090,7 +3090,7 @@ describe("LlmSettingsScreen", () => {
       await screen.findByTestId("llm-settings-form-basic");
       await waitFor(() => {
         expect(screen.getByTestId("llm-provider-input")).toHaveValue(
-          "OpenHands",
+          "Nimbus",
         );
       });
       // Unchanged today-behavior: hidden aliases are never dropdown options,

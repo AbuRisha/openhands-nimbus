@@ -25,6 +25,14 @@ export function ConversationTabNav({
         onClick();
       }}
       data-testid={`conversation-tab-${tabValue}`}
+      // The visible label renders only while the tab is ACTIVE (below), which
+      // is the intended look — but it also meant every inactive tab was an
+      // unlabelled icon. Screen readers announced "button", and an accessibility
+      // tree search for "preview tab" found nothing at all; the tabs were only
+      // reachable by test id. aria-label names them in every state without
+      // changing what is drawn.
+      aria-label={label}
+      aria-current={isActive ? "page" : undefined}
       className={cn(
         "flex items-center gap-2 rounded-md cursor-pointer",
         "pl-1.5 pr-2 py-1 lg:py-1.5",

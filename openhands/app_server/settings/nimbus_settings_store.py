@@ -22,6 +22,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from pydantic import SecretStr
+
 from openhands.app_server.settings.file_settings_store import FileSettingsStore
 from openhands.app_server.settings.nimbus_catalog_profiles import (
     prune_retired_catalog_profiles,
@@ -133,7 +135,10 @@ class NimbusSettingsStore(FileSettingsStore):
             )
             return None
 
-        from openhands.app_server.settings.settings_models import Settings
+        from openhands.app_server.settings.settings_models import (
+            OpenHandsAgentSettings,
+            Settings,
+        )
 
         seeded = Settings(
             **{
@@ -147,6 +152,33 @@ class NimbusSettingsStore(FileSettingsStore):
             }
         )
         seeded.v1_enabled = True
+
+        # Sub-agent delegation on by default.
+        #
+        # The SDK ships enable_sub_agents=False, which gates TaskToolSet out of
+        # the agent's tools entirely — so "spawn an agent to do X" simply did
+        # not exist until a customer found the toggle buried in Agent settings.
+        # A capability nobody can discover is one we do not have, and delegation
+        # is core to how this product is meant to be used.
+        #
+        # It is seeded rather than forced on every load: a customer who turns it
+        # back off has made a choice, and the next settings load must not undo
+        # it. That does mean customers seeded before this change keep it off
+        # until they toggle it themselves, which is the honest trade — there is
+        # no way to tell "never set" from "deliberately disabled" once both are
+        # stored as False.
+        #
+        # COST NOTE: each sub-agent is a full conversation against the same
+        # model, so a delegating turn can cost several times a plain one. That
+        # bills through the customer's own key exactly as their own turns do.
+        #
+        # Guarded on the settings type rather than assumed: agent_settings is a
+        # union, and ACPAgentSettings has no such field because an ACP
+        # sub-agent (Claude Code / Codex / Gemini CLI) manages its own
+        # delegation. Setting it there would be meaningless even if it existed.
+        if isinstance(seeded.agent_settings, OpenHandsAgentSettings):
+            seeded.agent_settings.enable_sub_agents = True
+
         # Seed the model picker in the same pass. Doing it here rather than on
         # the next load means a brand new customer's first view of chat already
         # has every Nimbus model in the header dropdown.
@@ -190,9 +222,7 @@ class NimbusSettingsStore(FileSettingsStore):
         except Exception as e:  # noqa: BLE001
             # Serve the request with the in-memory profiles anyway; the next
             # load will try again.
-            logger.warning(
-                'nimbus_settings: could not persist catalog profiles: %s', e
-            )
+            logger.warning('nimbus_settings: could not persist catalog profiles: %s', e)
         return settings
 
     def _repair_base_url(self, settings):
@@ -294,11 +324,21 @@ class NimbusSettingsStore(FileSettingsStore):
             return settings
         try:
             llm = getattr(getattr(settings, 'agent_settings', None), 'llm', None)
+            if llm is None:
+                # There is nothing to upgrade, and every path below dereferences
+                # it. This was already true implicitly — a missing llm gave
+                # plain=None, which is neither the shared key nor an sk-nim-
+                # string, so both branches returned — but only by way of two
+                # separate coincidences several screens apart.
+                return settings
             current = getattr(llm, 'api_key', None)
             # api_key may be a SecretStr; compare the plain value either way.
+            # isinstance rather than hasattr: the field is typed SecretStr|None,
+            # and assignment bypasses coercion (see below), so the only two
+            # things it can hold are a SecretStr and a raw str.
             plain = (
                 current.get_secret_value()
-                if hasattr(current, 'get_secret_value')
+                if isinstance(current, SecretStr)
                 else current
             )
             holds_shared = plain == shared
@@ -332,9 +372,7 @@ class NimbusSettingsStore(FileSettingsStore):
             # dead, and that is exactly when it should be replaced.
             if not isinstance(plain, str) or not plain.startswith('sk-nim-'):
                 return settings
-            own = await fetch_customer_api_key(
-                self.nimbus_user_id, current_key=plain
-            )
+            own = await fetch_customer_api_key(self.nimbus_user_id, current_key=plain)
             if not own:
                 # Could not reach the site, or the customer is inactive. Keep
                 # what is stored: it may well still work, and discarding a
@@ -365,8 +403,6 @@ class NimbusSettingsStore(FileSettingsStore):
             # The seed path was unaffected because Settings(**{...}) goes through
             # the constructor, which DOES validate and coerce. Only assignment
             # skips it, which is exactly why the bug hid: seeding looked fine.
-            from pydantic import SecretStr
-
             llm.api_key = SecretStr(own)
             await self.store(settings)
 
@@ -377,7 +413,7 @@ class NimbusSettingsStore(FileSettingsStore):
             saved_key = getattr(saved, 'api_key', None)
             plain_saved = (
                 saved_key.get_secret_value()
-                if hasattr(saved_key, 'get_secret_value')
+                if isinstance(saved_key, SecretStr)
                 else saved_key
             )
             if plain_saved != own:

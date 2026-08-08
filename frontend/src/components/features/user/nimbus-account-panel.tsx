@@ -1,8 +1,10 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import {
   useNimbusAccount,
   useSetNimbusSpendCap,
 } from "#/hooks/query/use-nimbus-account";
+import { I18nKey } from "#/i18n/declaration";
 
 /**
  * Signed-in Nimbus account, balance, and what CHAT specifically has cost.
@@ -27,14 +29,28 @@ const usd = (n: number) =>
 
 export function NimbusAccountPanel() {
   const { data, isLoading, isError } = useNimbusAccount();
+  const { t } = useTranslation();
   const setCap = useSetNimbusSpendCap();
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState("");
+  const capInputRef = React.useRef<HTMLInputElement>(null);
+
+  /*
+   * Focus the limit field when it opens, without `autoFocus`.
+   *
+   * autoFocus is an accessibility problem because it steals focus on mount
+   * regardless of what the user was doing. Here the field appears in response
+   * to a deliberate click, so moving focus to it IS what was asked for — this
+   * just scopes it to that transition rather than to mounting.
+   */
+  React.useEffect(() => {
+    if (editing) capInputRef.current?.focus();
+  }, [editing]);
 
   if (isLoading) {
     return (
       <div className="px-2 py-1.5 text-xs text-neutral-400">
-        Loading account…
+        {t(I18nKey.NIMBUS$ACCOUNT$LOADING)}
       </div>
     );
   }
@@ -42,7 +58,7 @@ export function NimbusAccountPanel() {
   if (isError || !data?.configured) {
     return (
       <div className="px-2 py-1.5 text-xs text-neutral-400">
-        Account details unavailable
+        {t(I18nKey.NIMBUS$ACCOUNT$UNAVAILABLE)}
       </div>
     );
   }
@@ -72,7 +88,9 @@ export function NimbusAccountPanel() {
       ) : null}
 
       <div className="flex items-center justify-between gap-3">
-        <span className="text-neutral-400">Balance</span>
+        <span className="text-neutral-400">
+          {t(I18nKey.NIMBUS$ACCOUNT$BALANCE)}
+        </span>
         <span
           className={
             (data.balance_usd ?? 0) > 0 ? "text-emerald-400" : "text-amber-400"
@@ -83,7 +101,9 @@ export function NimbusAccountPanel() {
       </div>
 
       <div className="flex items-center justify-between gap-3">
-        <span className="text-neutral-400">Spent in chat</span>
+        <span className="text-neutral-400">
+          {t(I18nKey.NIMBUS$ACCOUNT$SPENT_IN_CHAT)}
+        </span>
         <span className="text-white">
           {usd(data.chat.spent_usd)}
           {data.chat.request_count > 0 ? (
@@ -95,11 +115,13 @@ export function NimbusAccountPanel() {
       </div>
 
       <div className="flex items-center justify-between gap-3">
-        <span className="text-neutral-400">Chat limit</span>
+        <span className="text-neutral-400">
+          {t(I18nKey.NIMBUS$ACCOUNT$CHAT_LIMIT)}
+        </span>
         {editing ? (
           <span className="flex items-center gap-1">
             <input
-              autoFocus
+              ref={capInputRef}
               type="number"
               min="0"
               step="0.01"
@@ -118,7 +140,7 @@ export function NimbusAccountPanel() {
               disabled={setCap.isPending}
               className="rounded px-1 text-emerald-400 hover:text-emerald-300 disabled:opacity-50"
             >
-              save
+              {t(I18nKey.NIMBUS$ACCOUNT$SAVE)}
             </button>
           </span>
         ) : (
@@ -129,21 +151,23 @@ export function NimbusAccountPanel() {
               setEditing(true);
             }}
             className="text-neutral-300 underline decoration-dotted underline-offset-2 hover:text-white"
-            title="A ceiling that applies to chat only, separate from your balance"
+            title={t(I18nKey.NIMBUS$ACCOUNT$CAP_TOOLTIP)}
           >
-            {cap === null ? "none" : usd(cap)}
+            {cap === null ? t(I18nKey.NIMBUS$ACCOUNT$NO_LIMIT) : usd(cap)}
           </button>
         )}
       </div>
 
       {remaining !== null ? (
         <div className="text-right text-[10px] text-neutral-500">
-          {usd(remaining)} left under the limit
+          {t(I18nKey.NIMBUS$ACCOUNT$REMAINING, { amount: usd(remaining) })}
         </div>
       ) : null}
 
       {setCap.isError ? (
-        <div className="text-[10px] text-red-400">Could not save the limit</div>
+        <div className="text-[10px] text-red-400">
+          {t(I18nKey.NIMBUS$ACCOUNT$SAVE_FAILED)}
+        </div>
       ) : null}
     </div>
   );

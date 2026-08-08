@@ -15,6 +15,8 @@ import { useActiveConversation } from "#/hooks/query/use-active-conversation";
 import { useUnifiedWebSocketStatus } from "#/hooks/use-unified-websocket-status";
 import { useSubConversationTaskPolling } from "#/hooks/query/use-sub-conversation-task-polling";
 import { useHandlePlanClick } from "#/hooks/use-handle-plan-click";
+import { useShortcut } from "#/hooks/use-shortcut";
+import { ShortcutLayer } from "#/utils/shortcut-registry";
 
 export function ChangeAgentButton() {
   const [contextMenuOpen, setContextMenuOpen] = useState<boolean>(false);
@@ -82,40 +84,26 @@ export function ChangeAgentButton() {
   const isButtonDisabled =
     isAgentRunning || isCreatingConversation || !isWebSocketConnected;
 
-  // Handle Shift + Tab keyboard shortcut to cycle through modes
-  useEffect(() => {
-    if (isButtonDisabled) {
-      return undefined;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Check for Shift + Tab combination
-      if (event.shiftKey && event.key === "Tab") {
-        // Prevent default tab navigation behavior
-        event.preventDefault();
-        event.stopPropagation();
-
-        // Cycle between modes: code -> plan -> code
-        const nextMode = conversationMode === "code" ? "plan" : "code";
-        if (nextMode === "plan") {
-          handlePlanClick(event);
-        } else {
-          setConversationMode(nextMode);
-        }
+  // Shift+Tab cycles the mode. `allowInInput` because the composer holds focus
+  // while you work and switching mode from there is the normal case — the
+  // preventDefault below is what stops it also moving focus backwards.
+  useShortcut(
+    { key: "Tab", shift: true },
+    (event) => {
+      // Cycle between modes: code -> plan -> code
+      const nextMode = conversationMode === "code" ? "plan" : "code";
+      if (nextMode === "plan") {
+        handlePlanClick(event);
+      } else {
+        setConversationMode(nextMode);
       }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [
-    isButtonDisabled,
-    conversationMode,
-    setConversationMode,
-    handlePlanClick,
-  ]);
+    },
+    {
+      priority: ShortcutLayer.COMPOSER,
+      allowInInput: true,
+      when: () => !isButtonDisabled,
+    },
+  );
 
   const handleButtonClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();

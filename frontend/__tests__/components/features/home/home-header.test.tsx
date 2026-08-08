@@ -35,8 +35,16 @@ describe("HomeHeader", () => {
   it("should render the header with the correct title", () => {
     renderHomeHeader();
 
-    const title = screen.getByText("Let's start building");
+    // Was "Let's start building" — the upstream OpenHands copy. The home
+    // header is now the Nimbus wordmark and a product tagline, so this asserts
+    // the heading ROLE rather than only the string: the wordmark is an h1 and
+    // losing that is a real accessibility regression, whereas the exact
+    // marketing line is expected to change.
+    const title = screen.getByRole("heading", { name: "Nimbus Chat" });
     expect(title).toBeInTheDocument();
+    expect(
+      screen.getByText("Every frontier model. One workspace. Ship faster."),
+    ).toBeInTheDocument();
   });
 
   it("should render the GuideMessage component", () => {

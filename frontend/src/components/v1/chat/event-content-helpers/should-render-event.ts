@@ -10,6 +10,8 @@ import {
   isACPToolCallEvent,
   isStreamingDeltaEvent,
   isV1Event,
+  isCondensationEvent,
+  isCondensationSummaryEvent,
 } from "#/types/v1/type-guards";
 
 export const shouldRenderEvent = (event: OpenHandsEvent) => {
@@ -75,6 +77,20 @@ export const shouldRenderEvent = (event: OpenHandsEvent) => {
   // call to settle before rendering anything.
   if (isACPToolCallEvent(event)) {
     return event.status === "completed" || event.status === "failed";
+  }
+
+  // Condensation: the agent dropped earlier turns from the model's view.
+  //
+  // This is the one "system" event a reader genuinely needs, and it fell
+  // through the `return false` below since the types were added. Without it the
+  // agent appears to arbitrarily forget things you told it — the information
+  // that would explain the behaviour exists, arrives over the socket, and was
+  // discarded one line from being shown.
+  //
+  // A condensation REQUEST is deliberately excluded: it is an internal trigger
+  // with no payload, so rendering it would add a row that says nothing.
+  if (isCondensationEvent(event) || isCondensationSummaryEvent(event)) {
+    return true;
   }
 
   // Don't render any other event types (system events, etc.)

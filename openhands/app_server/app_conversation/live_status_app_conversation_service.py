@@ -1,9 +1,9 @@
-import os
 import asyncio
 import importlib.metadata
 import io
 import json
 import logging
+import os
 import zipfile
 from collections import defaultdict
 from collections.abc import Mapping
@@ -25,7 +25,6 @@ from openhands.agent_server.models import (
 from openhands.app_server.app_conversation.app_conversation_info_service import (
     AppConversationInfoService,
 )
-from openhands.app_server.app_conversation.nimbus_memory import memory_block
 from openhands.app_server.app_conversation.app_conversation_models import (
     ACP_SERVER_TAG_KEY,
     AGENT_PROFILE_ID_TAG_KEY,
@@ -64,6 +63,7 @@ from openhands.app_server.app_conversation.conversation_secret_enricher import (
 from openhands.app_server.app_conversation.hook_loader import (
     load_hooks_from_agent_server,
 )
+from openhands.app_server.app_conversation.nimbus_memory import memory_block
 from openhands.app_server.app_conversation.sql_app_conversation_info_service import (
     SQLAppConversationInfoService,
 )
@@ -197,9 +197,29 @@ def _add_nimbus_extra_tools(tools: list) -> list:
     What IS safely available: the default registry already contains
     workflow / workflow_tool_set alongside terminal, file_editor,
     task_tracker, browser_tool_set and task_tool_set.
+
+    image_generate / video_generate are ours, and they satisfy the same rule
+    from the other side: openhands.nimbus_bootstrap.nimbus_media_tools is on
+    the agent server's PYTHONPATH and its sitecustomize imports it, so the child
+    registers both names before any conversation exists. Importing it here is
+    not what makes them work in the child — it is what lets the gate below see
+    them, and what gives THIS process the observation classes it needs to
+    validate the events the child posts back through the webhook.
     """
     from openhands.sdk import Tool
     from openhands.sdk.tool import list_registered_tools
+
+    try:
+        # Registers image_generate / video_generate in this process on import,
+        # exactly as every SDK tool definition module does.
+        import openhands.nimbus_bootstrap.nimbus_browser_tools  # noqa: F401
+        import openhands.nimbus_bootstrap.nimbus_media_tools  # noqa: F401
+    except Exception as e:  # noqa: BLE001
+        # The default tool set must survive a broken optional module.
+        _logger.warning(
+            'nimbus_tools: media tools unavailable (%s) - continuing without them',
+            type(e).__name__,
+        )
 
     try:
         # The child registers exactly this set. Anything outside it is a name
@@ -217,7 +237,35 @@ def _add_nimbus_extra_tools(tools: list) -> list:
     existing = {getattr(t, 'name', None) for t in tools}
     extras: list = []
 
-    for name in ('workflow_tool_set',):
+    # The registry gate alone no longer covers the media tools, and the reason
+    # is the import above. workflow_tool_set is in the child because the child
+    # imports the SDK; image_generate is in the child because nimbus_bootstrap
+    # is on its PYTHONPATH — and that only happens under the PROCESS sandbox.
+    # Every other RUNTIME spawns a stock ghcr.io/openhands/agent-server image
+    # that has never heard of this repo, while THIS process would still list the
+    # names because it just imported them. So the sandbox choice has to be
+    # checked directly. Mirrors config.py's sandbox selection; anything that is
+    # not local/process/remote falls through to Docker there.
+    candidates = ['workflow_tool_set']
+    if os.getenv('RUNTIME', '') in ('local', 'process'):
+        candidates += [
+            'image_generate',
+            'video_generate',
+            # Same PYTHONPATH constraint, same gate: these live in
+            # nimbus_bootstrap and a stock agent-server image has never
+            # heard of them.
+            'browser_read_page',
+            'browser_navigate',
+            'browser_list_tabs',
+        ]
+    else:
+        _logger.info(
+            'nimbus_tools: RUNTIME=%r spawns a stock agent-server image - '
+            'skipping the Nimbus media tools',
+            os.getenv('RUNTIME'),
+        )
+
+    for name in candidates:
         if name in existing:
             continue
         if name not in agent_side_registry:
@@ -235,6 +283,7 @@ def _add_nimbus_extra_tools(tools: list) -> list:
             ', '.join(str(getattr(t, 'name', t)) for t in extras),
         )
     return tools + extras
+
 
 _EXPORT_LOCK_KEY_PREFIX = 'app_conversation_export'
 
@@ -293,6 +342,25 @@ Your role ends when the plan is finalized. Implementation is handled by the code
 GIT_SHALLOW_CLONE_CONTEXT = """<GIT_WORKSPACE_CONTEXT>
 The selected repository was cloned as a shallow clone. Git history may be incomplete. Before using operations that depend on full history, tags, merge bases, historical blame, or arbitrary commit checkout, run `git rev-parse --is-shallow-repository`. If full history is needed, run `git fetch --unshallow` or `git fetch --deepen=<n>`.
 </GIT_WORKSPACE_CONTEXT>"""
+
+
+SELF_VERIFICATION_CONTEXT = """<VERIFICATION_WORKFLOW>
+After editing code that runs in a browser, verify it works before saying it does. Do not ask the user to check manually — check, then show them what you found.
+
+You have browser tools and the workspace is reachable from them. When a dev server is running in this workspace you can open it directly on its localhost port.
+
+1. Find the port. If you started the server, you know it; otherwise check the command you ran.
+2. Open the page and read it — the accessibility tree and page text, not a screenshot, for anything about content or structure.
+3. Read the console and network requests for errors your change introduced.
+4. If something is broken, fix the source and check again. Use JavaScript evaluation for diagnosis, never to implement a fix.
+5. When it works, show proof: a screenshot for a visual change, the network requests for an API change, the console for a logging change.
+
+Skip this entirely when the change is not observable in a browser — a different runtime, tests, types, tooling, or work that is not ready to run. Starting a server that cannot demonstrate anything wastes the user's time and yours.
+
+Do not claim something renders, or that an error is gone, on the strength of having edited the file. Say what you actually observed, and say plainly when you could not observe it.
+</VERIFICATION_WORKFLOW>"""
+
+ENV_SELF_VERIFICATION = 'NIMBUS_AGENT_SELF_VERIFY'
 
 
 def _exception_detail(exc: Exception) -> str:
@@ -369,6 +437,35 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             )
         return system_message_suffix
 
+    def _maybe_append_self_verification(
+        self, system_message_suffix: str | None
+    ) -> str | None:
+        """Ask the agent to check its own browser-visible work before claiming it.
+
+        The single highest-value thing this product can tell an agent, and it is
+        prompt text rather than machinery: the browser tools already exist, and
+        under RUNTIME=process a dev server the agent started is on localhost in
+        the same container, so it can already open the page it just changed.
+        Nothing was asking it to.
+
+        The failure this addresses is not a crash. It is an agent editing a
+        component and reporting that the button now works, having never rendered
+        it — which is indistinguishable from success until a customer looks.
+
+        OFF BY DEFAULT, and that is a cost decision rather than caution: opening
+        a page, reading the console and screenshotting it spends tokens on every
+        turn that touches previewable code, and on a metered product that is the
+        customer's money. A deployment opts in.
+        """
+        if os.getenv(ENV_SELF_VERIFICATION, '').strip().lower() not in (
+            '1',
+            'true',
+            'yes',
+            'on',
+        ):
+            return system_message_suffix
+        return append_system_context(system_message_suffix, SELF_VERIFICATION_CONTEXT)
+
     async def _maybe_append_memory(
         self, system_message_suffix: str | None
     ) -> str | None:
@@ -387,7 +484,11 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             user_id = await self.user_context.get_user_id()
             block = memory_block(user_id)
         except Exception:  # noqa: BLE001
-            logger.warning('nimbus_memory: could not load memory', exc_info=True)
+            # _logger, not logger: this module never defined a bare `logger`,
+            # so this handler raised NameError instead of swallowing anything —
+            # inverting the behaviour the docstring above promises and taking
+            # conversation startup down with it.
+            _logger.warning('nimbus_memory: could not load memory', exc_info=True)
             return system_message_suffix
 
         if not block:
@@ -1702,11 +1803,35 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             return
 
         try:
-            count = len(user_mcp)
-            _logger.info(
-                f'Loading custom MCP config from user settings: {count} servers'
+            # Deployment policy, applied to CUSTOMER servers only — the
+            # system-generated ones above are ours and are never filtered.
+            #
+            # An MCP server is arbitrary local process execution by design, so
+            # merging whatever is in user settings gave a deployment no way to
+            # say which servers are acceptable. Rejections are logged by name:
+            # a server that silently fails to appear is indistinguishable from
+            # one that was never configured, which turns a policy decision into
+            # a support ticket about a broken feature.
+            from openhands.app_server.mcp.mcp_policy import (  # noqa: PLC0415
+                filter_servers,
+                load_policy,
             )
-            mcp_servers.update(user_mcp)
+
+            policy = load_policy()
+            permitted, rejected = filter_servers(user_mcp, policy)
+            if rejected:
+                _logger.warning(
+                    'mcp_policy: refused %d customer MCP server(s) for user %s: %s',
+                    len(rejected),
+                    user.id,
+                    ', '.join(rejected),
+                )
+
+            _logger.info(
+                f'Loading custom MCP config from user settings: '
+                f'{len(permitted)} servers'
+            )
+            mcp_servers.update(permitted)
 
         except Exception:
             _logger.exception(
@@ -2188,6 +2313,9 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         system_message_suffix = self._maybe_append_shallow_clone_context(
             user, selected_repository, system_message_suffix
         )
+        system_message_suffix = self._maybe_append_self_verification(
+            system_message_suffix
+        )
         system_message_suffix = await self._maybe_append_memory(system_message_suffix)
 
         # --- LLM + MCP -----------------------------------------------------
@@ -2548,6 +2676,9 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
 
         system_message_suffix = self._maybe_append_shallow_clone_context(
             user, selected_repository, system_message_suffix
+        )
+        system_message_suffix = self._maybe_append_self_verification(
+            system_message_suffix
         )
         system_message_suffix = await self._maybe_append_memory(system_message_suffix)
 

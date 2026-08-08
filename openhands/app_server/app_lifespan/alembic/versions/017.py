@@ -63,8 +63,13 @@ def upgrade() -> None:
     if len(owners) != 1:
         # Zero owners (nothing to attribute to) or several (ambiguous). Both are
         # correct no-ops; see THE SAFETY RULE above.
+        # ASCII only. This runs inside the app lifespan, so an encoding error
+        # here does not just lose a log line -- it propagates out as a nested
+        # ExceptionGroup and aborts startup. An em-dash cost a Windows dev box
+        # a boot with a 130-line traceback whose real cause (cp932 cannot encode
+        # U+2014) was the very last line.
         print(
-            f'017: {len(owners)} distinct owners found — skipping backfill '
+            f'017: {len(owners)} distinct owners found - skipping backfill '
             '(needs exactly one to attribute orphans unambiguously)'
         )
         return

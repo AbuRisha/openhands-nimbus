@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { I18nKey } from "#/i18n/declaration";
 import { AgentState } from "#/types/agent-state";
@@ -12,6 +12,8 @@ import { useEventMessageStore } from "#/stores/event-message-store";
 import { useEventStore } from "#/stores/use-event-store";
 import { isV0Event } from "#/types/v1/type-guards";
 import { useSendMessage } from "#/hooks/use-send-message";
+import { useShortcut } from "#/hooks/use-shortcut";
+import { ShortcutLayer } from "#/utils/shortcut-registry";
 
 export function ConfirmationButtons() {
   const submittedEventIds = useEventMessageStore(
@@ -50,37 +52,20 @@ export function ConfirmationButtons() {
     [send, addSubmittedEventId],
   );
 
-  // Handle keyboard shortcuts
-  useEffect(() => {
-    if (!awaitingAction) {
-      return undefined;
-    }
+  // Continue: Cmd+Enter (⌘↩) — see v1-confirmation-buttons for why this sits at
+  // CONFIRMATION priority and why `mod` replaced a metaKey-only test.
+  useShortcut(
+    { key: "Enter", mod: true },
+    () => handleStateChange(AgentState.USER_CONFIRMED),
+    { priority: ShortcutLayer.CONFIRMATION, when: () => !!awaitingAction },
+  );
 
-    const handleCancelShortcut = (event: KeyboardEvent) => {
-      if (event.shiftKey && event.metaKey && event.key === "Backspace") {
-        event.preventDefault();
-        handleStateChange(AgentState.USER_REJECTED);
-      }
-    };
-
-    const handleContinueShortcut = (event: KeyboardEvent) => {
-      if (event.metaKey && event.key === "Enter") {
-        event.preventDefault();
-        handleStateChange(AgentState.USER_CONFIRMED);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Cancel: Shift+Cmd+Backspace (⇧⌘⌫)
-      handleCancelShortcut(event);
-      // Continue: Cmd+Enter (⌘↩)
-      handleContinueShortcut(event);
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [awaitingAction, handleStateChange]);
+  // Cancel: Shift+Cmd+Backspace (⇧⌘⌫)
+  useShortcut(
+    { key: "Backspace", mod: true, shift: true },
+    () => handleStateChange(AgentState.USER_REJECTED),
+    { priority: ShortcutLayer.CONFIRMATION, when: () => !!awaitingAction },
+  );
 
   if (!awaitingAction || submittedEventIds.includes(awaitingAction.id)) {
     return null;

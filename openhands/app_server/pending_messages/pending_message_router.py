@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import TypeAdapter, ValidationError
 
 from openhands.agent_server.models import ImageContent, TextContent
@@ -11,6 +11,7 @@ from openhands.app_server.nimbus_sso.nimbus_execution_gate import (
     require_customer_metering_ready,
 )
 from openhands.app_server.pending_messages.pending_message_models import (
+    PendingMessage,
     PendingMessageResponse,
 )
 from openhands.app_server.pending_messages.pending_message_service import (
@@ -107,3 +108,44 @@ async def queue_pending_message(
     )
 
     return response
+
+
+@router.get('', response_model=list[PendingMessage])
+async def list_pending_messages(
+    conversation_id: str,
+    pending_service: PendingMessageService = pending_message_service_dependency,
+) -> list[PendingMessage]:
+    """The messages waiting to be delivered, oldest first.
+
+    Queuing existed without any way to SEE the queue, so a message typed while
+    the agent was busy left no trace anywhere in the product until it was
+    delivered. The composer had already been cleared, so the only reading
+    available to the user was that their message was lost.
+    """
+    return await pending_service.get_pending_messages(conversation_id)
+
+
+@router.delete(
+    '/{message_id}',
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def cancel_pending_message(
+    conversation_id: str,
+    message_id: str,
+    pending_service: PendingMessageService = pending_message_service_dependency,
+) -> Response:
+    """Cancel a queued message before it is delivered.
+
+    Deleting something already gone answers 204, not 404. The queue drains by
+    itself the moment the agent becomes ready, so losing the race is the
+    ordinary outcome of clicking cancel a fraction too late — and the user's
+    intent ("this must not be sent") is satisfied either way. A 404 would report
+    a failure for the state they asked for.
+    """
+    deleted = await pending_service.delete_message(conversation_id, message_id)
+    if deleted:
+        logger.info(
+            f'Cancelled pending message {message_id} for conversation {conversation_id}'
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

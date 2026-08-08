@@ -270,7 +270,7 @@ describe("UserContextMenu", () => {
     renderUserContextMenu({ type: "member", onClose: vi.fn, onOpenInviteModal: vi.fn });
 
     const docsLink = screen.getByText("SIDEBAR$DOCS").closest("a");
-    expect(docsLink).toHaveAttribute("href", "https://docs.openhands.dev");
+    expect(docsLink).toHaveAttribute("href", "https://docs.nimbusapi.net");
     expect(docsLink).toHaveAttribute("target", "_blank");
   });
 
@@ -300,7 +300,11 @@ describe("UserContextMenu", () => {
       // Wait for the config to load and OSS nav items to appear
       await waitFor(() => {
         OSS_NAV_ITEMS.forEach((item) => {
-          expect(screen.getByText(item.text)).toBeInTheDocument();
+          // getAllByText, not getByText: ORG$ACCOUNT is both a nav item and a
+          // section label, so the singular form throws "found multiple" on a
+          // menu that is rendering correctly. The claim here is "every nav item
+          // is present", which does not require it to be present exactly once.
+          expect(screen.getAllByText(item.text).length).toBeGreaterThan(0);
         });
       });
 
@@ -315,7 +319,11 @@ describe("UserContextMenu", () => {
 
       // Wait for the config to load
       await waitFor(() => {
-        expect(screen.getByText("SETTINGS$NAV_LLM")).toBeInTheDocument();
+        // Derived from the nav list rather than hardcoded. This used to assert
+        // SETTINGS$NAV_LLM, which the settings rework removed — the test then
+        // failed for a reason that had nothing to do with what it checks, which
+        // is only "the menu finished loading".
+        expect(screen.getByText(OSS_NAV_ITEMS[0].text)).toBeInTheDocument();
       });
 
       // Verify Organization Members is NOT rendered in OSS mode
@@ -329,7 +337,11 @@ describe("UserContextMenu", () => {
 
       // Wait for the config to load
       await waitFor(() => {
-        expect(screen.getByText("SETTINGS$NAV_LLM")).toBeInTheDocument();
+        // Derived from the nav list rather than hardcoded. This used to assert
+        // SETTINGS$NAV_LLM, which the settings rework removed — the test then
+        // failed for a reason that had nothing to do with what it checks, which
+        // is only "the menu finished loading".
+        expect(screen.getByText(OSS_NAV_ITEMS[0].text)).toBeInTheDocument();
       });
 
       // Verify logout button is NOT rendered in OSS mode

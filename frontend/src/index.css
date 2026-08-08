@@ -66,3 +66,27 @@ code {
   scroll-behavior: smooth;
   scroll-timeline: 100ms;
 }
+
+/*
+ * Find-in-conversation highlights.
+ *
+ * ::highlight() paints ranges registered via the CSS Custom Highlight API, so
+ * no element is inserted into the transcript to mark a match — which is what
+ * keeps highlighting from fighting React's reconciliation inside rendered
+ * markdown, code blocks and diffs.
+ *
+ * Only a few properties are honoured on ::highlight (colour, background,
+ * text-decoration, text-shadow); layout properties are ignored by design, so a
+ * highlight can never reflow the transcript.
+ */
+::highlight(nimbus-find) {
+  background-color: #4a67bd80;
+  color: white;
+}
+
+/* The active match has to be obviously distinct from the rest, or next/prev
+   gives no feedback that anything moved. */
+::highlight(nimbus-find-current) {
+  background-color: #f5b301;
+  color: #16171d;
+}

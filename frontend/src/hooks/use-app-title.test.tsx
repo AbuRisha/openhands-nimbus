@@ -35,7 +35,12 @@ describe("useAppTitle", () => {
     mockUseParams.mockReturnValue({});
   });
 
-  it("should return 'OpenHands' if is OSS and NOT in /conversations", async () => {
+  // These used to expect "OpenHands" in OSS and "OpenHands Cloud" in SaaS. The
+  // product is Nimbus Chat now and `use-app-title` holds ONE constant, so the
+  // brand no longer varies by deployment mode. Both modes are still exercised
+  // rather than collapsed into one case: "the title is the same either way" is
+  // the actual claim, and it only has teeth if both modes are asserted.
+  it("returns the app name in OSS when NOT in /conversations", async () => {
     // @ts-expect-error - only returning partial config for test
     getConfigSpy.mockResolvedValue({
       app_mode: "oss",
@@ -43,10 +48,10 @@ describe("useAppTitle", () => {
 
     const { result } = renderAppTitleHook();
 
-    await waitFor(() => expect(result.current).toBe("OpenHands"));
+    await waitFor(() => expect(result.current).toBe("Nimbus Chat"));
   });
 
-  it("should return 'OpenHands Cloud' if is SaaS and NOT in /conversations", async () => {
+  it("returns the SAME app name in SaaS — no Cloud suffix", async () => {
     // @ts-expect-error - only returning partial config for test
     getConfigSpy.mockResolvedValue({
       app_mode: "saas",
@@ -54,10 +59,10 @@ describe("useAppTitle", () => {
 
     const { result } = renderAppTitleHook();
 
-    await waitFor(() => expect(result.current).toBe("OpenHands Cloud"));
+    await waitFor(() => expect(result.current).toBe("Nimbus Chat"));
   });
 
-  it("should return '{some title} | OpenHands' if is OSS and in /conversations", async () => {
+  it("returns '{some title} | Nimbus Chat' if is OSS and in /conversations", async () => {
     // @ts-expect-error - only returning partial config for test
     getConfigSpy.mockResolvedValue({ app_mode: "oss" });
     mockUseParams.mockReturnValue({ conversationId: "123" });
@@ -69,11 +74,11 @@ describe("useAppTitle", () => {
     const { result } = renderAppTitleHook();
 
     await waitFor(() =>
-      expect(result.current).toBe("My Conversation | OpenHands"),
+      expect(result.current).toBe("My Conversation | Nimbus Chat"),
     );
   });
 
-  it("should return '{some title} | OpenHands Cloud' if is SaaS and in /conversations", async () => {
+  it("returns '{some title} | Nimbus Chat' if is SaaS and in /conversations", async () => {
     // @ts-expect-error - only returning partial config for test
     getConfigSpy.mockResolvedValue({ app_mode: "saas" });
     mockUseParams.mockReturnValue({ conversationId: "456" });
@@ -85,9 +90,7 @@ describe("useAppTitle", () => {
     const { result } = renderAppTitleHook();
 
     await waitFor(() =>
-      expect(result.current).toBe(
-        "Another Conversation Title | OpenHands Cloud",
-      ),
+      expect(result.current).toBe("Another Conversation Title | Nimbus Chat"),
     );
   });
 
@@ -100,6 +103,6 @@ describe("useAppTitle", () => {
 
     const { result } = renderAppTitleHook();
 
-    await waitFor(() => expect(result.current).toBe("OpenHands"));
+    await waitFor(() => expect(result.current).toBe("Nimbus Chat"));
   });
 });

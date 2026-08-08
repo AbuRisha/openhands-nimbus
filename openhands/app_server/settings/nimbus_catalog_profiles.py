@@ -50,6 +50,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from pydantic import SecretStr
+
 from openhands.app_server.config_api.nimbus_llm_model_service import (
     NIMBUS_CHAT_MODELS,
     NIMBUS_DEFAULT_MODEL,
@@ -251,7 +253,10 @@ def prune_retired_catalog_profiles(settings: Any) -> bool:
         if getattr(llm, 'base_url', None) != base_url:
             continue  # points somewhere else — the user's, not ours
         key = getattr(llm, 'api_key', None)
-        plain = key.get_secret_value() if hasattr(key, 'get_secret_value') else key
+        # isinstance rather than hasattr: api_key is typed SecretStr | None, and
+        # the only other thing it can hold is a raw str (assignment on this model
+        # bypasses coercion). hasattr also left the None case unnarrowed.
+        plain = key.get_secret_value() if isinstance(key, SecretStr) else key
         if plain:
             continue  # carries its own credential — user-configured
         removed.append(name)

@@ -3,7 +3,9 @@
 Python imports ``sitecustomize`` automatically at startup when it is importable,
 which is the only hook that reaches the AGENT SERVER — a separate process
 spawned as ``python -m ...`` that imports the SDK rather than our application.
-Both repairs below (model capabilities, nudge cap) must land in that process.
+Everything below must land in that process: the SDK repairs because they patch
+objects the agent uses, and the media tools because tool registration is
+per-process and happens on import.
 
 GATED ON AN ENV VAR, AND THAT IS NOT OPTIONAL
 ---------------------------------------------
@@ -25,6 +27,7 @@ capability flag into a total outage.
 """
 
 import os
+
 
 # Prove the hook ran, in a way that does not depend on logging.
 #
@@ -50,7 +53,7 @@ def _nimbus_mark(status: str) -> None:
         pass
 
 
-if not os.environ.get("NIMBUS_AGENT_BOOTSTRAP"):
+if not os.environ.get('NIMBUS_AGENT_BOOTSTRAP'):
     _nimbus_mark('skipped:flag-not-set')
 else:
     _nimbus_mark('start')
@@ -95,3 +98,25 @@ else:
         _nimbus_mark(f'cost:{install_gateway_cost()}')
     except Exception as e:  # noqa: BLE001
         _nimbus_mark(f'cost:FAILED:{type(e).__name__}')
+
+    try:
+        # Tool registration is per-process and happens on import, and this is
+        # the only hook that reaches the agent server. Registering image_generate
+        # / video_generate anywhere else leaves the child unable to resolve the
+        # name at call time.
+        from nimbus_media_tools import register_nimbus_media_tools
+
+        _nimbus_mark(f'media:{",".join(register_nimbus_media_tools())}')
+    except Exception as e:  # noqa: BLE001
+        _nimbus_mark(f'media:FAILED:{type(e).__name__}')
+
+    try:
+        # Same reasoning as the media tools: per-process registration, and this
+        # is the only hook that reaches the child. These drive the customer's
+        # OWN browser via the bridge, which the sandbox Chromium cannot do
+        # because it is signed into nothing.
+        from nimbus_browser_tools import register_nimbus_browser_tools
+
+        _nimbus_mark(f'browser:{",".join(register_nimbus_browser_tools())}')
+    except Exception as e:  # noqa: BLE001
+        _nimbus_mark(f'browser:FAILED:{type(e).__name__}')

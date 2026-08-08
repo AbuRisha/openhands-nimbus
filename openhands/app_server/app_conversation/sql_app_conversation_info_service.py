@@ -195,7 +195,9 @@ class StoredConversationMetadata(Base):
     # could not filter by one however trustworthy the caller's identity was.
     # Nullable so pre-existing rows survive the migration; those rows are
     # ownerless and only an anonymous context can see them.
-    nimbus_user_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    nimbus_user_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True
+    )
 
 
 class StoredConversationCostEvent(Base):
@@ -357,8 +359,14 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         # Apply the same filters as search_app_conversations
         conditions: list[ColumnElement[bool]] = []
         if title__contains is not None:
+            # ilike, not like. This backs a search box, and Postgres LIKE is
+            # case-SENSITIVE while SQLite's is not — so `like` searched fine in
+            # every test and would have failed to match "Billing" for a user
+            # typing "billing" in production. The divergence is invisible from
+            # the test suite, which is what made it worth fixing rather than
+            # leaving.
             conditions.append(
-                StoredConversationMetadata.title.like(f'%{title__contains}%')
+                StoredConversationMetadata.title.ilike(f'%{title__contains}%')
             )
 
         if created_at__gte is not None:
@@ -846,9 +854,7 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         )
         user_id = await self._nimbus_user_id()
         if user_id is not None:
-            query = query.where(
-                StoredConversationMetadata.nimbus_user_id == user_id
-            )
+            query = query.where(StoredConversationMetadata.nimbus_user_id == user_id)
         return query
 
     async def _nimbus_user_id(self) -> str | None:

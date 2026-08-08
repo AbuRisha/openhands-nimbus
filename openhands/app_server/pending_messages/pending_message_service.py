@@ -63,6 +63,19 @@ class PendingMessageService(ABC):
         """Delete all pending messages for a conversation, returning count deleted."""
 
     @abstractmethod
+    async def delete_message(self, conversation_id: str, message_id: str) -> bool:
+        """Cancel ONE queued message. True if it was there, False if it was not.
+
+        Scoped to the conversation deliberately: a message id alone would let a
+        caller cancel a message in someone else's conversation, and the id is
+        the only thing a client holds.
+
+        False is not an error. The queue drains on its own the moment the agent
+        becomes ready, so "already gone" is the ordinary outcome of clicking
+        cancel a fraction too late, not a failure to report.
+        """
+
+    @abstractmethod
     async def update_conversation_id(
         self, old_conversation_id: str, new_conversation_id: str
     ) -> int:
@@ -164,6 +177,25 @@ class SQLPendingMessageService(PendingMessageService):
             await self.db_session.commit()
 
         return count
+
+    async def delete_message(self, conversation_id: str, message_id: str) -> bool:
+        """Cancel one queued message, scoped to its conversation."""
+        stmt = select(StoredPendingMessage).where(
+            StoredPendingMessage.id == message_id,
+            # Both predicates, always: matching on id alone would let anyone
+            # holding an id cancel a message in a conversation that is not
+            # theirs, and the id is the only thing a client ever sees.
+            StoredPendingMessage.conversation_id == conversation_id,
+        )
+        result = await self.db_session.execute(stmt)
+        stored_message = result.scalar_one_or_none()
+
+        if stored_message is None:
+            return False
+
+        await self.db_session.delete(stored_message)
+        await self.db_session.commit()
+        return True
 
     async def update_conversation_id(
         self, old_conversation_id: str, new_conversation_id: str

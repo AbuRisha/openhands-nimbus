@@ -1,5 +1,5 @@
 import { ActionEvent } from "#/types/v1/core";
-import { getDefaultEventContent, MAX_CONTENT_LENGTH } from "./shared";
+import { getDefaultEventContent, truncateForDisplay } from "./shared";
 import i18n from "#/i18n";
 import { SecurityRisk } from "#/types/v1/core/base/common";
 import {
@@ -71,9 +71,7 @@ const getFileEditorActionContent = (
 
   // Process file text with length truncation
   let fileText = action.file_text;
-  if (fileText.length > MAX_CONTENT_LENGTH) {
-    fileText = `${fileText.slice(0, MAX_CONTENT_LENGTH)}...`;
-  }
+  fileText = truncateForDisplay(fileText);
 
   return `${action.path}\n${fileText}`;
 };

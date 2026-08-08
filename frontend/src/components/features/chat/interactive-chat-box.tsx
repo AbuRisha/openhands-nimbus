@@ -4,6 +4,7 @@ import { validateFiles } from "#/utils/file-validation";
 import { CustomChatInput } from "./custom-chat-input";
 import { useBtwInterceptor } from "#/hooks/chat/use-btw-interceptor";
 import { useModelInterceptor } from "#/hooks/chat/use-model-interceptor";
+import { useHelpInterceptor } from "#/hooks/chat/use-help-interceptor";
 import { AgentState } from "#/types/agent-state";
 import { useActiveConversation } from "#/hooks/query/use-active-conversation";
 import { GitControlBar } from "./git-control-bar";
@@ -144,8 +145,18 @@ export function InteractiveChatBox({
     onSubmit(message, images, files);
     clearAllFiles();
   };
-  const handleAfterModel = useBtwInterceptor(conversationId, submitWithFiles);
-  const handleSubmit = useModelInterceptor(conversationId, handleAfterModel);
+  // The interceptor chain, OUTERMOST LAST. Each takes the next handler and
+  // either consumes the message or passes it on, so the one assigned to
+  // `handleSubmit` runs FIRST.
+  //
+  // /help is outermost because it is the only one that cannot be wrong to
+  // consume: it matches an exact string with no argument, so it can never
+  // swallow prose the way a prefix match could. The two below it match
+  // prefixes and therefore want to see a message that /help has already
+  // declined.
+  const handleAfterBtw = useBtwInterceptor(conversationId, submitWithFiles);
+  const handleAfterModel = useModelInterceptor(conversationId, handleAfterBtw);
+  const handleSubmit = useHelpInterceptor(conversationId, handleAfterModel);
 
   const handleSuggestionsClick = (suggestion: string) => {
     handleSubmit(suggestion);
