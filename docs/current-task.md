@@ -976,3 +976,46 @@ every file passed in isolation (`llm-settings` 80/80). They are 5s timeouts.
 baseline.** Raise the timeout or cap concurrency before it trains everyone to
 ignore red — it already nearly convinced one session its own fix was broken.
 
+
+
+## 2026-08-08, later — three things measured, one near-miss
+
+**Live is rev `0000097` / `routing2-20260808`.** Any note citing 0000094 or
+0000096 is stale; two deploys landed while this was being written.
+
+**Provenance is working end to end.** `/server_info` reports
+`build_version: routing2-20260808`, `git_sha: 21873ce21624e2de5237a01763b16012f10a877e`,
+and `az acr run` into the image confirms it contains that commit's source. The
+fields are ENV vars, so they can be hand-set and are therefore advisory —
+inspection is what proves it. See the docstring in `status_router.py`.
+
+**Item 12's fix IS in the live image**, verified by executing it: `api_base` is
+defined and used at all three callsites. **That is not the same as "works"** and
+the row still says unverified. One fork driven end-to-end against `0000097`,
+checking `halves_agree`, is the outstanding step. Offered to the backend
+session, who own the feature.
+
+**RLS: settled.** `rolsuper=False`, `rolbypassrls=True`, and 0 policies / 0
+rowsecurity tables across 9 public tables. RLS is absent, not bypassed — see
+`docs/database-rls.md`, which re-sizes item 23.
+
+**The frontend suite is not a single-run gate** — 0/6/7 failures across three
+identical uncapped runs, 0 twice with `--maxWorkers=2`. Raising `testTimeout`
+did not help and was reverted with its hypothesis. See
+`docs/frontend-test-suite.md`.
+
+### The near-miss, because it is the third of its kind
+
+A probe reported three fork callsites still broken. It counted occurrences of
+`'/bash/execute_bash_command'`, which is a SUBSTRING of the fixed
+`'/api/bash/execute_bash_command'` — so every corrected callsite counted as
+broken, and the remainder was docstring prose. Nothing was wrong with the code.
+
+That is the same defect as `path.endswith(...)` letting 43 green tests sit on a
+dead feature, and as the containment check that matched an author's own
+docstring and reported production broken. The rule as previously written —
+"a suffix cannot observe a missing prefix" — was too specific to prevent it.
+The useful form:
+
+> **Counting substrings is not reading code. When the answer matters, print the
+> lines.**
