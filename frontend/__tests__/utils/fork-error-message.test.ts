@@ -41,9 +41,15 @@ describe("forkErrorKey", () => {
 
 describe("shouldWarnAboutHalves", () => {
   /**
-   * `halves_agree: false` is a SUCCESS response describing a broken outcome —
-   * 200, with a conversation that exists. Nothing in the error path fires,
-   * which is exactly why it needs its own check.
+   * THESE TESTS PASS AND THE FUNCTION IS NOT SAFE TO USE. They assert the
+   * mapping from the flag to the warning, which is correct; the flag itself is
+   * meaningless, because `halves_agree` compares counts across two stores
+   * holding different event KINDS and so is false on healthy forks too.
+   *
+   * Nothing in the frontend could have caught that — it took a fork against a
+   * live sandbox. Kept green because the mapping is what should happen once the
+   * server reports something real; `use-fork-conversation.ts` does not call it
+   * in the meantime.
    */
   it("warns when the two halves were cut at different points", () => {
     expect(shouldWarnAboutHalves({ halves_agree: false })).toBe(true);

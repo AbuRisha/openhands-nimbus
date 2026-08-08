@@ -52,6 +52,47 @@ contention leaves module mocks unapplied rather than merely late.
 Capping to 2 workers costs about 1.8x wall clock — ~500s against ~265-305s —
 and returns a result that means something.
 
+## Capping buys DETERMINISM, not green
+
+**This document originally implied "capped = 0 failures". That is wrong, and it
+would mislead the next person into concluding the cap did not work.** Another
+session ran the capped suite on their tree and got:
+
+    Test Files  1 failed | 311 passed | 2 skipped (314)
+         Tests  1 failed | 2685 passed | 2 expected fail | 28 skipped
+
+The single failure is `recent-conversation`, a known-upstream red from
+`13634324c` that also fails in isolation. Uncapped on the same content they saw
+5 failures; capped they saw exactly the 1 real one.
+
+**And "capped returns the same number twice" — which is what this section said
+an hour ago — did not survive either.** A fourth capped run here returned:
+
+    Test Files  1 failed | 320 passed | 2 skipped (323)
+         Tests  1 failed | 2776 passed
+
+`conversation-websocket-handler.test.tsx`. Run alone: **26 passed, 1 skipped, 13
+todo.** So that is a load-induced failure INSIDE a capped run — a different
+animal from the other session's capped failure, which was a genuine
+known-upstream red that also fails in isolation.
+
+Capped: 0, 0, 1(load-induced) here; 1(real) elsewhere. So:
+
+> **Capping reduces nondeterminism. It does not remove it.**
+>
+> **No suite failure is real until it reproduces in isolation.**
+
+That second line is the one to actually use, and it is cheap — a single file
+runs in about 6 seconds against 500 for the suite. It is also the only rule here
+that holds for both kinds of capped failure: it correctly keeps the
+known-upstream red and correctly discards the load-induced one, which no
+count-based rule does.
+
+Three claims have now been made in this file about what capping guarantees, and
+two were wrong. The stable part is the mechanism (workers contend, mocks go
+unapplied) and the isolation check. Treat any statement here about counts as
+provisional.
+
 ## How to get a trustworthy answer
 
     npx vitest run --maxWorkers=2

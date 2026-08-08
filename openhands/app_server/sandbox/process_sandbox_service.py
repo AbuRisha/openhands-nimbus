@@ -549,14 +549,38 @@ class ProcessSandboxService(SandboxService):
             created_at=process_info.created_at,
         )
 
+    def _owned_by_caller(self, process_info: ProcessInfo) -> bool:
+        """Whether this process belongs to the user making the current request.
+
+        Compared by equality rather than ``if self.user_id:``-style guarding. A
+        falsy user id must not disable the check: on a single-user local server
+        every process has ``user_id is None`` and ``None == None`` still matches,
+        while an authenticated caller never matches an unowned process. Equality
+        fails closed whenever the two identities differ, which is the whole point.
+        """
+        return process_info.user_id == self.user_id
+
     async def search_sandboxes(
         self,
         page_id: str | None = None,
         limit: int = 100,
     ) -> SandboxPage:
-        """Search for sandboxes."""
-        # Get all process infos
-        all_processes = list(_processes.items())
+        """Search / list sandboxes belonging to the user making the request.
+
+        The ownership filter is applied BEFORE pagination: filtering a page after
+        slicing it would return short pages and let ``next_page_id`` skip over the
+        caller's own sandboxes.
+        """
+        # Only the caller's own processes. `_processes` is a module-global shared by
+        # every request in the worker, so an unfiltered listing hands one user every
+        # other user's sandbox -- including its `session_api_key`, which is the
+        # credential the agent proxy accepts for file and git access into that
+        # sandbox. `user_id` is stamped on every process at start_sandbox time.
+        all_processes = [
+            (sandbox_id, process_info)
+            for sandbox_id, process_info in _processes.items()
+            if self._owned_by_caller(process_info)
+        ]
 
         # Sort by creation time (newest first)
         all_processes.sort(key=lambda x: x[1].created_at, reverse=True)
@@ -586,9 +610,20 @@ class ProcessSandboxService(SandboxService):
         return SandboxPage(items=items, next_page_id=next_page_id)
 
     async def get_sandbox(self, sandbox_id: str) -> SandboxInfo | None:
-        """Get a single sandbox."""
+        """Get a single sandbox, if it belongs to the user making the request.
+
+        Someone else's sandbox reads as absent rather than forbidden, matching the
+        contract the callers already expect (``None`` -> 404) and refusing to
+        confirm that an id exists.
+
+        Note this deliberately does NOT cover the ``*_by_session_api_key`` lookups
+        below: those authenticate by the key itself on the server-to-server path,
+        where there is no user context to compare against.
+        """
         process_info = _processes.get(sandbox_id)
         if process_info is None:
+            return None
+        if not self._owned_by_caller(process_info):
             return None
 
         return await self._process_to_sandbox_info(sandbox_id, process_info)

@@ -57,6 +57,7 @@ import useMetricsStore from "#/stores/metrics-store";
 import { I18nKey } from "#/i18n/declaration";
 import { useConversationHistory } from "#/hooks/query/use-conversation-history";
 import { setConversationState } from "#/utils/conversation-local-storage";
+import { sessionKeyProtocols } from "#/utils/session-key-protocols";
 
 // eslint-disable-next-line @typescript-eslint/naming-convention
 export type V1_WebSocketConnectionState =
@@ -757,13 +758,15 @@ export function ConversationWebSocketProvider({
       resend_all: true,
     };
 
-    // Add session_api_key if available
-    if (sessionApiKey) {
-      queryParams.session_api_key = sessionApiKey;
-    }
+    // The session key rides Sec-WebSocket-Protocol, NOT the query string.
+    // In the URL it was recorded verbatim by ingress and Log Analytics; a
+    // replayed key reaches /api/file/* on a sandbox where an agent executes
+    // code, so a file written there is a path to execution. See
+    // `sessionKeyProtocols`.
 
     return {
       queryParams,
+      protocols: sessionKeyProtocols(sessionApiKey),
       reconnect: { enabled: true },
       onOpen: async () => {
         setMainConnectionState("OPEN");
@@ -845,15 +848,21 @@ export function ConversationWebSocketProvider({
       resend_all: true,
     };
 
-    // Add session_api_key if available
-    if (sessionApiKey) {
-      queryParams.session_api_key = sessionApiKey;
-    }
+    // The session key rides Sec-WebSocket-Protocol, NOT the query string.
+    // In the URL it was recorded verbatim by ingress and Log Analytics; a
+    // replayed key reaches /api/file/* on a sandbox where an agent executes
+    // code, so a file written there is a path to execution. See
+    // `sessionKeyProtocols`.
 
     const planningAgentConversation = subConversations?.[0];
 
     return {
       queryParams,
+      // `sessionApiKey`, matching what the query parameter carried before --
+      // NOT planningAgentConversation.session_api_key, which is used further
+      // down for the event-count fetch. Swapping them here would change which
+      // credential authenticates this socket.
+      protocols: sessionKeyProtocols(sessionApiKey),
       reconnect: { enabled: true },
       onOpen: async () => {
         setPlanningConnectionState("OPEN");
