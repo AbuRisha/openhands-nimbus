@@ -147,7 +147,7 @@ Backend surfaces enumerated per item rather than sized from the frontend.
 
 | # | Backend | Frontend | Real state |
 |---|---|---|---|
-| 20 Artifacts | none | none | genuinely unbuilt |
+| 20 Artifacts | **BUILT** — store + 8 routes | **BUILT** — `/artifacts` | gallery, versions, restore, delete DONE. Share / auto-publish / print-to-PDF deliberately not built; see below |
 | 21 Workspaces | NOT what it looks like | none | unbuilt — see correction |
 | 22 Scheduled tasks | model+store BUILT (21 tests) | none | **blocked on one security decision** — a scheduler has no request, so firing needs a way for background code to act as a customer. See scheduled_task_models.py |
 | 23 Memory | see below | `/settings/condenser` | **label promises more than the page does** |
@@ -925,3 +925,44 @@ So there is no table to add an index to. The options are:
 
 Option 3 is the recommendation. Start there, and note that it is a migration and
 a backfill rather than a query — nobody should promise this as a small change.
+
+#### Item 20, built 2026-08-08 — and what was deliberately left out
+
+Storage, versions and restore are done and verified end to end. What is NOT
+built, and why each was a decision rather than a shortfall:
+
+**Share / auto-publish.** Sharing an artifact means answering three questions
+that storage does not depend on: what an unauthenticated reader sees, how a
+link is revoked, and whether the HISTORY travels with the document. The third
+is the one that bites — history holds every draft the customer thought better
+of, so a share that carries it leaks more than the thing being shared. This is
+the same class of question as the /mcp identity finding, and adding a `public`
+flag now would settle it by accident.
+
+**Print-to-PDF.** Real work, not a decision: needs a rendering path per kind
+(markdown, code, html) and it is the only one of the three that is purely
+additive. Best next.
+
+**Artifacts that call tools / query the model.** Not attempted. This is the
+item's real ceiling and it needs the agent to be able to CREATE artifacts in
+the first place — see below.
+
+**THE GAP THAT MATTERS MOST.** Nothing creates artifacts except a customer
+using the API directly. There is no "save this as an artifact" affordance in
+chat and no way for the agent to emit one. The gallery therefore works and
+will be empty for every real account, which is the same failure shape as
+scheduled tasks having a model and no runner: a feature that exists and never
+fires. The next piece of #20 is a creation path, not more gallery.
+
+Two candidate creation paths, and the tradeoff between them:
+  - a chat affordance ("keep this") on an agent message containing a code or
+    markdown block. Cheap, needs no agent change, and the customer decides
+    what is worth keeping.
+  - an agent tool. Better product, but it lets the agent spend the account's
+    artifact quota unprompted, and it needs the same "what bounds this" answer
+    that memory needed before it could be made agent-writable.
+
+The first does not block the second and is the honest starting point, for the
+same reason `nimbus_memory` shipped read/write before it was ever exposed to
+the agent: get the storage and the cap right while a human is still the only
+writer.
