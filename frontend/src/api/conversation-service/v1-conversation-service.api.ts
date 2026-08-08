@@ -258,6 +258,42 @@ class V1ConversationService {
   }
 
   /**
+   * Set the conversation's confirmation policy — how often the agent stops to
+   * ask before acting.
+   *
+   * `kind` is the SDK CLASS NAME, not a label of our choosing:
+   * `AlwaysConfirm` / `NeverConfirm` / `ConfirmRisky` in
+   * sdk/security/confirmation_policy.py. The wire tag is
+   * `self.__class__.__name__`, so a friendlier string here would serialise to
+   * a discriminated union the server cannot resolve — and it would fail at the
+   * server rather than at compile time.
+   *
+   * @param conversationId The conversation ID
+   * @param conversationUrl The conversation URL
+   * @param sessionApiKey Session API key for authentication (required for V1)
+   * @param kind Which policy to apply
+   */
+  static async setConfirmationPolicy(
+    conversationId: string,
+    conversationUrl: string | null | undefined,
+    sessionApiKey: string | null | undefined,
+    kind: "AlwaysConfirm" | "NeverConfirm" | "ConfirmRisky",
+  ): Promise<{ success: boolean }> {
+    const url = this.buildRuntimeUrl(
+      conversationUrl,
+      `/api/conversations/${conversationId}/confirmation_policy`,
+    );
+    const headers = buildSessionHeaders(sessionApiKey);
+
+    const { data } = await axios.post<{ success: boolean }>(
+      url,
+      { policy: { kind } },
+      { headers },
+    );
+    return data;
+  }
+
+  /**
    * Ask the agent a side question without queueing a full turn.
    * @param conversationId The conversation ID
    * @param conversationUrl The conversation URL

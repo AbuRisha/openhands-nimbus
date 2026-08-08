@@ -52,6 +52,28 @@ export const interruptV1Conversation = async (conversationId: string) => {
 };
 
 /**
+ * Set how often the agent stops to confirm, on a V1 conversation.
+ *
+ * A wrapper here rather than exporting `fetchV1ConversationData`: that helper
+ * is module-private on purpose, and `interruptV1Conversation` / `askV1Agent`
+ * both take this shape. Widening it for one caller would make every future
+ * caller resolve the conversation itself.
+ */
+export const setV1ConfirmationPolicy = async (
+  conversationId: string,
+  kind: "AlwaysConfirm" | "NeverConfirm" | "ConfirmRisky",
+) => {
+  const { conversationUrl, sessionApiKey } =
+    await fetchV1ConversationData(conversationId);
+  return V1ConversationService.setConfirmationPolicy(
+    conversationId,
+    conversationUrl,
+    sessionApiKey,
+    kind,
+  );
+};
+
+/**
  * Ask the agent a side question on a V1 conversation
  */
 export const askV1Agent = async (

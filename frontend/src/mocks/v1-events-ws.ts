@@ -71,6 +71,20 @@ const observation = (
   tool_call_id: callId,
 });
 
+/**
+ * A REAL 400x260 PNG, inlined.
+ *
+ * The Browser tab reads `screenshotSrc` from the browser store, which
+ * `conversation-websocket-context` sets from `observation.screenshot_data`.
+ * A placeholder string like "base64-screenshot-data" satisfies the store and
+ * then renders a BROKEN IMAGE — which is worse than the empty state, because
+ * it reads as a bug in the panel rather than as an absent fixture. So this is
+ * decodable bytes: a chrome bar, a heading block, three text lines and a
+ * button, recognisable as a rendered page at a glance.
+ */
+const SCREENSHOT_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAZAAAAEECAIAAACJKvXOAAADR0lEQVR42u3bvQ1AYBSGUcuIyiI0ao3SFHZS6XTGMAjRSPQ6fzdOciZ483kqN0mzHCCExASAYAEIFiBYAIIFIFiAYAEIFoBgAYIFIFgAggUIFoBgAQgWIFgAggUgWIBgAQgWgGABggUgWACCBQgWgGABCBYQLlhl1QCEIFhAnGAt6wYQgmABggUgWIBgAQgWgGABggUgWACCBQgWgGABCBYgWACCBSBYgGABCBbAk8Gquxle55MWLMFCsBAsECwEC8FCsAQLwUKwQLAQLAQLwRIsBAvBAsFCsBAsBEuwECwECwQLwUKwECzBQrAQLBAsBAvBQrBAsBAsECzBEiwEC8ECwUKwQLAES7AQLP4SLADBAhAsQLAABAsQLCsAggUgWIBgAQgWgGABggUgWACCBQgWgGABCBYgWACCBSBYgGABCBbAc8Hqhwn4FMESLBAswQIES7BAsARLsECwBAsQLMECwRIswQLB8uMogGABggUgWACCBQgWgGABggUgWACCBQgWgGABfClYDk3BibJggWAhWCBYggUIlmCBYAmWYIFgCRYgWIIFgiVYAIIFIFiAYAEIFoBgAYIFIFgAggUIFoBgAQgWIFjnnLDizBjBAsFCsBAsBAsEC8ECwRIswUKwECwQLAQLBEuwAAQLQLAAwQIQLADBAgQLQLAABAsQLADBAhAsQLAABAtAsADBAhAsAMECBAtAsAAECxAsAMECECxAsAAECxAsKwCCBSBYgGAB/CNYRTtyE88UBEuwQLAQLBAswQLBEizBAsFCsECwBAsES7AECwQLwQLBEiwQLMESLBAsBAsES7BAsARLsECwECwQLMECwRIswQLBQrBAsAQLBEuwBAsEC8ECwRIsECzBEiwQLAQLBEuwQLAES7BAsBAsECzBAsFSFsECwRIsLxWuDRaAYAEIFiBYAIIFCJYVAMECECxAsAAEC0CwAMECECwAwQIEC0CwAAQLECwAwQIQLECwAAQLQLAAwQIQLADBAgQLQLAABAsQLADBAhAsQLAABAsQLCsAggUgWIBgAQgWgGABggUgWACCBQgWgGABCBYgWACCBSBYgGABCBaAYAGCBSBYAIIFCBaAYAEIFiBYAIIFcNgBwy7lXoHaUcYAAAAASUVORK5CYII=";
+
 const BEFORE = `export function total(items) {
   let sum = 0;
   for (const item of items) {
@@ -152,6 +166,36 @@ const TRANSCRIPT: unknown[] = [
     "e9",
     "Replaced the loop with `reduce` and the four cart tests still pass.",
   ),
+
+  /*
+   * A browse, so the Browser TAB can be looked at.
+   *
+   * These events were correct from the start. What made the tab look broken
+   * was `BrowserPanel` calling `reset()` in a mount effect, which wiped the
+   * store when the user opened the tab to look at it. Fixed in browser.tsx.
+   *
+   * It rendered EmptyBrowserMessage in every dev session because nothing here
+   * ever populated the store, and the store is fed from exactly two event
+   * shapes -- see conversation-websocket-context. Both are needed: the
+   * navigate action sets the url, the observation sets the screenshot, and
+   * with only one of them the panel is still half empty.
+   *
+   * Same class as the transcript being empty before this file existed: a
+   * surface that is correct, and permanently shows its EMPTY state in the one
+   * environment anyone reviews UI in.
+   */
+  action("e9a", "call_browse", {
+    kind: "BrowserNavigateAction",
+    url: "http://localhost:5173/cart",
+  }),
+  observation("e9b", "call_browse", "e9a", {
+    kind: "BrowserObservation",
+    url: "http://localhost:5173/cart",
+    screenshot_data: SCREENSHOT_B64,
+    output: "Navigated to http://localhost:5173/cart",
+    error: null,
+    content: [{ type: "text", text: "Navigated to /cart" }],
+  }),
 
   // A refusal, so the failover prompt can actually be looked at. Short on
   // purpose: looksLikeRefusal has a length ceiling, because a long message

@@ -667,3 +667,312 @@ mid-cycle. Any commit by any session can revert any other session's uncommitted
 work in this tree. Separate worktrees are the only real fix; until then, commit
 WIP early and treat uncommitted work as unsafe.
 
+
+## 2026-08-08 — HANDOFF. Start here.
+
+Integration branch `land/auth-gates`. Verified at handoff: `npm run typecheck`
+clean, backend `pytest tests/app_server` 256 passed, frontend 2660 pass with 1
+known-upstream fail (`recent-conversation`). Tier 0 clear, Tier 1 done except
+items blocked upstream.
+
+### RETRACTED 2026-08-08 — both "shovel-ready" items below were wrong
+
+Do NOT start from the section that follows. Verified in the code:
+
+* **#24 is ALREADY BUILT.** `skills-settings.tsx:233-250` maps marketplace
+  plugins into `type: "plugin"` rows; `skills-table.tsx:155` renders them.
+  Read-only by design — enablement follows the parent marketplace. The feed is
+  the app server's `user/skills_router.py`, not the agent server's
+  `plugins_router`.
+* **#21's backend is a different feature sharing a word.** `workspaces_router`
+  is "local directories the GUI surfaces in its workspace picker" (its own
+  docstring) — not grouped folders, auto-summary or per-workspace memory.
+
+I wrote the section below and told the founder to start there. Both entries
+came from matching ROUTER NAMES rather than reading what the code does, which
+is the same failure this repo's docs catalogue — committed while applying the
+fix for it.
+
+**What is actually next, in order:** the three founder decisions (#16, #23,
+#12). None of the remaining build items is shovel-ready; #20, #22 and #26 are
+genuinely unbuilt and unserved, which makes them real projects rather than
+wiring jobs.
+
+### Superseded: the section below is kept only for the endpoint inventory
+
+**#24 Plugin marketplace UI.** The backend is LIVE and there is no UI at all:
+
+    POST   /plugins                    search/list
+    GET    /plugins/marketplace        catalog
+    GET    /plugins/installed          installed list
+    POST   /plugins/... (x2)           install
+    DELETE /plugins/...                uninstall
+
+**#21 Workspaces UI** is the same shape — `workspaces_router` has 5 endpoints
+(get, post, delete, post /parents, delete /parents) and no UI.
+
+These two are the only items on the whole roadmap where a pure frontend
+estimate is correct, because the backend is already there. Everything else
+needed a backend read first — see the inventory sections in
+`docs/parity-roadmap.md`, which now carry a verified state per item rather than
+a size guessed from the frontend.
+
+### Four decisions that are the founder's, each blocking real work
+
+1. **#16 preview introspection** — leave it (the agent's own browser already
+   gives the model screenshots and console), serve the preview from a separate
+   origin, or inject a postMessage shim. DO NOT add `allow-same-origin`.
+2. **#23 "Memory"** — the nav entry points at the condenser. Build editable
+   memory files behind it, or rename the page.
+3. **#12 fork** — state-copier built and reviewed; transport wrapper and
+   endpoint specced in `docs/fork-conversation-design.md`. Also decide the UI
+   name; "fork" oversells it, since it rewinds the conversation and NOT the
+   working tree.
+4. **Cloudflare CNAME** — `chat.nimbusapi.net` targets librechat's FQDN, so
+   deleting that app breaks the chat domain. Refused by a classifier for two
+   sessions; needs hands in the Cloudflare UI.
+
+### The one habit worth keeping from this session
+
+Read the backend before quoting a size. Eleven roadmap items were wrong in the
+same direction: three were already built, two blocked upstream, two were naming
+decisions, one a security decision, and two had live backends nobody had
+noticed. Every wrong entry was written from the frontend's side.
+
+And run the project's own check — `npm run typecheck`, not bare `tsc`. A bare
+compiler skips the codegen step and emits six TS2578 errors that look real.
+Three sessions read those errors and the first two explanations were wrong.
+
+
+
+## 2026-08-08 — #12 merged and DEPLOYED, then a review found a hole in it
+
+PR #17 merged (`b37af6060`) and is live: image `fork12-20260808`, revision
+`openhands-nimbus--0000090`, Healthy / RunningAtMaxScale. Rollback point is
+image `mcpauth-20260807`, revision `openhands-nimbus--0000089`.
+
+Live checks that passed: `/health` `/alive` `/ready` 200; `/mcp` still refuses
+anonymous callers; signed-out `GET /` 302; the route is in the deployed
+`openapi.json`. The load-bearing one is that the fork endpoint answers **401**
+anonymously — 404 would have meant it never registered, 200 would have meant it
+shipped ungated, so 401 is the only answer that proves both at once.
+
+### The hole, and why the green suite could not see it
+
+`transfer_forked_state` returned an event count parsed from the SOURCE copier's
+stdout, and after `tar xzf` on the target NOTHING checked what arrived. `tar`
+exits 0 whether the archive unpacks at the depth we assumed or one level off,
+and that framing was read from the agent server's source, never observed. A
+wrong guess therefore produced a healthy `copied=N` for a fork whose agent would
+start with no memory — the exact failure #12 exists to prevent, reintroduced by
+an unverified assumption about someone else's file format.
+
+Every test passed throughout, because all of them asserted the SOURCE side.
+Fixed in PR #18 by `_verify_landed`: probe the TARGET for `base_state.json` and
+count the event files where the AGENT will look, raise on any disagreement. The
+probe always exits 0 and reports `{"base": 0|1, "events": N}`, so a missing
+directory arrives as a parsed answer rather than a cryptic non-zero exit.
+
+State-first ordering is what makes that sufficient rather than merely
+diagnostic: raising there means the transcript is never mirrored, so a failure
+presents as an EMPTY fork someone reports instead of a COMPLETE one they trust.
+
+**PRODUCTION DOES NOT HAVE THIS FIX.** Revision `--0000090` predates PR #18.
+
+### The generalisable lesson
+
+A returned count is only evidence about the place it was counted. This one was
+counted in the source and used to assert something about the target. When a
+value crosses a boundary, re-establish it on the far side or stop calling it
+verification.
+
+### Still not verified, and it is the same caveat as at merge time
+
+No live agent server has ever answered these calls. The wire shape is asserted
+through real httpx via `MockTransport`, but multipart field naming, archive
+framing and what `BashOutput` carries on a non-zero exit are all read from
+source. A first functional fork against an authenticated conversation remains
+the only honest gate. PR #18 does not close that gap — it changes what being
+wrong costs, from a silent amnesiac fork to a loud 502.
+
+### Trap fixed while here
+
+`gh`'s default repo in this worktree resolved to upstream `OpenHands/OpenHands`,
+so a bare `gh pr view 17` returned an UNRELATED upstream PR (base `main`, head
+`neubig/add_prototype_frontend`) and `gh pr create` failed with "No commits
+between". Set to `AbuRisha/openhands-nimbus`. Check this before trusting any
+bare `gh pr` output in a worktree.
+
+Do not commit `uv.lock` from Windows: `uv run` re-resolves it with win32
+platform markers on `cffi`/`clr-loader` plus an `[options] exclude-newer` block.
+Local toolchain noise that would constrain the lock for everyone.
+
+### Next three actions
+
+1. Founder call: merge `land/auth-gates` -> `main`. `b37af6060` is confirmed an
+   ancestor of `land/auth-gates` but NOT of `main`, so production runs code that
+   is not on the release branch.
+2. Founder call: redeploy to pick up PR #18 once reviewed. The endpoint is
+   auth-gated and no UI calls it yet, so the exposure is low, but the deployed
+   revision can report a fork that did not land.
+3. First functional fork against a real authenticated conversation. Everything
+   else about #12 is verified as far as it can be from outside a live sandbox.
+
+## 2026-08-08 - P0: the chat could not send a message at all
+
+Reported by the founder with a screenshot:
+
+    Duplicate tool names found: {'browser_list_tabs', 'browser_navigate'}
+
+Our bridge tools reused two names the SDK's own browser_use toolset already
+uses, and `get_default_tools(enable_browser=True)` pulls that toolset in. A
+duplicate name does not shadow a tool or drop one - `AgentBase` refuses to build
+the agent (sdk/agent/base.py:597), so EVERY message send failed, for every user,
+whether or not they had ever paired a browser. A browser feature nobody had
+adopted took down the core product.
+
+`browser_read_page` did not collide, which is why the error named two tools and
+not three, and why it read as something exotic rather than as a naming clash.
+
+Renamed to `paired_browser_*` (`edf548a5f`). The prefix is not cosmetic: the
+model must choose between a sandboxed browser signed into nothing and the
+customer's own signed-in one, and the name is most of what it has to go on.
+
+### A second bug underneath, which predated it
+
+`extension/background.js` switches `message.tool` over a fixed vocabulary -
+get_page_text / get_page_url / navigate / list_tabs - and throws "unsupported
+tool" on anything else. `BrowserBridgeExecutor` sent the TOOL NAME. So even with
+the collision fixed, every call to a paired browser would have been refused by
+the browser. The bridge could never have worked end to end, and no test caught
+it because each half was correct on its own terms.
+
+The wire verb is now an explicit map (`_WIRE_VERB`), not the tool name, because
+the two vocabularies belong to different sides: the tool name is ours and just
+changed, while the verb is a contract with an extension already installed in
+customers' browsers. A rename must never reach the wire. A tool registered
+without a verb now raises at construction rather than at a customer's first use.
+
+### What to copy from the fix, not just the fix
+
+- Both tests were confirmed to go RED against the pre-fix code before being
+  trusted green. A test written after the fact is a hypothesis until you have
+  seen it fail for the right reason.
+- The valuable test builds the REAL production list -
+  `get_default_tools(enable_browser=True)` then `_add_nimbus_extra_tools` -
+  rather than name sets written by hand. Checking each half against your model
+  of the other half is precisely what produced the outage.
+- Both tests guard against passing VACUOUSLY: if the bridge tools stop being
+  injected, or the SDK browser toolset stops being present, they say so instead
+  of going quietly green. `RUNTIME=process` has to be set or the injection
+  branch is skipped entirely and the assertion holds over an empty set.
+- The first version of the test read `annotations.title`; the SDK de-duplicates
+  on `.name`. They agree here, so it passed. A test that checks the wrong field
+  is worth less than no test, because it reads as coverage.
+- Widened to compare EVERY Nimbus tool name against EVERY SDK tool name, so the
+  next collision is a failing test rather than an outage. Nimbus registers media
+  and workflow tools beside these, all named without consulting the SDK.
+
+### Trap: the lane that still had the bug
+
+`lane/bridge` was fully merged into `land/auth-gates` (0 commits ahead) but 47
+BEHIND, so its worktree still contained the colliding names. Merged-in does not
+mean up-to-date, and anything built from that lane would have reintroduced the
+outage. Fast-forwarded. Worth checking `behind` and not only `ahead` before
+believing a lane is safe to build from.
+
+Also: an edit meant for the integration tree landed in `oh-wt-bridge` first,
+because the shell's cwd resets between calls. The result was a docstring
+describing a prefix that tree's code did not use - the exact "confident
+description outlives the thing it described" failure documented in nimbus-v2's
+`docs/worktrees-and-shared-tree-traps.md`. Reverted. Check `pwd` in the same
+call as the edit, not in a previous one.
+
+### The third bug, found only by sending a real message
+
+With the collision fixed the agent built, and the first POST to /events came
+back 500 from the agent server:
+
+    PydanticSerializationError: Error calling function
+    `_serialize_by_kind`: RecursionError
+
+`_make_tool` created each class under a throwaway name and then assigned
+`__name__`. That reads as equivalent to naming it correctly and is not:
+pydantic captures the name when it builds the core schema, so the serializer
+knew the class as `_Tool` while instances reported the new name.
+`_serialize_by_kind` compares the two to decide whether a handler belongs to the
+current class; they never matched, so it delegated to `model_dump`, which
+re-entered the serializer, until the stack ran out. Built with
+`types.new_class` instead, which names the class at creation (`type()` would
+bypass ToolDefinition's metaclass).
+
+Three lessons, in order of how much time they would have saved:
+
+1. **Fixing a bug can reveal the next one rather than finish the job.** The
+   duplicate-name bug stopped the agent being built at all, so nothing ever
+   tried to serialize these tools, so this could not surface until the first fix
+   landed. "The P0 is fixed" was true and "the chat works" was not.
+2. **361 backend tests passed throughout.** Not one of them ever serialized a
+   tool. A green suite measures what it covers, and these three tools had been
+   constructed by tests but never round-tripped.
+3. **Only using the product found it.** Creating a conversation through the UI
+   and pressing send is what produced the 500. Every static check - imports,
+   registry, name sets - passed at every stage.
+
+Deployment sequence: `bridgefix-20260808` / revision --0000092 carried the
+rename; `bridgefix2-20260808` carries this. Rollback target before either is
+`fork12v2-20260808` / --0000091.
+
+### Two live bugs observed while testing, not yet fixed
+
+- **The events socket retry-loops 403 forever.** A tab whose conversation is
+  gone reconnects every ~4s indefinitely, with no backoff, no give-up and
+  nothing shown to the user. `validate_session_key` raises 401 for an unknown
+  key with NO log line (only the non-running-sandbox branch logs), so the most
+  common rejection is silent server-side too.
+- **`GET /api/v1/app-conversations?ids=<unknown>` returns `[null]`**, not `[]`
+  and not 404. A caller checking `.length` sees one result and a caller reading
+  `data[0].x` crashes.
+- The composer's send button has **no accessible name** - it is a bare `button`
+  in the a11y tree, so a screen-reader user cannot identify the send control.
+
+## 2026-08-08 — #12 has never worked, and the reason tests could not see it
+
+**Do not record #12 as shipped until a fork is driven against a DEPLOYED image.**
+It has been called done twice and was false both times. Full detail in
+`docs/parity-roadmap.md` under "Item 12".
+
+Short version: the transport calls `{base_url}/bash/execute_bash_command`, but
+`agent_server/api.py:343` mounts bash/file/git/vscode under
+`APIRouter(prefix="/api")`. Only `/alive` and `/server_info` are at the root —
+so the health check passes while every functional call 404s. Every image shipped
+so far contains a fork that cannot fork. Fix is PR #19.
+
+### The rule this bought, which is worth more than the fix
+
+**A suffix cannot observe a missing prefix.** Every fork test asserted
+`path.endswith('/bash/execute_bash_command')`, which is equally true of the
+broken and the correct URL. 43 green tests, measuring the tail of a value whose
+defect was in the head.
+
+Three instances of that shape in one day:
+
+* fork transport counted events from the SOURCE's stdout — an assertion made
+  where it could not observe the target
+* those `endswith` path checks
+* a `"'browser_navigate'" in source` check that matched the author's own
+  DOCSTRING and nearly caused a false "production is broken" escalation
+
+Before writing an assertion, ask where the defect would have to live for this
+check to miss it. If the answer is "anywhere outside the substring I chose",
+compare the whole value.
+
+### And a baseline warning that cost an hour
+
+The frontend suite is FLAKY UNDER LOAD, not stable. A change appeared to break
+8 tests; reverting it and re-running clean HEAD failed 8 DIFFERENT tests, and
+every file passed in isolation (`llm-settings` 80/80). They are 5s timeouts.
+**The "2670 pass, 1 fail" quoted repeatedly today was a lucky run, not a
+baseline.** Raise the timeout or cap concurrency before it trains everyone to
+ignore red — it already nearly convinced one session its own fix was broken.
+

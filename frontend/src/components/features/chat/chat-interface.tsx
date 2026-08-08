@@ -21,8 +21,10 @@ import { LoadingSpinner } from "#/components/shared/loading-spinner";
 import { ChatMessagesSkeleton } from "./chat-messages-skeleton";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import { useErrorMessageStore } from "#/stores/error-message-store";
+import { useSessionExpiredStore } from "#/stores/session-expired-store";
 import { useOptimisticUserMessageStore } from "#/stores/optimistic-user-message-store";
 import { ErrorMessageBanner } from "./error-message-banner";
+import { SessionExpiredBanner } from "./session-expired-banner";
 import { Messages as V1Messages } from "#/components/v1/chat";
 import { useUnifiedUploadFiles } from "#/hooks/mutation/use-unified-upload-files";
 import { validateFiles } from "#/utils/file-validation";
@@ -52,6 +54,9 @@ import { FindInConversation } from "./find-in-conversation";
 export function ChatInterface() {
   const { setMessageToSend } = useConversationStore();
   const { errorMessage, removeErrorMessage } = useErrorMessageStore();
+  const isSessionExpired = useSessionExpiredStore(
+    (state) => state.isSessionExpired,
+  );
   const { isTask, taskStatus, taskDetail } = useTaskPolling();
   const conversationWebSocket = useConversationWebSocket();
   const { send } = useSendMessage();
@@ -483,7 +488,12 @@ export function ChatInterface() {
             {!hitBottom && <ScrollToBottomButton onClick={scrollDomToBottom} />}
           </div>
 
-          {errorMessage && (
+          {/* The expired banner REPLACES the error banner rather than stacking
+              with it. Both describe the same dead socket, and only one of them
+              names something the user can do about it. */}
+          {isSessionExpired && <SessionExpiredBanner />}
+
+          {!isSessionExpired && errorMessage && (
             <ErrorMessageBanner
               message={errorMessage}
               onDismiss={removeErrorMessage}

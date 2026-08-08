@@ -1,9 +1,23 @@
-"""``browser_*`` tools that drive the customer's OWN logged-in browser.
+"""``paired_browser_*`` tools that drive the customer's OWN logged-in browser.
 
 The agent already has a browser: a headless Chromium in the sandbox. This is a
 different thing, and the difference is the point — the sandbox browser is signed
 into nothing, so "check my orders" or "read the ticket" is impossible there and
 trivial in the browser the customer is already using.
+
+WHY THE NAMES CARRY A PREFIX
+----------------------------
+These were once `browser_read_page` / `browser_navigate` / `browser_list_tabs`.
+Two of those names are already taken by the SDK's own browser_use toolset, and a
+duplicate name does not shadow or lose a tool — the SDK refuses to build the
+agent at all:
+
+    Duplicate tool names found: {'browser_list_tabs', 'browser_navigate'}
+
+which broke every message send in the product, for every user, paired browser or
+not. The prefix also does real work at call time: the model must choose between a
+sandboxed browser signed into nothing and the customer's own signed-in one, and
+the name is most of what it has to go on.
 
 WHY THESE CALL BACK TO THE APP SERVER
 -------------------------------------
@@ -31,6 +45,7 @@ from __future__ import annotations
 
 import logging
 import os
+import types
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
@@ -135,11 +150,37 @@ def _session_api_key() -> str:
     return os.getenv('OH_SESSION_API_KEYS_0') or os.getenv('SESSION_API_KEY') or ''
 
 
+# The WIRE VERB the extension switches on, per tool.
+#
+# extension/background.js dispatches `message.tool` over a small fixed
+# vocabulary — get_page_text / get_page_url / navigate / list_tabs — and throws
+# "unsupported tool" on anything else. Sending the TOOL NAME instead meant every
+# call reached a paired browser and was refused by it, so the bridge could never
+# have worked end to end however correct both halves looked.
+#
+# Kept as an explicit map rather than derived from the tool name, because the
+# two vocabularies belong to different things: the tool name is ours to rename
+# (it just changed, to stop colliding with the SDK's browser_use tools) while
+# the wire verb is a contract with an extension already installed in customers'
+# browsers. A rename must never reach the wire.
+_WIRE_VERB: dict[str, str] = {
+    'paired_browser_read_page': 'get_page_text',
+    'paired_browser_navigate': 'navigate',
+    'paired_browser_list_tabs': 'list_tabs',
+}
+
+
 class BrowserBridgeExecutor(
     ToolExecutor[BrowserBridgeAction, BrowserBridgeObservation]
 ):
     def __init__(self, tool: str) -> None:
         self._tool = tool
+        # Fail loudly at construction rather than at the first call: a tool
+        # added here without a verb would otherwise register fine, appear in the
+        # agent's tool list, and only fail once a customer used it.
+        if tool not in _WIRE_VERB:
+            raise KeyError(f'no bridge wire verb registered for tool {tool!r}')
+        self._verb = _WIRE_VERB[tool]
 
     def __call__(
         self, action: BrowserBridgeAction, conversation: Any = None
@@ -159,7 +200,7 @@ class BrowserBridgeExecutor(
                 headers={'X-Session-API-Key': _session_api_key()},
                 json={
                     'device_id': action.device_id or '',
-                    'tool': self._tool,
+                    'tool': self._verb,
                     'params': params,
                 },
                 timeout=BRIDGE_TIMEOUT,
@@ -189,34 +230,60 @@ class BrowserBridgeExecutor(
 def _make_tool(
     tool_name: str, action_type: type[Action], description: str, read_only: bool
 ) -> type[ToolDefinition]:
-    # `tool_name`, not `name`: inside a class body the right-hand side of
-    # `name = name` resolves in the class namespace rather than the enclosing
-    # function, so the obvious spelling raises NameError at import.
-    class _Tool(ToolDefinition):
-        name: ClassVar[str] = tool_name
+    """Build a tool class whose real class name IS ``tool_name``.
 
-        @classmethod
-        def create(cls, conv_state: Any = None, **params: Any) -> Sequence['_Tool']:
-            return [
-                cls(
-                    description=description,
-                    action_type=action_type,
-                    observation_type=BrowserBridgeObservation,
-                    annotations=ToolAnnotations(
-                        title=tool_name,
-                        readOnlyHint=read_only,
-                        openWorldHint=True,
-                    ),
-                    executor=BrowserBridgeExecutor(tool_name),
-                )
-            ]
+    The name has to be correct at CLASS-CREATION time, which is why this uses
+    ``types.new_class`` rather than a class statement followed by a rename.
 
-    _Tool.__name__ = f'{tool_name}_tool'
-    return _Tool
+    Assigning ``__name__`` afterwards looks equivalent and is not. Pydantic
+    captures the name when it builds the core schema for the class, so the
+    serializer went on knowing the class as ``_Tool`` while instances reported
+    the new name. ``DiscriminatedUnionMixin._serialize_by_kind`` compares those
+    two (sdk/utils/models.py) to decide whether the handler belongs to the
+    current class; when they disagree it delegates to ``model_dump``, which
+    re-enters the same serializer, which disagrees again:
+
+        PydanticSerializationError: Error calling function
+        `_serialize_by_kind`: RecursionError
+
+    That surfaced as a 500 from the agent server on POST /events - i.e. sending
+    ANY message failed the moment these tools were actually in the agent, which
+    is why it stayed hidden behind the duplicate-name bug that stopped the agent
+    from being built at all.
+    """
+
+    def _create(cls: type, conv_state: Any = None, **params: Any) -> Sequence[Any]:
+        return [
+            cls(
+                description=description,
+                action_type=action_type,
+                observation_type=BrowserBridgeObservation,
+                annotations=ToolAnnotations(
+                    title=tool_name,
+                    readOnlyHint=read_only,
+                    openWorldHint=True,
+                ),
+                executor=BrowserBridgeExecutor(tool_name),
+            )
+        ]
+
+    def _body(ns: dict[str, Any]) -> None:
+        # `tool_name`, not `name`: inside a class body the right-hand side of
+        # `name = name` would resolve in the class namespace rather than the
+        # enclosing function.
+        ns['__annotations__'] = {'name': ClassVar[str]}
+        ns['name'] = tool_name
+        ns['__module__'] = __name__
+        ns['__doc__'] = description
+        ns['create'] = classmethod(_create)
+
+    # new_class, not type(): ToolDefinition has a custom metaclass, and a bare
+    # three-argument type() call would bypass it.
+    return types.new_class(tool_name, (ToolDefinition,), exec_body=_body)
 
 
 BrowserReadPageTool = _make_tool(
-    'browser_read_page',
+    'paired_browser_read_page',
     BrowserReadPageAction,
     (
         "Read the visible text of the page in the user's own browser. Use this "
@@ -228,7 +295,7 @@ BrowserReadPageTool = _make_tool(
 )
 
 BrowserNavigateTool = _make_tool(
-    'browser_navigate',
+    'paired_browser_navigate',
     BrowserNavigateAction,
     (
         "Open a URL in the user's own browser. This changes what they are "
@@ -239,7 +306,7 @@ BrowserNavigateTool = _make_tool(
 )
 
 BrowserListTabsTool = _make_tool(
-    'browser_list_tabs',
+    'paired_browser_list_tabs',
     BrowserListTabsAction,
     "List the tabs open in the user's own browser.",
     read_only=True,

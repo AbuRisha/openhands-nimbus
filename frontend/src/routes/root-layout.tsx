@@ -34,6 +34,7 @@ import { LoadingSpinner } from "#/components/shared/loading-spinner";
 import { useAppTitle } from "#/hooks/use-app-title";
 import { useAutoAcceptInvitation } from "#/hooks/use-auto-accept-invitation";
 import { usePostHogIdentify } from "#/hooks/use-posthog-identify";
+import { CommandPalette } from "#/components/features/command-palette/command-palette";
 
 export function ErrorBoundary() {
   const error = useRouteError();
@@ -234,6 +235,10 @@ export default function MainApp() {
           </OnboardingGuard>
         </div>
       </div>
+
+      {/* Cmd+K, mounted app-wide so the chord works from anywhere. Renders
+          null until opened, so this costs one registry entry at rest. */}
+      <CommandPalette />
 
       {renderReAuthModal && <ReauthModal />}
       {config.data?.app_mode === "oss" && consentFormIsOpen && (

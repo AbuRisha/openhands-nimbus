@@ -1,4 +1,5 @@
 ARG OPENHANDS_BUILD_VERSION=dev
+ARG OPENHANDS_GIT_SHA=unknown
 FROM node:25.9-trixie-slim AS frontend-builder
 
 WORKDIR /app
@@ -36,6 +37,26 @@ WORKDIR /app
 
 # re-declare for this section
 ARG OPENHANDS_BUILD_VERSION
+ARG OPENHANDS_GIT_SHA
+
+# The commit this image was built from, as BOTH a label and an env var.
+#
+# WHY BOTH. The label is readable without running anything --
+# `az acr manifest show-metadata <repo>:<tag>` or `docker inspect` -- which is
+# what you want when asking "what is in this artifact?" about an image you have
+# not deployed. The env var is readable from inside a running container, which
+# is what `/server_info` reports, and that is what you want when asking "what is
+# actually serving traffic right now?" Those are different questions and on
+# 2026-08-08 we could answer neither: establishing whether a deployed image
+# carried a specific fix took a 48-second `az acr run` task that executed the
+# image and grepped a source file, and before that it took asking the person who
+# built it. Every image in this registry is currently untraceable to a commit.
+#
+# `org.opencontainers.image.revision` is the OCI standard key, so generic
+# tooling finds it without knowing anything about this project.
+LABEL org.opencontainers.image.revision=$OPENHANDS_GIT_SHA
+LABEL org.opencontainers.image.version=$OPENHANDS_BUILD_VERSION
+ENV OPENHANDS_GIT_SHA=$OPENHANDS_GIT_SHA
 
 ENV RUN_AS_OPENHANDS=true
 # A random number--we need this to be different from the user's UID on the host machine

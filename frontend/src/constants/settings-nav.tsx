@@ -210,14 +210,22 @@ export const OSS_NAV_ITEMS: SettingsNavItem[] = [
     text: "SETTINGS$NAV_CAPABILITIES",
     section: "workspace",
   },
-  {
-    icon: <CircuitIcon width={22} height={22} />,
-    to: "/settings",
-    // "Model", not "LLM". Nobody outside this industry says LLM.
-    text: "SCHEMA$LLM$MODEL$LABEL",
-    section: "workspace",
-    disabledByAcp: true,
-  },
+  /*
+   * NO "Model" ENTRY, DELIBERATELY.
+   *
+   * It pointed at `/settings` (the LLM-profiles screen), where a customer had
+   * to add and enable each model before they could use it. Every model in the
+   * catalog is available to every customer — there is nothing to opt into, so
+   * a screen for opting in is a step that only ever costs the customer time
+   * and makes the product look gated.
+   *
+   * Models are chosen per conversation from the composer's model selector,
+   * which is where the choice belongs: next to the message it affects, not
+   * buried in settings. `/model` in the chat does the same thing.
+   *
+   * The route still exists for the org-defaults flow; it is simply not a place
+   * we send customers.
+   */
 
   // ── Customize ─────────────────────────────────────────────────────────
   // What you ADD to the product, as opposed to how it already behaves.
@@ -245,11 +253,23 @@ export const OSS_NAV_ITEMS: SettingsNavItem[] = [
   },
   {
     icon: <MemoryIcon width={22} height={22} />,
-    to: "/settings/condenser",
-    // "Memory". A condenser compacts conversation context so a long session
-    // survives — which is what memory means to the person using it. The word
-    // "condenser" describes the mechanism to the people who built it.
+    to: "/settings/memory",
+    // "Memory" now points at the DURABLE PER-CUSTOMER DOCUMENT — the thing the
+    // assistant knows about you, carried into every conversation you start.
+    //
+    // It used to point at the condenser. Both get called "memory" by someone
+    // describing the mechanism, but only one is what a customer means when
+    // they click Memory, and the entry promised state the page did not hold.
     text: "SETTINGS$NAV_MEMORY",
+    section: "customize",
+  },
+  {
+    icon: <MemoryIcon width={22} height={22} />,
+    to: "/settings/condenser",
+    // Named for what it does rather than for what it resembles: it compacts a
+    // single long conversation so the session survives. That is not the same
+    // thing as remembering you between conversations.
+    text: "SETTINGS$NAV_CONVERSATION_LENGTH",
     section: "customize",
     disabledByAcp: true,
   },

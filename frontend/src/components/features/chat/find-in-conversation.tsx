@@ -60,7 +60,20 @@ export function FindInConversation({
       data-testid="find-in-conversation"
       role="search"
       aria-label={t(I18nKey.FIND$IN_CONVERSATION)}
-      className="absolute top-2 right-4 z-50 flex items-center gap-1 rounded-lg border border-[#4B505F] bg-[#25272D] px-2 py-1.5 shadow-lg"
+      /*
+       * `max-w` and `left-2` matter at 375px and were missing.
+       *
+       * MEASURED on a phone viewport: the bar rendered 374px wide with its left
+       * edge at -204, so the INPUT — the part you type into — sat off the left
+       * of the screen while the buttons stayed visible. `right-4` alone anchors
+       * to a positioning parent that is not the viewport, so a wide bar grows
+       * leftwards out of view.
+       *
+       * The page itself did NOT overflow, so a `scrollWidth > clientWidth`
+       * check on the document reported clean. Element geometry was the only
+       * thing that showed it.
+       */
+      className="absolute top-2 right-4 left-2 sm:left-auto z-50 flex items-center gap-1 rounded-lg border border-[#4B505F] bg-[#25272D] px-2 py-1.5 shadow-lg max-w-[calc(100vw-1rem)]"
     >
       <input
         ref={inputRef}
@@ -79,7 +92,7 @@ export function FindInConversation({
         }}
         placeholder={t(I18nKey.FIND$PLACEHOLDER)}
         aria-label={t(I18nKey.FIND$PLACEHOLDER)}
-        className="w-48 bg-transparent text-sm text-white outline-none placeholder:text-[#8A8F9C]"
+        className="w-48 min-w-0 flex-1 sm:flex-none bg-transparent text-sm text-white outline-none placeholder:text-[#8A8F9C]"
       />
 
       <span
@@ -87,7 +100,7 @@ export function FindInConversation({
         // Announced politely: a count that changes on every keystroke is
         // useful to hear, but not urgent enough to interrupt.
         aria-live="polite"
-        className={`min-w-[4.5rem] text-right text-xs tabular-nums ${
+        className={`shrink-0 text-right text-xs tabular-nums sm:min-w-[4.5rem] ${
           noMatches ? "text-[#F87171]" : "text-[#8A8F9C]"
         }`}
       >
