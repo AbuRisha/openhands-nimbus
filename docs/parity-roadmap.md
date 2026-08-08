@@ -90,7 +90,7 @@ stale DONE costs the whole implementation.
 | 9 | **Find-in-conversation (Cmd+F)** | **DONE** | `284849fc4`. CSS Custom Highlight API — see the collapsed-rows limitation recorded there |
 | 10 | **@-mention picker with content search** | not started, **and blocked on a backend endpoint that does not exist** | Nothing reachable from the browser can list or search FILES. Needs a new app_server route before any UI. See "Item 10, scoped" |
 | 11 | **Tool-permission prompts + permission modes** | **DONE 2026-08-08** | `permission-mode-button.tsx`, mounted in `chat-input-actions.tsx`; POSTs `{"policy":{"kind":...}}` to `/confirmation_policy`. `kind` values are SDK CLASS NAMES, not the TS interface names. Folder trust remains separate and unbacked |
-| 12 | **Session fork + rewind** | **fix now IN the deployed image; behaviour still unverified** | `routing2-20260808` / rev `0000097` carries all three `/api`-prefixed callsites, confirmed by image inspection. Nobody has yet driven a fork against it. See "Item 12" below before touching it |
+| 12 | **Session fork + rewind** | **WORKS end-to-end — and the live run found 5 defects** | First authenticated fork through the public API returned 200 in 14.0s (session `local_c44142de`, founder-authorised). Five defects follow; none was findable by inspection. See "Item 12" |
 | 13 | **Server-side PTY terminal** | **half done, half blocked upstream** | Read-only agent terminal ships. Interactive shell impossible on this API: no stdin, no TTY, no session. See "Item 13, answered" |
 | 14 | **`/help` + built-in command set** | **DONE** | `0357cd459`. Help reads `BUILT_IN_COMMANDS` at render, so it cannot go stale |
 | 15 | **Shortcut registry + `Cmd+K` + `↑` recall** | **DONE** | Registry `35e333cdb`, recall `590286ea9`, palette `3c797261a`. Palette actions derive from `useSettingsNavItems`, so they cannot drift from the real nav |
@@ -111,11 +111,18 @@ files at all**, by name or content, so the schema question never arises.
 
 **Every file route behind it** (SDK `agent_server/file_router.py`):
 
-    POST /file/upload         one file, in
-    GET  /file/download       one file, out, path must already be known
-    GET  /file/archive        the WHOLE tree as tar.gz
-    GET  /file/home           home dir + top-level DIRECTORIES + fs roots
-    GET  /file/search_subdirs immediate subdirectories
+    POST /file/upload                     one file, in
+    GET  /file/download                   one file, out, path must be known
+    GET  /file/archive                    the WHOLE tree as tar.gz
+    GET  /file/home                       home + top-level DIRECTORIES + roots
+    GET  /file/search_subdirs             immediate subdirectories
+    GET  /file/download-trajectory/{id}   a conversation trajectory zip
+
+**That last route was missing from the first version of this list, which said
+"five".** The conclusion is unaffected — a trajectory zip is not a workspace
+listing — but an enumeration that stops one short reads as exhaustive, which is
+the same shape as the substring near-miss recorded under item 12. Re-derive with
+`grep -n "@file_router\."` and compare counts rather than trusting the prose.
 
 `search_subdirs` is the GUI's workspace picker and its docstring is explicit:
 *"Symlinks and files are skipped."* It is the same directory-picker that item 21
@@ -129,15 +136,30 @@ is unavailable, and should stay that way: exposing arbitrary command execution
 to the browser is a security change, not a convenience, and the auth gate's
 exempt list (`nimbus_auth_gate.py:80`) would have to grow to match.
 
+**One correction to the sentence above: "cannot enumerate files at all" is very
+slightly too strong.** `/file/archive` returns the whole tree as tar.gz, so a
+client *can* enumerate — by downloading and unpacking the entire workspace, per
+session, to populate a picker. That is ruled out on cost, not on existence, and
+the distinction matters: "impossible" invites someone to discover the archive
+route and mistake finding it for finding the answer. The accurate form is
+**cannot enumerate without transferring the entire workspace.**
+
 **So item 10 needs a new app_server endpoint** — something like
 `GET /api/v1/app-conversations/{id}/workspace/search?q=` — that runs server-side
 and reaches the sandbox the way `fork_state_transport.py` already does
 (server-to-server, via `sandbox.api_base`). That is backend work and it comes
 before any picker UI. Sizing this as a frontend task will be wrong.
 
-What is genuinely undecided, once the endpoint exists, is whether it matches
-filenames or content, and what it returns per hit. That decision was never the
-thing standing in the way.
+**The real undecided question is the mechanism, not the schema.** Does the
+endpoint shell out through the agent's bash (fast — `git ls-files`, `rg --files`
+— but re-creates one layer in exactly the execution surface that argues against
+proxying `/api/bash/*`), or walk the tree server-side (slower, no new execution
+path)? That is the decision with consequences. Filenames-vs-content and the
+per-hit shape are real choices but small ones, and neither was ever the blocker.
+
+**Item 10 is NOT claimed.** It was scoped here and put in front of the founder;
+no session has been authorised to build it. Do not read lane membership as
+ownership.
 
 #### Item 12, 2026-08-08 — merged, deployed, and never once functional
 
@@ -185,11 +207,45 @@ and as the containment check that once matched an author's own docstring and
 reported production broken. Counting substrings is not reading code; when the
 answer matters, print the lines.
 
-**What is still NOT established: that it works.** Contents are not behaviour —
-see `status_router.py` on why a matching sha proves the fix is present and never
-that it runs. The remaining step is one fork driven end-to-end against
-`0000097`, checking `halves_agree` and that the target's agent actually
-remembers. Until someone does that, this row says "unverified", not "done".
+**Round four, 2026-08-08 — IT WORKS, and that is where the real defects
+started.** `POST /api/v1/app-conversations/{id}/fork` returned **200 in 14.0s**
+against a real session cookie and a real sandbox, with the fork's transcript
+read back through the public API and truncation confirmed on it (cut at index 2
+of 5 -> 3 events). Auth was proven with a forged-cookie control returning 401.
+
+**Five defects the live run exposed that no artifact inspection could have.**
+This is the clearest evidence in this document for why contents are not
+behaviour — the image was correct, and the feature was still wrong five ways:
+
+1. **Every fork lands in its PARENT's sandbox.** `fork_conversation_router` sets
+   `parent_conversation_id` for lineage, and `_inherit_configuration_from_parent`
+   then inherits the *sandbox id* to "share the same workspace/environment" —
+   bypassing the `NO_GROUPING` default that the entire archive-then-upload
+   transport design rests on. Parent and fork share one `/workspace`.
+2. **`up_to_event_id` never truncates agent memory.** `events_in_agent_state`
+   was 11 on both a full fork and one cut to 3. The copier matches the cutoff
+   against SDK event-file ids while a client can only supply transcript ids, so
+   the "unknown id -> copy everything" fallback fires every time.
+3. **A fork is unfindable in the sidebar.** It is a sub-conversation, and
+   `/app-conversations/search` excludes those unless
+   `include_sub_conversations=true`, which `searchConversations` never sends —
+   despite its own comment saying it populates the sidebar. Live: 4 items
+   default, 6 with subs. It works once via the post-fork navigate, then the fork
+   is URL-only.
+4. **Every SUCCESSFUL fork shows the "do not trust this conversation" warning.**
+   `halves_agree` compares two stores holding different event KINDS (11 vs 5),
+   so it is false on benign forks. The fix belongs in `halves_agree`, not in the
+   toast — `shouldWarnAboutHalves` is faithfully reporting what it is told.
+5. **A deploy silently makes every existing conversation unforkable.** A fork
+   requires the parent sandbox RUNNING and 409s otherwise, and `_processes` is a
+   module-global that a revision swap wipes. Same root cause as the
+   `session_api_key` invalidation: one cause, three symptoms.
+
+**Contents are not behaviour, and this item is the proof.** The image was
+verified correct by inspection and the feature was still broken five ways. A
+matching sha proves a fix is present and never that it runs — see
+`status_router.py`. The step that produced every one of the five defects above
+was driving it for real, and nothing cheaper would have found them.
 
 **WHY 43 GREEN TESTS COULD NOT SEE IT.** Every assertion was
 

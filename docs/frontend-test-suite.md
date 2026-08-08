@@ -52,6 +52,27 @@ contention leaves module mocks unapplied rather than merely late.
 Capping to 2 workers costs about 1.8x wall clock — ~500s against ~265-305s —
 and returns a result that means something.
 
+## Capping buys DETERMINISM, not green
+
+**This document originally implied "capped = 0 failures". That is wrong, and it
+would mislead the next person into concluding the cap did not work.** Another
+session ran the capped suite on their tree and got:
+
+    Test Files  1 failed | 311 passed | 2 skipped (314)
+         Tests  1 failed | 2685 passed | 2 expected fail | 28 skipped
+
+The single failure is `recent-conversation`, a known-upstream red from
+`13634324c` that also fails in isolation. Uncapped on the same content they saw
+5 failures; capped they saw exactly the 1 real one.
+
+So the claim that actually survives is:
+
+> **Capped returns the same number twice. Uncapped does not.**
+
+Capping does not make failures go away — it stops inventing new ones, which is
+what makes the number mean something. If you cap and see a failure, that is a
+result, not a reason to re-run.
+
 ## How to get a trustworthy answer
 
     npx vitest run --maxWorkers=2
