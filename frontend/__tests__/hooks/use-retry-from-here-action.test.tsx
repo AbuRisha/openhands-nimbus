@@ -173,11 +173,13 @@ describe("useRetryFromHereAction", () => {
   });
 
   /*
-   * A 200 describing a broken outcome. Nothing in the error path fires, so
-   * without an explicit check this ships silently and surfaces much later as
-   * an agent contradicting the transcript above it.
+   * `halves_agree` MUST NOT reach the customer. It compares a count of files
+   * in the sandbox's SDK EventLog against a count from the app server's own
+   * event mirror — two different stores, which need not agree even when both
+   * copies are complete. Surfacing it fired "do not trust this conversation"
+   * on every successful fork, which is how a warning becomes noise.
    */
-  it("warns when halves_agree is false, and still navigates", async () => {
+  it("does NOT warn on halves_agree=false, and still navigates", async () => {
     forkConversationMock.mockResolvedValue({
       conversation_id: "33333333-3333-3333-3333-333333333333",
       sandbox_id: "sb-2",
@@ -194,14 +196,12 @@ describe("useRetryFromHereAction", () => {
     act(() => result.current!.confirm());
 
     await waitFor(() => {
-      expect(displayErrorToastMock).toHaveBeenCalledWith(
-        "FORK$HALVES_DISAGREE",
+      expect(navigateMock).toHaveBeenCalledWith(
+        "/conversations/33333333-3333-3333-3333-333333333333",
       );
     });
-    // The conversation exists and is usable, so this warns without blocking.
-    expect(navigateMock).toHaveBeenCalledWith(
-      "/conversations/33333333-3333-3333-3333-333333333333",
-    );
+    // The signal is unsound, so it must produce no customer-visible output.
+    expect(displayErrorToastMock).not.toHaveBeenCalled();
   });
 
   it.each([

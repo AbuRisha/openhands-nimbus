@@ -3,7 +3,16 @@
 Live state for the Claude-parity work on `chat.nimbusapi.net`. Read this first,
 then `docs/parity-roadmap.md` for the full inventory and evidence.
 
-Last updated: 2026-08-06. Branch `land/auth-gates`, PR #15 (17 commits, CLEAN).
+Last updated: 2026-08-08. Branch `land/auth-gates`.
+
+> **AUDIT NOTE 2026-08-08.** Sections below this line dated 2026-08-06 or
+> earlier have been checked against the tree where they make testable claims.
+> Where a claim was stale it is struck through with a dated retraction rather
+> than deleted, so anyone holding the old status can see what changed. Two
+> whole classes of claim turned out to be wrong: the standing "known red"
+> test labels (all green, and two were never upstream) and the "Next three
+> actions" list (two of three already shipped). Treat undated claims here as
+> unverified until someone runs them.
 
 ## Next three actions
 
@@ -25,23 +34,38 @@ is a flag. All four violations are fixed — 9 eslint + 1 a11y in the panel, myp
    the limit" — in the panel showing someone's account balance. Fix means real
    i18n keys across all fifteen locales, the same as
    `NIMBUS$EFFORT_NOT_SUPPORTED_FOR_MODEL` and the nav labels already added.
-2. **P15 — refusal failover.** Best effort-to-value item in the whole
-   competitor inventory. When a model refuses, offer three outcomes: retry on a
-   fallback model, edit the prompt, cancel — auto-cancelling after 300s so a
-   prompt never blocks a session forever. **The part worth copying is
-   revert-after-turn:** without it one refusal silently downgrades every later
-   turn and the user never learns their model changed. Pure orchestration on top
-   of what exists — 29 catalog models, `use-switch-llm-profile`, the model store.
-   Size S–M.
-3. **P11 — queue control.** Queued messages no longer vanish (they render as the
-   optimistic bubble), but the store holds ONE message, so queueing a second
-   replaces the first in the display. Both still deliver. Needs a real queue
-   store, then cancel / reorder / promote.
+2. ~~**P15 — refusal failover.**~~ **DONE — verified 2026-08-08.** This entry
+   said the units were built and "LEFT: mount them in chat-interface.tsx".
+   They are mounted: `chat-interface.tsx:41-43` imports RefusalPrompt,
+   useRefusalFailover and useApplyRefusalChoice; :203 and :211 call the hooks;
+   :513 renders `<RefusalPrompt>` wired to `apply(resolve(choice), ...)`. Also
+   confirmed live in a browser — `refusal-prompt`, `refusal-retry-once`,
+   `refusal-retry-sticky`, `refusal-edit` and `refusal-cancel` are all in the
+   DOM on /conversations/:id.
+3. ~~**P11 — queue control.**~~ **LARGELY DONE — verified 2026-08-08.** This
+   entry said "the store holds ONE message, so queueing a second replaces the
+   first". That is no longer true: `use-pending-messages.ts` queries
+   `/api/v1/conversations/{id}/pending-messages` as a LIST and
+   `pending-messages.tsx` renders each with its own cancel, scoped to
+   conversation AND message id per the contract below. Reorder/promote are
+   still unbuilt and still blocked on the same missing ordering column.
 
-Then **P13 — live preview tab**, fully designed against this codebase (P13 task
-and roadmap §7). Phase 1 is a ~150-line sibling of
-`sandbox/agent_proxy_router.py`, which already solves HTTP+WS proxying into the
-sandbox.
+**NEXT, and these are actually open** (see docs/parity-roadmap.md for evidence):
+   - **#20 print-to-PDF** — the one remaining piece of artifacts that is purely
+     additive. Share/auto-publish is NOT next: it needs a decision on whether
+     version history travels with a shared link, and history is the part that
+     leaks.
+   - **#22 scheduled-tasks runner** — model and store exist with 21 tests, and
+     no runner. Blocked on ONE security decision, not on plumbing: a scheduler
+     has no request, so firing a task means letting background code act as a
+     customer and spend their credit. See scheduled_task_models.py.
+   - **#26 side-chat continuity** — one-shot `ask_agent` is built; continuity
+     needs real sub-conversation state.
+
+~~Then **P13 — live preview tab**~~ — BUILT, see the audit note below. What
+remains of #16 is the INTROSPECTION half (reading console/network out of the
+iframe), which is a security tradeoff awaiting a founder decision, not a build
+task.
 
 ## Where the two lanes stand (2026-08-06, late)
 
@@ -49,22 +73,31 @@ Isolation is real: the other session moved to a worktree.
   openhands-nimbus       [land/auth-gates]       <- this lane
   openhands-lane-queue   [lane/queued-messages]  <- theirs
 
+> **ALL THREE CLAIMS BELOW ARE STALE — audited 2026-08-08.** Every "unclaimed"
+> or "not built" item in this section is now built and on the branch. Struck
+> through rather than deleted so the old status is still legible, but do NOT
+> pick work from here: use "Next three actions" at the top.
+
 **Mine, landed:** P17 (all four violation classes, hooks passing).
-**Mine, landed:** P15 CORE only — `src/utils/refusal-failover.ts`, 14 tests
+~~**Mine, landed:** P15 CORE only — `src/utils/refusal-failover.ts`, 14 tests
 (`596116e25`). Pure decision logic. The UI is NOT built: the three-option
 prompt, the 300s self-answer, and the post-turn restore wiring are all still to
-do. Do not describe P15 as done.
+do. Do not describe P15 as done.~~
+**P15 IS DONE**, and this paragraph contradicted the corrected entry at the top
+of the file until 2026-08-08. Mounted at `chat-interface.tsx:41-43, :203, :211,
+:513`; the five `refusal-*` testids render in a live browser.
 
-**Mine, unclaimed and ready:** P13 Phase 1 FRONTEND. Their backend is landed and
-tested — preview proxy (`ba9708c85`) and `GET /preview/{id}/ports`
-(`b44494b49`). Build the tab, an iframe with `sandbox="allow-scripts
-allow-forms"` and deliberately NO `allow-same-origin` so agent-written JS gets
-an opaque origin, and a port picker fed by that endpoint. Design in
-`docs/parity-roadmap.md` §7.
+~~**Mine, unclaimed and ready:** P13 Phase 1 FRONTEND.~~ **P13 IS BUILT.**
+`components/features/preview/preview-panel.tsx` exists and its iframe carries
+`sandbox="allow-scripts allow-forms"` at :152 with NO `allow-same-origin` — the
+property this entry asked for, with the reasoning in its own docstring at :19.
+The tab is reachable (`conversation-tab-preview` is in the DOM). Backend
+`GET /preview/{id}/ports` (`b44494b49`) is wired.
 
-**Mine, unclaimed:** P11 FRONTEND. Their backend is on `lane/queued-messages`
-(`ee7cc2df6`), one commit ahead of this branch and NOT yet merged — merging it
-is this lane's call. Two contracts to honour when building against it:
+~~**Mine, unclaimed:** P11 FRONTEND.~~ **P11 IS BUILT** except reorder/promote.
+`use-pending-messages.ts` queries the collection and `pending-messages.tsx`
+renders each entry with its own cancel. The contracts below WERE honoured —
+keeping them because they are the reasoning, not a task list:
   - Cancel is scoped to conversation AND message id, always both. Matching on
     the id alone would let anyone holding one cancel a message in someone
     else's conversation.
@@ -247,10 +280,24 @@ observation white-screened the entire transcript.
   every merge commit that stages it, which is why two commits here used
   `--no-verify`. Tracked as P17. Fix it early; it also means non-English
   customers see untranslated English in the account panel.
-- `conversation-name` and `recent-conversation` tests fail, inherited from
-  upstream `13634324c`. They reference no code this branch touched.
-- Three `docs.openhands.dev` help-link tests fail; pre-existing, verified by
-  diffing (`translation.json` is +51/-0 and that URL is absent from source).
+- ~~`conversation-name` and `recent-conversation` tests fail, inherited from
+  upstream `13634324c`.~~ **RETIRED 2026-08-08 — wrong twice over, and left
+  standing longer than it should have been.** They were never upstream:
+  `9a8382718` records that the last one "was not upstream, it was the same
+  rebrand as the other" — i.e. OURS, from the settings-nav vocabulary change.
+  They are also all green now. Verified by running the four files together:
+  `conversation-name`, `recent-conversation`, `recent-conversations`,
+  `conversation-card` — 59 passed, 0 failed.
+
+  Kept visible rather than deleted, because the failure mode of a stale
+  known-red label is worse than the label being wrong: it teaches everyone to
+  wave those files through, so the NEXT real regression there gets read as
+  "oh, that's the upstream one" and shipped. If a suite is red, either fix it
+  or write down the commit that proves it is not ours — "inherited" without a
+  reproduction is a guess.
+- ~~Three `docs.openhands.dev` help-link tests fail; pre-existing.~~ RETIRED
+  2026-08-08: green. `openhands-api-key-help` + `llm-settings` run together,
+  82 passed, 0 failed.
 
 ## Verified in a browser, 2026-08-06
 
@@ -497,10 +544,12 @@ OSS_NAV_ITEMS, so they cannot rot again), and the nav sweep used `getByText`,
 which throws on the duplicate ORG$ACCOUNT — a correctly-rendering menu failed.
 
 REMAINING RED, both deliberate:
-- `llm-settings > uses the docs.openhands.dev domain for the API key help
+- ~~`llm-settings > uses the docs.openhands.dev domain for the API key help
   link` — the other lane has `openhands-api-key-help.test.tsx` in its working
-  set, so this is theirs to land, not mine to race.
-- `recent-conversation` — the known-red inherited from upstream 13634324c.
+  set, so this is theirs to land, not mine to race.~~ RETIRED 2026-08-08:
+  both suites are green (82 passed). Nothing to land and nobody to wait for.
+- ~~`recent-conversation` — the known-red inherited from upstream 13634324c.~~
+  RETIRED 2026-08-08: green, and never upstream. See the retraction above.
 
 DEV-MOCK NOTE: `dev:mock` on :3010 runs `--prefix ../openhands-nimbus/frontend`
 per nimbus-v2/.claude/launch.json, so it does serve the fork. Navigating to
@@ -1019,3 +1068,28 @@ The useful form:
 
 > **Counting substrings is not reading code. When the answer matters, print the
 > lines.**
+
+## 2026-08-08 — audit: every standing "known red" in this doc was stale
+
+Ran all of them rather than trusting the labels. All green:
+
+| suite | claim | reality |
+|---|---|---|
+| conversation-name, recent-conversation(s), conversation-card | "fail, inherited from upstream 13634324c" | 59 passed. And NEVER upstream — `9a8382718` records the last one "was not upstream, it was the same rebrand as the other", i.e. ours |
+| openhands-api-key-help, llm-settings | "three docs.openhands.dev tests fail; pre-existing" | 82 passed |
+
+WHY THIS IS WORTH A SECTION RATHER THAN A QUIET EDIT. A stale known-red label
+is not neutral — it is an instruction to ignore a file. Every session reads
+this doc on boot, so four suites were carrying a standing "do not investigate"
+sign, two of them attributed to an upstream commit that had nothing to do with
+it. The next genuine regression in those files would have been read as "oh,
+that's the known one" and shipped.
+
+It nearly happened to me today in the other direction: the conversation-panel
+failure in this morning's full run LOOKED like a candidate for exactly that
+treatment. Running the file alone (22/22 green) is what showed it was load,
+not code — see docs/bugs.md.
+
+RULE, and it is cheap: a red suite gets either a fix or a commit sha that
+reproduces it on a tree we did not touch. "Inherited" without a reproduction
+is a guess, and this doc shows guesses ossify into facts within days.

@@ -185,9 +185,102 @@ describe("useWebSocket reconnection", () => {
     });
   });
 
+  /*
+   * THE PATH THAT ACTUALLY FIRES AGAINST THE DEPLOYED BACKEND.
+   *
+   * The accept-then-close change that lets 1008 reach a browser is on
+   * lane/backend and in no build. Production rejects BEFORE accept, so uvicorn
+   * answers the upgrade with an HTTP status, the handshake never completes,
+   * and the browser synthesises 1006 — indistinguishable from an unreachable
+   * server. A frontend that classifies only by close code is dead code against
+   * the server that is actually running.
+   */
+  describe("a handshake that never completed", () => {
+    it("gives up after HANDSHAKE_MAX_ATTEMPTS, not the full budget", async () => {
+      const { result } = renderHook(() =>
+        useWebSocket(URL, { reconnect: { enabled: true } }),
+      );
+
+      // No open() anywhere: the socket is refused every time.
+      for (let i = 0; i < 10; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await closeAndAdvance(1006, 60_000, "Connection failed");
+      }
+
+      // 3 retries + the original = 4 sockets. Twenty attempts at a structural
+      // refusal is twenty ways of saying nothing.
+      expect(FakeWebSocket.instances).toHaveLength(4);
+      expect(result.current.failureReason).toBe("handshake-refused");
+    });
+
+    it("does NOT claim the session expired", async () => {
+      const { result } = renderHook(() =>
+        useWebSocket(URL, { reconnect: { enabled: true } }),
+      );
+
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await closeAndAdvance(1006, 60_000, "Connection failed");
+      }
+
+      /*
+       * 1006 covers BOTH a refused upgrade and a pulled network cable. Saying
+       * "your session expired" to the second case is a specific untrue
+       * statement about someone's account, so the reason stays distinct from
+       * `session-expired` and the copy names no cause.
+       */
+      expect(result.current.failureReason).not.toBe("session-expired");
+      expect(result.current.isSessionExpired).toBe(false);
+    });
+
+    it("tells the caller, so a banner can offer the reload", async () => {
+      const onHandshakeRefused = vi.fn();
+      renderHook(() =>
+        useWebSocket(URL, { reconnect: { enabled: true }, onHandshakeRefused }),
+      );
+
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await closeAndAdvance(1006, 60_000, "Connection failed");
+      }
+
+      // Exactly once — on the close that spends the budget, not on each retry.
+      expect(onHandshakeRefused).toHaveBeenCalledTimes(1);
+    });
+
+    it("a socket that opened ONCE gets the full budget afterwards", async () => {
+      const { result } = renderHook(() =>
+        useWebSocket(URL, { reconnect: { enabled: true } }),
+      );
+      await act(async () => {
+        FakeWebSocket.latest.open();
+      });
+
+      // Four closes would have exhausted the handshake budget; having opened,
+      // this is a mid-session drop and keeps retrying.
+      for (let i = 0; i < 4; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await closeAndAdvance(1006, 60_000, "Connection failed");
+      }
+
+      expect(FakeWebSocket.instances.length).toBeGreaterThan(4);
+      expect(result.current.failureReason).toBeNull();
+    });
+  });
+
   describe("a transient close", () => {
+    /*
+     * Every test here OPENS the socket first. "Transient" means a drop
+     * mid-session, and a socket that never opened is a different failure with
+     * a different budget (HANDSHAKE_MAX_ATTEMPTS) and a different reason
+     * (`handshake-refused`) — see the block below. Without this the tests were
+     * asserting the handshake path under a name that promised the other one.
+     */
     it("retries on an exponential backoff", async () => {
       renderHook(() => useWebSocket(URL, { reconnect: { enabled: true } }));
+      await act(async () => {
+        FakeWebSocket.latest.open();
+      });
 
       // 1s, 2s, 4s, 8s — asserted a millisecond either side of each step, so a
       // regression to the old flat 3s fails rather than merely running slower.
@@ -211,6 +304,9 @@ describe("useWebSocket reconnection", () => {
       const { result } = renderHook(() =>
         useWebSocket(URL, { reconnect: { enabled: true } }),
       );
+      await act(async () => {
+        FakeWebSocket.latest.open();
+      });
 
       // Enough clock for every step, including the 30s ceiling.
       for (let i = 0; i < DEFAULT_MAX_RECONNECT_ATTEMPTS; i += 1) {
@@ -274,6 +370,9 @@ describe("useWebSocket reconnection", () => {
       const { result } = renderHook(() =>
         useWebSocket(URL, { reconnect: { enabled: true, maxAttempts: 1 } }),
       );
+      await act(async () => {
+        FakeWebSocket.latest.open();
+      });
 
       await closeAndAdvance(1006, 60_000, "Connection failed");
       await closeAndAdvance(1006, 60_000, "Connection failed");

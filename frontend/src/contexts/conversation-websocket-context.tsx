@@ -804,7 +804,17 @@ export function ConversationWebSocketProvider({
       // showing "Failed to connect to server" on a loop.
       onPermanentClose: () => {
         setMainConnectionState("CLOSED");
-        markSessionExpired();
+        markSessionExpired("rejected");
+      },
+      // The handshake never completed and the budget is spent. Same dead end,
+      // less certainty — 1006 covers both a refused upgrade and an
+      // unreachable server, so the banner offers the reload without naming a
+      // cause. This is the path that actually fires against the currently
+      // deployed backend, which rejects BEFORE accept and so can never
+      // deliver 1008 to the browser at all.
+      onHandshakeRefused: () => {
+        setMainConnectionState("CLOSED");
+        markSessionExpired("refused");
       },
       onError: () => {
         setMainConnectionState("CLOSED");
@@ -891,7 +901,11 @@ export function ConversationWebSocketProvider({
       // See the main socket: a refused key is refused identically next time.
       onPermanentClose: () => {
         setPlanningConnectionState("CLOSED");
-        markSessionExpired();
+        markSessionExpired("rejected");
+      },
+      onHandshakeRefused: () => {
+        setPlanningConnectionState("CLOSED");
+        markSessionExpired("refused");
       },
       onError: () => {
         setPlanningConnectionState("CLOSED");

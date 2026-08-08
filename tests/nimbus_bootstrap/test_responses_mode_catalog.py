@@ -188,3 +188,65 @@ class TestResponsesApiOverride:
         assert install_responses_api_override() is True
         llm = self._llm('openai/gpt-5.5', 'https://api.nimbusapi.net')
         assert llm.uses_responses_api() is False
+
+
+class TestNimbusOnlyDeployments:
+    """The rule that actually holds in production.
+
+    The first version of this patch keyed only on `LLM.base_url`. It installed
+    correctly in the agent child — the bootstrap markers read `respapi:True` —
+    and changed nothing, because the endpoint reaches litellm from the
+    environment rather than from that field. Installed is not the same as
+    effective, and the marker proving the former is what made it look fixed.
+
+    `NIMBUS_ONLY` is the deployment stating there is no endpoint other than our
+    gateway, which is both stronger and simpler than anything recovered from
+    the LLM object.
+    """
+
+    def _llm(self, model: str, base_url: str | None = None):
+        from pydantic import SecretStr
+
+        from openhands.sdk.llm.llm import LLM
+
+        kwargs = {'model': model, 'api_key': SecretStr('x'), 'usage_id': 't'}
+        if base_url:
+            kwargs['base_url'] = base_url
+        return LLM(**kwargs)
+
+    def test_nimbus_only_forces_chat_even_with_no_base_url(self, monkeypatch):
+        from openhands.nimbus_bootstrap.nimbus_responses_mode import (
+            install_responses_api_override,
+        )
+
+        install_responses_api_override()
+        monkeypatch.setenv('NIMBUS_ONLY', 'true')
+
+        # No base_url at all — the production shape that defeated the first fix.
+        assert self._llm('openai/gpt-5.5').uses_responses_api() is False
+
+    def test_without_nimbus_only_a_byok_endpoint_keeps_responses(self, monkeypatch):
+        from openhands.nimbus_bootstrap.nimbus_responses_mode import (
+            install_responses_api_override,
+        )
+
+        install_responses_api_override()
+        monkeypatch.delenv('NIMBUS_ONLY', raising=False)
+        for var in ('LLM_BASE_URL', 'OPENAI_BASE_URL', 'OPENAI_API_BASE'):
+            monkeypatch.delenv(var, raising=False)
+
+        llm = self._llm('openai/gpt-5.5', 'https://api.openai.com/v1')
+        assert llm.uses_responses_api() is True
+
+    def test_env_supplied_gateway_is_honoured_without_nimbus_only(self, monkeypatch):
+        """base_url absent, endpoint in the environment — resolve it the same
+        way litellm does rather than concluding 'not our gateway'."""
+        from openhands.nimbus_bootstrap.nimbus_responses_mode import (
+            install_responses_api_override,
+        )
+
+        install_responses_api_override()
+        monkeypatch.delenv('NIMBUS_ONLY', raising=False)
+        monkeypatch.setenv('LLM_BASE_URL', 'https://api.nimbusapi.net/v1')
+
+        assert self._llm('openai/gpt-5.5').uses_responses_api() is False
