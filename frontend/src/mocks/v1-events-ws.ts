@@ -170,25 +170,9 @@ const TRANSCRIPT: unknown[] = [
   /*
    * A browse, so the Browser TAB can be looked at.
    *
-   * KNOWN NOT TO WORK YET — the tab is still empty and this is a partial. What
-   * is established, so the next person does not redo it:
-   *
-   *   1. The event SHAPES are right. Running the real guards
-   *      (`isBrowserNavigateActionEvent`, `isBrowserObservationEvent`) against
-   *      these exact objects in the browser returns true for both.
-   *   2. The context handler DOES run for this fixture. `command-store` ends up
-   *      holding "npm test -- cart" and its output, written by branches a few
-   *      lines ABOVE the browser branches in the same block of
-   *      conversation-websocket-context.
-   *   3. The browser setters are NEVER called. Patching
-   *      `setUrl`/`setScreenshotSrc` and forcing a fresh socket connection
-   *      records zero calls.
-   *   4. These events DO reach the app — the transcript renders a
-   *      "Browse http://localhost:5173/cart" row.
-   *
-   * So earlier events in the same burst reach the context handler and later
-   * ones reach the event store but not the handler. That is the gap to chase;
-   * it is not the fixture shape and not the guards.
+   * These events were correct from the start. What made the tab look broken
+   * was `BrowserPanel` calling `reset()` in a mount effect, which wiped the
+   * store when the user opened the tab to look at it. Fixed in browser.tsx.
    *
    * It rendered EmptyBrowserMessage in every dev session because nothing here
    * ever populated the store, and the store is fed from exactly two event
