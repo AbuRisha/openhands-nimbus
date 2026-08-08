@@ -30428,5 +30428,39 @@
     "ca": "No s'ha pogut desar la teva memòria",
     "tr": "Belleğiniz kaydedilemedi",
     "uk": "Не вдалося зберегти вашу пам'ять"
+  },
+  "STATUS$SESSION_EXPIRED_RELOAD": {
+    "en": "Your session expired. Reload the page to reconnect.",
+    "ja": "セッションの有効期限が切れました。ページを再読み込みして再接続してください。",
+    "zh-CN": "您的会话已过期。请重新加载页面以重新连接。",
+    "zh-TW": "您的工作階段已過期。請重新載入頁面以重新連線。",
+    "ko-KR": "세션이 만료되었습니다. 페이지를 새로고침하여 다시 연결하세요.",
+    "no": "Økten din er utløpt. Last inn siden på nytt for å koble til igjen.",
+    "it": "La tua sessione è scaduta. Ricarica la pagina per riconnetterti.",
+    "pt": "A sua sessão expirou. Recarregue a página para reconectar.",
+    "es": "Tu sesión ha caducado. Vuelve a cargar la página para reconectarte.",
+    "ar": "انتهت صلاحية جلستك. أعد تحميل الصفحة لإعادة الاتصال.",
+    "fr": "Votre session a expiré. Rechargez la page pour vous reconnecter.",
+    "tr": "Oturumunuzun süresi doldu. Yeniden bağlanmak için sayfayı yenileyin.",
+    "de": "Ihre Sitzung ist abgelaufen. Laden Sie die Seite neu, um die Verbindung wiederherzustellen.",
+    "uk": "Ваш сеанс завершився. Перезавантажте сторінку, щоб підключитися знову.",
+    "ca": "La teva sessió ha caducat. Torna a carregar la pàgina per reconnectar-te."
+  },
+  "BUTTON$RELOAD_PAGE": {
+    "en": "Reload page",
+    "ja": "ページを再読み込み",
+    "zh-CN": "重新加载页面",
+    "zh-TW": "重新載入頁面",
+    "ko-KR": "페이지 새로고침",
+    "no": "Last inn siden på nytt",
+    "it": "Ricarica la pagina",
+    "pt": "Recarregar página",
+    "es": "Volver a cargar la página",
+    "ar": "إعادة تحميل الصفحة",
+    "fr": "Recharger la page",
+    "tr": "Sayfayı yenile",
+    "de": "Seite neu laden",
+    "uk": "Перезавантажити сторінку",
+    "ca": "Torna a carregar la pàgina"
   }
 }

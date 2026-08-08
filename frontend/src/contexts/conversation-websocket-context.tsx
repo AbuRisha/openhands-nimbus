@@ -14,6 +14,7 @@ import { useModelStore } from "#/stores/model-store";
 import { getRenderedV1Events } from "#/components/v1/chat/event-content-helpers/should-render-event";
 import { updateConversationLlmModelInCache } from "#/hooks/mutation/conversation-mutation-utils";
 import { useErrorMessageStore } from "#/stores/error-message-store";
+import { useSessionExpiredStore } from "#/stores/session-expired-store";
 import { useOptimisticUserMessageStore } from "#/stores/optimistic-user-message-store";
 import { useV1ConversationStateStore } from "#/stores/v1-conversation-state-store";
 import { useCommandStore } from "#/stores/command-store";
@@ -118,6 +119,7 @@ export function ConversationWebSocketProvider({
   const queryClient = useQueryClient();
   const { addEvent } = useEventStore();
   const { setErrorMessage, removeErrorMessage } = useErrorMessageStore();
+  const { markSessionExpired, clearSessionExpired } = useSessionExpiredStore();
   const { removeOptimisticUserMessage } = useOptimisticUserMessageStore();
   const { setExecutionStatus } = useV1ConversationStateStore();
   const { appendInput, appendOutput } = useCommandStore();
@@ -767,6 +769,7 @@ export function ConversationWebSocketProvider({
         setMainConnectionState("OPEN");
         hasConnectedRefMain.current = true; // Mark that we've successfully connected
         removeErrorMessage(); // Clear any previous error messages on successful connection
+        clearSessionExpired(); // A socket that opened is proof the key is good
 
         // Fetch expected event count for history loading detection
         if (conversationId && conversationUrl) {
@@ -793,6 +796,13 @@ export function ConversationWebSocketProvider({
         // Recovery is handled by useSandboxRecovery on tab focus/page refresh
         // No error message needed - silent recovery provides better UX
       },
+      // The session key was refused, and the next handshake would carry the
+      // same one. There is no recovery to wait for, so say so instead of
+      // showing "Failed to connect to server" on a loop.
+      onPermanentClose: () => {
+        setMainConnectionState("CLOSED");
+        markSessionExpired();
+      },
       onError: () => {
         setMainConnectionState("CLOSED");
         // Only show error message if we've previously connected successfully
@@ -812,6 +822,8 @@ export function ConversationWebSocketProvider({
     handleMainMessage,
     setErrorMessage,
     removeErrorMessage,
+    markSessionExpired,
+    clearSessionExpired,
     sessionApiKey,
     conversationId,
     conversationUrl,
@@ -837,6 +849,7 @@ export function ConversationWebSocketProvider({
         setPlanningConnectionState("OPEN");
         hasConnectedRefPlanning.current = true; // Mark that we've successfully connected
         removeErrorMessage(); // Clear any previous error messages on successful connection
+        clearSessionExpired(); // A socket that opened is proof the key is good
 
         // Fetch expected event count for history loading detection
         if (
@@ -866,6 +879,11 @@ export function ConversationWebSocketProvider({
         // Recovery is handled by useSandboxRecovery on tab focus/page refresh
         // No error message needed - silent recovery provides better UX
       },
+      // See the main socket: a refused key is refused identically next time.
+      onPermanentClose: () => {
+        setPlanningConnectionState("CLOSED");
+        markSessionExpired();
+      },
       onError: () => {
         setPlanningConnectionState("CLOSED");
         // Only show error message if we've previously connected successfully
@@ -885,6 +903,8 @@ export function ConversationWebSocketProvider({
     handlePlanningMessage,
     setErrorMessage,
     removeErrorMessage,
+    markSessionExpired,
+    clearSessionExpired,
     sessionApiKey,
     subConversations,
   ]);
