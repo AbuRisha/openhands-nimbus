@@ -667,3 +667,56 @@ mid-cycle. Any commit by any session can revert any other session's uncommitted
 work in this tree. Separate worktrees are the only real fix; until then, commit
 WIP early and treat uncommitted work as unsafe.
 
+
+## 2026-08-08 — HANDOFF. Start here.
+
+Integration branch `land/auth-gates`. Verified at handoff: `npm run typecheck`
+clean, backend `pytest tests/app_server` 256 passed, frontend 2660 pass with 1
+known-upstream fail (`recent-conversation`). Tier 0 clear, Tier 1 done except
+items blocked upstream.
+
+### Do this first, and it is genuinely shovel-ready
+
+**#24 Plugin marketplace UI.** The backend is LIVE and there is no UI at all:
+
+    POST   /plugins                    search/list
+    GET    /plugins/marketplace        catalog
+    GET    /plugins/installed          installed list
+    POST   /plugins/... (x2)           install
+    DELETE /plugins/...                uninstall
+
+**#21 Workspaces UI** is the same shape — `workspaces_router` has 5 endpoints
+(get, post, delete, post /parents, delete /parents) and no UI.
+
+These two are the only items on the whole roadmap where a pure frontend
+estimate is correct, because the backend is already there. Everything else
+needed a backend read first — see the inventory sections in
+`docs/parity-roadmap.md`, which now carry a verified state per item rather than
+a size guessed from the frontend.
+
+### Four decisions that are the founder's, each blocking real work
+
+1. **#16 preview introspection** — leave it (the agent's own browser already
+   gives the model screenshots and console), serve the preview from a separate
+   origin, or inject a postMessage shim. DO NOT add `allow-same-origin`.
+2. **#23 "Memory"** — the nav entry points at the condenser. Build editable
+   memory files behind it, or rename the page.
+3. **#12 fork** — state-copier built and reviewed; transport wrapper and
+   endpoint specced in `docs/fork-conversation-design.md`. Also decide the UI
+   name; "fork" oversells it, since it rewinds the conversation and NOT the
+   working tree.
+4. **Cloudflare CNAME** — `chat.nimbusapi.net` targets librechat's FQDN, so
+   deleting that app breaks the chat domain. Refused by a classifier for two
+   sessions; needs hands in the Cloudflare UI.
+
+### The one habit worth keeping from this session
+
+Read the backend before quoting a size. Eleven roadmap items were wrong in the
+same direction: three were already built, two blocked upstream, two were naming
+decisions, one a security decision, and two had live backends nobody had
+noticed. Every wrong entry was written from the frontend's side.
+
+And run the project's own check — `npm run typecheck`, not bare `tsc`. A bare
+compiler skips the codegen step and emits six TS2578 errors that look real.
+Three sessions read those errors and the first two explanations were wrong.
+
