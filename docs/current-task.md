@@ -675,7 +675,30 @@ clean, backend `pytest tests/app_server` 256 passed, frontend 2660 pass with 1
 known-upstream fail (`recent-conversation`). Tier 0 clear, Tier 1 done except
 items blocked upstream.
 
-### Do this first, and it is genuinely shovel-ready
+### RETRACTED 2026-08-08 — both "shovel-ready" items below were wrong
+
+Do NOT start from the section that follows. Verified in the code:
+
+* **#24 is ALREADY BUILT.** `skills-settings.tsx:233-250` maps marketplace
+  plugins into `type: "plugin"` rows; `skills-table.tsx:155` renders them.
+  Read-only by design — enablement follows the parent marketplace. The feed is
+  the app server's `user/skills_router.py`, not the agent server's
+  `plugins_router`.
+* **#21's backend is a different feature sharing a word.** `workspaces_router`
+  is "local directories the GUI surfaces in its workspace picker" (its own
+  docstring) — not grouped folders, auto-summary or per-workspace memory.
+
+I wrote the section below and told the founder to start there. Both entries
+came from matching ROUTER NAMES rather than reading what the code does, which
+is the same failure this repo's docs catalogue — committed while applying the
+fix for it.
+
+**What is actually next, in order:** the three founder decisions (#16, #23,
+#12). None of the remaining build items is shovel-ready; #20, #22 and #26 are
+genuinely unbuilt and unserved, which makes them real projects rather than
+wiring jobs.
+
+### Superseded: the section below is kept only for the endpoint inventory
 
 **#24 Plugin marketplace UI.** The backend is LIVE and there is no UI at all:
 
