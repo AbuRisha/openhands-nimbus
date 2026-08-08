@@ -935,3 +935,44 @@ rename; `bridgefix2-20260808` carries this. Rollback target before either is
   `data[0].x` crashes.
 - The composer's send button has **no accessible name** - it is a bare `button`
   in the a11y tree, so a screen-reader user cannot identify the send control.
+
+## 2026-08-08 — #12 has never worked, and the reason tests could not see it
+
+**Do not record #12 as shipped until a fork is driven against a DEPLOYED image.**
+It has been called done twice and was false both times. Full detail in
+`docs/parity-roadmap.md` under "Item 12".
+
+Short version: the transport calls `{base_url}/bash/execute_bash_command`, but
+`agent_server/api.py:343` mounts bash/file/git/vscode under
+`APIRouter(prefix="/api")`. Only `/alive` and `/server_info` are at the root —
+so the health check passes while every functional call 404s. Every image shipped
+so far contains a fork that cannot fork. Fix is PR #19.
+
+### The rule this bought, which is worth more than the fix
+
+**A suffix cannot observe a missing prefix.** Every fork test asserted
+`path.endswith('/bash/execute_bash_command')`, which is equally true of the
+broken and the correct URL. 43 green tests, measuring the tail of a value whose
+defect was in the head.
+
+Three instances of that shape in one day:
+
+* fork transport counted events from the SOURCE's stdout — an assertion made
+  where it could not observe the target
+* those `endswith` path checks
+* a `"'browser_navigate'" in source` check that matched the author's own
+  DOCSTRING and nearly caused a false "production is broken" escalation
+
+Before writing an assertion, ask where the defect would have to live for this
+check to miss it. If the answer is "anywhere outside the substring I chose",
+compare the whole value.
+
+### And a baseline warning that cost an hour
+
+The frontend suite is FLAKY UNDER LOAD, not stable. A change appeared to break
+8 tests; reverting it and re-running clean HEAD failed 8 DIFFERENT tests, and
+every file passed in isolation (`llm-settings` 80/80). They are 5s timeouts.
+**The "2670 pass, 1 fail" quoted repeatedly today was a lucky run, not a
+baseline.** Raise the timeout or cap concurrency before it trains everyone to
+ignore red — it already nearly convinced one session its own fix was broken.
+
