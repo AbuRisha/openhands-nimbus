@@ -5,9 +5,12 @@ is genuinely built by httpx: query params are really encoded, multipart bodies a
 really assembled, headers really applied. That means the tests assert the WIRE
 SHAPE, which is the part a live agent server will judge us on.
 
-What they still cannot prove is that a running agent server answers those
-requests as its source says. That gap is stated in the module docstring and is
-why a first live run is part of the change rather than a follow-up.
+What they cannot prove on their own is that a running agent server answers those
+requests as its source says — and that gap was not theoretical. A live run inside
+the deployed image found that every one of these paths was missing its ``/api``
+prefix, so the first call of every fork returned 404. The suite did not catch it
+because it asserted the SUFFIX of each path; it now asserts the whole path, and
+asserts it over every request rather than the three known call sites.
 
 The cases that matter most here are the failure ones. A fork that silently
 half-succeeds presents as an agent that has forgotten things, which is
@@ -38,6 +41,17 @@ from openhands.app_server.app_conversation.fork_state_transport import (
 SOURCE = SandboxEndpoint(base_url='http://src.invalid', session_api_key='key-src')
 TARGET = SandboxEndpoint(base_url='http://tgt.invalid', session_api_key='key-tgt')
 CONVERSATIONS = '/workspace/conversations'
+
+# The EXACT paths the agent server serves, compared in full below rather than by
+# suffix. This is not a style preference. These assertions used to read
+# ``path == BASH_PATH``, which is equally true of the
+# correct ``/api/bash/...`` and of the ``/bash/...`` the transport actually sent
+# — so a missing ``/api`` prefix passed a green suite and then 404'd on the first
+# real fork. A suffix cannot observe a missing prefix.
+UPLOAD_PATH = '/api/file/upload'
+BASH_PATH = '/api/bash/execute_bash_command'
+ARCHIVE_PATH = '/api/file/archive'
+KNOWN_PATHS = frozenset({UPLOAD_PATH, BASH_PATH, ARCHIVE_PATH})
 
 
 def _bash_response(exit_code, stdout) -> httpx.Response:
@@ -79,9 +93,9 @@ def _recorder(
         for needle, code in fail.items():
             if needle in path:
                 return httpx.Response(code, text='boom')
-        if path.endswith('/file/upload'):
+        if path == UPLOAD_PATH:
             return httpx.Response(200, json={'success': True})
-        if path.endswith('/bash/execute_bash_command'):
+        if path == BASH_PATH:
             command = json.loads(request.content).get('command', '')
             if command.startswith('printf'):
                 # The probe is built to always exit 0 and report facts, so it is
@@ -94,7 +108,7 @@ def _recorder(
                     0, f'{{"base": {landed_base}, "events": {events}}}'
                 )
             return _bash_response(bash_exit, bash_stdout)
-        if path.endswith('/file/archive'):
+        if path == ARCHIVE_PATH:
             return httpx.Response(200, content=archive_body)
         return httpx.Response(404, text=f'unexpected {path}')
 
@@ -116,6 +130,18 @@ async def _run(seen_transport, **kwargs):
     return result, seen
 
 
+class TestTheEndpointKnowsWhereTheRoutersAreMounted:
+    def test_api_base_adds_the_prefix_the_routers_are_mounted_under(self):
+        assert SOURCE.api_base == 'http://src.invalid/api'
+
+    def test_api_base_does_not_double_a_slash_on_a_trailing_slash_base_url(self):
+        """``exposed_urls`` are not guaranteed unslashed, and ``//api`` is a 404."""
+        endpoint = SandboxEndpoint(
+            base_url='http://x.invalid/', session_api_key='k'
+        )
+        assert endpoint.api_base == 'http://x.invalid/api'
+
+
 class TestTheHappyPathMakesExactlyTheRightCalls:
     @pytest.mark.asyncio
     async def test_returns_the_copied_count(self):
@@ -123,11 +149,32 @@ class TestTheHappyPathMakesExactlyTheRightCalls:
         assert copied == 4
 
     @pytest.mark.asyncio
+    async def test_every_request_goes_to_a_path_the_agent_server_serves(self):
+        """Regression test for the 404 that broke every live fork.
+
+        ``agent_server/api.py`` mounts the bash/file/git/vscode routers under
+        ``APIRouter(prefix='/api')``; only ``/alive``, ``/server_info`` and the
+        sockets router answer at the root. A request built from ``base_url``
+        instead of ``api_base`` therefore returns
+        ``404 {"detail":"Not Found"}`` — which is what the first live fork did.
+
+        Asserted over EVERY request rather than the three known call sites, so a
+        fourth endpoint added later cannot reintroduce it.
+        """
+        _, seen = await _run(_recorder())
+        assert seen, 'no requests were made, so nothing was asserted'
+        for request in seen:
+            assert request.url.path in KNOWN_PATHS, (
+                f'{request.method} {request.url.path} is not a path the agent '
+                f'server serves; expected one of {sorted(KNOWN_PATHS)}'
+            )
+
+    @pytest.mark.asyncio
     async def test_uploads_both_modules_to_the_source_then_runs_them(self):
         src, tgt = uuid4(), uuid4()
         _, seen = await _run(_recorder(), src=src, tgt=tgt)
 
-        uploads = [r for r in seen if r.url.path.endswith('/file/upload')]
+        uploads = [r for r in seen if r.url.path == UPLOAD_PATH]
         # Two into the source, one archive into the target.
         assert len(uploads) == 3
         assert str(uploads[0].url).startswith(SOURCE.base_url)
@@ -156,7 +203,7 @@ class TestTheHappyPathMakesExactlyTheRightCalls:
     async def test_archive_is_requested_as_targz_not_the_git_delta_default(self):
         """The default format is a git patch and would fail on a non-repo."""
         _, seen = await _run(_recorder())
-        archive = next(r for r in seen if r.url.path.endswith('/file/archive'))
+        archive = next(r for r in seen if r.url.path == ARCHIVE_PATH)
         assert archive.url.params['format'] == 'tar.gz'
         assert archive.url.params['use_default_excludes'] == 'false'
 
@@ -165,7 +212,7 @@ class TestTheHappyPathMakesExactlyTheRightCalls:
         """The source's conversations dir must never be archived or written."""
         src, tgt = uuid4(), uuid4()
         _, seen = await _run(_recorder(), src=src, tgt=tgt)
-        archive = next(r for r in seen if r.url.path.endswith('/file/archive'))
+        archive = next(r for r in seen if r.url.path == ARCHIVE_PATH)
         assert archive.url.params['path'] == f'{REMOTE_STAGE_DIR}/{tgt.hex}'
 
     @pytest.mark.asyncio
@@ -173,7 +220,7 @@ class TestTheHappyPathMakesExactlyTheRightCalls:
         _, seen = await _run(_recorder(), up_to_event_id='abc-123')
         cmd = json.loads(
             next(
-                r for r in seen if r.url.path.endswith('/bash/execute_bash_command')
+                r for r in seen if r.url.path == BASH_PATH
             ).content
         )['command']
         assert "--up-to-event-id 'abc-123'" in cmd
@@ -181,7 +228,7 @@ class TestTheHappyPathMakesExactlyTheRightCalls:
         _, seen2 = await _run(_recorder())
         cmd2 = json.loads(
             next(
-                r for r in seen2 if r.url.path.endswith('/bash/execute_bash_command')
+                r for r in seen2 if r.url.path == BASH_PATH
             ).content
         )['command']
         assert '--up-to-event-id' not in cmd2
@@ -189,7 +236,7 @@ class TestTheHappyPathMakesExactlyTheRightCalls:
     @pytest.mark.asyncio
     async def test_target_extraction_runs_on_the_target_sandbox(self):
         _, seen = await _run(_recorder())
-        bashes = [r for r in seen if r.url.path.endswith('/bash/execute_bash_command')]
+        bashes = [r for r in seen if r.url.path == BASH_PATH]
         target_cmds = [
             json.loads(b.content)['command']
             for b in bashes
@@ -207,7 +254,7 @@ class TestTheHappyPathMakesExactlyTheRightCalls:
         probes = [
             json.loads(r.content)['command']
             for r in seen
-            if r.url.path.endswith('/bash/execute_bash_command')
+            if r.url.path == BASH_PATH
             and str(r.url).startswith(TARGET.base_url)
             and json.loads(r.content)['command'].startswith('printf')
         ]
@@ -274,11 +321,11 @@ class TestFailuresAreLoudAndNamed:
 
         def handler(request: httpx.Request) -> httpx.Response:
             path = request.url.path
-            if path.endswith('/file/upload'):
+            if path == UPLOAD_PATH:
                 return httpx.Response(200, json={'ok': True})
-            if path.endswith('/file/archive'):
+            if path == ARCHIVE_PATH:
                 return httpx.Response(200, content=b'tar')
-            if path.endswith('/bash/execute_bash_command'):
+            if path == BASH_PATH:
                 calls['n'] += 1
                 body = json.loads(request.content)['command']
                 if body.startswith('rm -rf'):
@@ -365,7 +412,7 @@ class TestShellQuoting:
             )
         cmd = json.loads(
             next(
-                r for r in seen if r.url.path.endswith('/bash/execute_bash_command')
+                r for r in seen if r.url.path == BASH_PATH
             ).content
         )['command']
         # The semicolon survives only INSIDE quotes, so the shell cannot see it
