@@ -247,10 +247,24 @@ observation white-screened the entire transcript.
   every merge commit that stages it, which is why two commits here used
   `--no-verify`. Tracked as P17. Fix it early; it also means non-English
   customers see untranslated English in the account panel.
-- `conversation-name` and `recent-conversation` tests fail, inherited from
-  upstream `13634324c`. They reference no code this branch touched.
-- Three `docs.openhands.dev` help-link tests fail; pre-existing, verified by
-  diffing (`translation.json` is +51/-0 and that URL is absent from source).
+- ~~`conversation-name` and `recent-conversation` tests fail, inherited from
+  upstream `13634324c`.~~ **RETIRED 2026-08-08 — wrong twice over, and left
+  standing longer than it should have been.** They were never upstream:
+  `9a8382718` records that the last one "was not upstream, it was the same
+  rebrand as the other" — i.e. OURS, from the settings-nav vocabulary change.
+  They are also all green now. Verified by running the four files together:
+  `conversation-name`, `recent-conversation`, `recent-conversations`,
+  `conversation-card` — 59 passed, 0 failed.
+
+  Kept visible rather than deleted, because the failure mode of a stale
+  known-red label is worse than the label being wrong: it teaches everyone to
+  wave those files through, so the NEXT real regression there gets read as
+  "oh, that's the upstream one" and shipped. If a suite is red, either fix it
+  or write down the commit that proves it is not ours — "inherited" without a
+  reproduction is a guess.
+- ~~Three `docs.openhands.dev` help-link tests fail; pre-existing.~~ RETIRED
+  2026-08-08: green. `openhands-api-key-help` + `llm-settings` run together,
+  82 passed, 0 failed.
 
 ## Verified in a browser, 2026-08-06
 
@@ -497,10 +511,12 @@ OSS_NAV_ITEMS, so they cannot rot again), and the nav sweep used `getByText`,
 which throws on the duplicate ORG$ACCOUNT — a correctly-rendering menu failed.
 
 REMAINING RED, both deliberate:
-- `llm-settings > uses the docs.openhands.dev domain for the API key help
+- ~~`llm-settings > uses the docs.openhands.dev domain for the API key help
   link` — the other lane has `openhands-api-key-help.test.tsx` in its working
-  set, so this is theirs to land, not mine to race.
-- `recent-conversation` — the known-red inherited from upstream 13634324c.
+  set, so this is theirs to land, not mine to race.~~ RETIRED 2026-08-08:
+  both suites are green (82 passed). Nothing to land and nobody to wait for.
+- ~~`recent-conversation` — the known-red inherited from upstream 13634324c.~~
+  RETIRED 2026-08-08: green, and never upstream. See the retraction above.
 
 DEV-MOCK NOTE: `dev:mock` on :3010 runs `--prefix ../openhands-nimbus/frontend`
 per nimbus-v2/.claude/launch.json, so it does serve the fork. Navigating to
@@ -1019,3 +1035,28 @@ The useful form:
 
 > **Counting substrings is not reading code. When the answer matters, print the
 > lines.**
+
+## 2026-08-08 — audit: every standing "known red" in this doc was stale
+
+Ran all of them rather than trusting the labels. All green:
+
+| suite | claim | reality |
+|---|---|---|
+| conversation-name, recent-conversation(s), conversation-card | "fail, inherited from upstream 13634324c" | 59 passed. And NEVER upstream — `9a8382718` records the last one "was not upstream, it was the same rebrand as the other", i.e. ours |
+| openhands-api-key-help, llm-settings | "three docs.openhands.dev tests fail; pre-existing" | 82 passed |
+
+WHY THIS IS WORTH A SECTION RATHER THAN A QUIET EDIT. A stale known-red label
+is not neutral — it is an instruction to ignore a file. Every session reads
+this doc on boot, so four suites were carrying a standing "do not investigate"
+sign, two of them attributed to an upstream commit that had nothing to do with
+it. The next genuine regression in those files would have been read as "oh,
+that's the known one" and shipped.
+
+It nearly happened to me today in the other direction: the conversation-panel
+failure in this morning's full run LOOKED like a candidate for exactly that
+treatment. Running the file alone (22/22 green) is what showed it was load,
+not code — see docs/bugs.md.
+
+RULE, and it is cheap: a red suite gets either a fix or a commit sha that
+reproduces it on a tree we did not touch. "Inherited" without a reproduction
+is a guess, and this doc shows guesses ossify into facts within days.
