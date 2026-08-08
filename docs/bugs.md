@@ -202,3 +202,61 @@ THE RULE THIS ARGUES FOR: check what is deployed against the DEPLOYED SHA, not
 against a branch and not against main. Every claim in the two entries above was
 verified correct when written and was falsified by a deploy nobody in this
 lane made.
+
+## 2026-08-08 — the frontend suite fails RANDOMLY under concurrent load, and this is now a pattern
+
+Third occurrence today, and the third different set of files, so recording it
+as a class rather than as individual flakes.
+
+  run 1  1 failed  — conversation-panel
+  run 2  0 failed
+  run 3  13 failed across 6 files — agent-settings (3), llm-settings,
+         marketplace-modal, app-settings, sidebar, information-request-form
+
+EVERY ONE OF THEM PASSES IN ISOLATION. Run 3's six files together: 147 passed,
+0 failed. Nothing was wrong with the code in any of the three runs.
+
+THE CAUSE IS OVERSUBSCRIPTION, and the numbers say so plainly. Run 3 reported
+1706s of import time and 1340s of environment time against 247s of wall clock
+— i.e. the machine was running many times more work than it had capacity for.
+The box has 20 cores, `vitest` is on all defaults, so it spawns ~20 workers per
+run, and several sessions are testing, building and serving dev servers out of
+this tree at once.
+
+The failure signature is a `testTimeout` expiry, not an assertion: vitest's
+default is 5000ms and the failing durations cluster at 5054ms, 5125ms, 5031ms.
+
+WHAT TO DO ABOUT IT, in order:
+
+1. Run the full suite when nothing else is building. It is the only way to get
+   a result you can act on.
+2. If you must run it while the machine is busy, constrain the worker count:
+
+       npx vitest run --maxWorkers=4
+
+   NOT `--minWorkers` — that flag does not exist in vitest 4 and the run dies
+   with `CACError: Unknown option`. (I wrote it into this file before testing
+   it, which is the mistake this whole document keeps being about.)
+
+   MEASURED, same tree, same commit, back to back:
+
+       default workers   13 failed / 2771 passed   import 1706s  env 1340s
+       --maxWorkers=4     0 failed / 2784 passed   import  204s  env  389s
+
+   Wall clock went 247s -> 269s. So it costs about 9% more time and removes
+   the failures entirely — on this machine, under this contention, there is no
+   reason to run it any other way.
+3. A file that fails in the suite gets RUN ALONE before it is believed. If it
+   passes alone and fails in the suite, it is this.
+
+WHAT NOT TO DO: raise `testTimeout` in the committed config. That would mask
+genuinely slow tests for everyone including CI, where the machine is not shared
+and the defaults are correct. The problem is local contention, so the fix
+belongs in how we run it locally, not in the repo's definition of "too slow".
+
+THE REAL RISK IS NOT THE WASTED TIME. It is that a suite which fails randomly
+teaches people to dismiss failures — the same disease as the stale "known red"
+labels retired from docs/current-task.md today, arriving from the opposite
+direction. One trains you to ignore named files; the other trains you to ignore
+red altogether. Both end with a real regression shipped because someone
+recognised the shape of the noise.
