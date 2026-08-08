@@ -412,6 +412,30 @@ export const resetTestHandlersMockSettings = () => {
   MOCK_USER_PREFERENCES.settings = structuredClone(MOCK_DEFAULT_USER_SETTINGS);
 };
 
+/**
+ * Merge dev-only settings on top of the seeded defaults.
+ *
+ * Called from `mocks/browser.ts`, which runs ONLY in the browser worker. The
+ * shared default deliberately stays minimal because the suite asserts on it —
+ * `mcp-settings.test.tsx` waits for SETTINGS$MCP_NO_SERVERS before adding one,
+ * so a default carrying servers breaks a test that is correctly written.
+ *
+ * This exists so `dev:mock` can show a POPULATED page without the suite
+ * inheriting the fixture. Same split, and same reason, as the V1 conversation
+ * handlers being wired into the worker rather than the shared array.
+ */
+export const seedDevOnlySettings = (patch: Partial<Settings>) => {
+  const current = MOCK_USER_PREFERENCES.settings ?? MOCK_DEFAULT_USER_SETTINGS;
+  MOCK_USER_PREFERENCES.settings = {
+    ...structuredClone(current),
+    ...structuredClone(patch),
+    agent_settings: {
+      ...structuredClone(current.agent_settings ?? {}),
+      ...structuredClone(patch.agent_settings ?? {}),
+    },
+  } as Settings;
+};
+
 // Mock model data used by both V0 and V1 endpoints
 const MOCK_MODELS = [
   "anthropic/claude-3.5",
