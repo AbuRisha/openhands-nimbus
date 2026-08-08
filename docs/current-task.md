@@ -817,3 +817,73 @@ Local toolchain noise that would constrain the lock for everyone.
    revision can report a fork that did not land.
 3. First functional fork against a real authenticated conversation. Everything
    else about #12 is verified as far as it can be from outside a live sandbox.
+
+## 2026-08-08 - P0: the chat could not send a message at all
+
+Reported by the founder with a screenshot:
+
+    Duplicate tool names found: {'browser_list_tabs', 'browser_navigate'}
+
+Our bridge tools reused two names the SDK's own browser_use toolset already
+uses, and `get_default_tools(enable_browser=True)` pulls that toolset in. A
+duplicate name does not shadow a tool or drop one - `AgentBase` refuses to build
+the agent (sdk/agent/base.py:597), so EVERY message send failed, for every user,
+whether or not they had ever paired a browser. A browser feature nobody had
+adopted took down the core product.
+
+`browser_read_page` did not collide, which is why the error named two tools and
+not three, and why it read as something exotic rather than as a naming clash.
+
+Renamed to `paired_browser_*` (`edf548a5f`). The prefix is not cosmetic: the
+model must choose between a sandboxed browser signed into nothing and the
+customer's own signed-in one, and the name is most of what it has to go on.
+
+### A second bug underneath, which predated it
+
+`extension/background.js` switches `message.tool` over a fixed vocabulary -
+get_page_text / get_page_url / navigate / list_tabs - and throws "unsupported
+tool" on anything else. `BrowserBridgeExecutor` sent the TOOL NAME. So even with
+the collision fixed, every call to a paired browser would have been refused by
+the browser. The bridge could never have worked end to end, and no test caught
+it because each half was correct on its own terms.
+
+The wire verb is now an explicit map (`_WIRE_VERB`), not the tool name, because
+the two vocabularies belong to different sides: the tool name is ours and just
+changed, while the verb is a contract with an extension already installed in
+customers' browsers. A rename must never reach the wire. A tool registered
+without a verb now raises at construction rather than at a customer's first use.
+
+### What to copy from the fix, not just the fix
+
+- Both tests were confirmed to go RED against the pre-fix code before being
+  trusted green. A test written after the fact is a hypothesis until you have
+  seen it fail for the right reason.
+- The valuable test builds the REAL production list -
+  `get_default_tools(enable_browser=True)` then `_add_nimbus_extra_tools` -
+  rather than name sets written by hand. Checking each half against your model
+  of the other half is precisely what produced the outage.
+- Both tests guard against passing VACUOUSLY: if the bridge tools stop being
+  injected, or the SDK browser toolset stops being present, they say so instead
+  of going quietly green. `RUNTIME=process` has to be set or the injection
+  branch is skipped entirely and the assertion holds over an empty set.
+- The first version of the test read `annotations.title`; the SDK de-duplicates
+  on `.name`. They agree here, so it passed. A test that checks the wrong field
+  is worth less than no test, because it reads as coverage.
+- Widened to compare EVERY Nimbus tool name against EVERY SDK tool name, so the
+  next collision is a failing test rather than an outage. Nimbus registers media
+  and workflow tools beside these, all named without consulting the SDK.
+
+### Trap: the lane that still had the bug
+
+`lane/bridge` was fully merged into `land/auth-gates` (0 commits ahead) but 47
+BEHIND, so its worktree still contained the colliding names. Merged-in does not
+mean up-to-date, and anything built from that lane would have reintroduced the
+outage. Fast-forwarded. Worth checking `behind` and not only `ahead` before
+believing a lane is safe to build from.
+
+Also: an edit meant for the integration tree landed in `oh-wt-bridge` first,
+because the shell's cwd resets between calls. The result was a docstring
+describing a prefix that tree's code did not use - the exact "confident
+description outlives the thing it described" failure documented in nimbus-v2's
+`docs/worktrees-and-shared-tree-traps.md`. Reverted. Check `pwd` in the same
+call as the edit, not in a previous one.
