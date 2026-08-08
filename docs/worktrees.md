@@ -139,6 +139,60 @@ that never touched it.
     git diff --stat "$BASE" HEAD     # stable
     git diff --stat origin/land/auth-gates HEAD   # can move between two runs
 
+## Git cannot tell you WHICH SESSION did anything
+
+    git log --format="%an" -20 origin/land/auth-gates | sort -u
+    AbuRisha
+
+Every commit, from every concurrent session, carries one identity. So authorship
+is not a routing key, and "your commit" / "your deploy" is a guess that will be
+wrong at some rate. It was wrong twice in one afternoon: work was attributed to
+a session that had run zero `az` commands, and an offer to verify a build was
+parked with someone who had no build — which is worse than useless, because the
+offering side stands down believing it is owned and the real owner never hears.
+
+**Route by commit hash, never by "yours".**
+
+## State the command, not the value
+
+A shared ref moves. Three different values for `origin/land/auth-gates` were
+quoted between sessions inside one conversation, none matching the message that
+stated them by the time it was read.
+
+A message saying *"run `git rev-parse origin/land/auth-gates`"* stays true. One
+saying *"it is cfab972fd"* is wrong within minutes. Same for ancestry: one
+session correctly measured `088fe0f76` as NOT in the tip and drew a load-bearing
+conclusion about a dangerous build pairing; by the time it was read, a merge had
+landed it and the conclusion had inverted.
+
+Generalised: **anything you learned about shared state is stale by the time you
+act on it.** Re-measure at the point of use.
+
+## A completeness claim is only as wide as the space you searched
+
+"All 13 checkouts repaired, 0 pinned remain" was true — of
+`.codex/git-migrations/20260719/`. The loop never descended anywhere else, and
+26 pinned checkouts sat outside it, including the `bolt-src` clone that
+originally motivated the repair. The claim was not a lie about the result; it
+was a true statement about a search space that structurally excluded the
+counterexample. Same family as an assertion placed where it cannot observe the
+defect.
+
+Two ways it hid, both worth knowing:
+
+- `[ -d "$d/.git" ]` is FALSE for a git worktree, where `.git` is a FILE. An
+  audit using it silently reports worktrees as "gone".
+- A correct refspec is not a populated remote. Several checkouts had
+  `+refs/heads/*:refs/remotes/origin/*` and exactly ONE remote-tracking ref,
+  because nothing had fetched since the repair. Verify `refs=` too, not just the
+  config line.
+
+The repaired set is now verified per checkout rather than by the loop's exit
+code: `bolt-src` 3 refs -> 26, `oh-src` 1452, `clawref` 192, `hermes-agent`
+1475, and every worktree of those repos inherits it through the shared config.
+Vendor clones were deliberately left alone; `ghidra-mcp` is pinned to a TAG
+refspec on purpose and rewriting it would be the bug, not the fix.
+
 ## Diagnostic traps that produced false findings today
 
 Every one of these made a working thing look broken, or a present thing look
