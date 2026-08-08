@@ -90,6 +90,49 @@ because they are cheap and customer-visible.
 | 14 | **`/help` and a real built-in command set** | M | We have exactly 3 built-ins (`/new`, `/btw`, `/model`) vs ~20. No `/help` at all |
 | 15 | **Central shortcut registry + `Cmd+K` + `↑` recall** | M | 7 ad-hoc `document` keydown listeners today, no registry, three owners claim Cmd+Enter |
 
+#### Item 16, inventoried 2026-08-08 — the pane is built and the rest is a security decision
+
+**BUILT:** `components/features/preview/preview-panel.tsx` plus
+`sandbox/preview_proxy_router.py` (`/preview/{id}/ports` and the
+`/preview/{id}/{port}/{path}` proxy). The pane works.
+
+**ALSO ALREADY THERE:** the agent has its own browser — `tools/browser_use/` in
+the SDK — so "screenshot back to the model" and "model-driven navigation" are
+served for the AGENT'S browser today. That is most of what the item asks for,
+just not through the user's pane.
+
+**THE REST IS BLOCKED BY A DELIBERATE SECURITY CHOICE, not by missing work.**
+The preview iframe is `sandbox="allow-scripts allow-forms"` with NO
+`allow-same-origin` (preview-panel.tsx:152). That is what stops a previewed app
+— which is arbitrary code the agent just wrote — from reaching the parent page,
+its cookies, or the session. It also makes cross-frame introspection impossible
+by design:
+
+  * click-to-select an element   — needs DOM access into the frame
+  * console logs to the model    — needs to hook the frame's console
+
+Both require `allow-same-origin`, and granting it to a frame serving
+agent-authored code from the same origin as the app is precisely what the
+attribute exists to prevent.
+
+**So #16 is a decision, not an estimate.** Three honest options:
+
+  1. Leave it. The agent's own browser already gives the model screenshots,
+     navigation and console access — the model does not need the user's pane to
+     see the page.
+  2. Serve the preview from a SEPARATE ORIGIN and grant `allow-same-origin`
+     there. Cross-origin then blocks parent access structurally rather than by
+     attribute. This is the real fix and it is deployment work, not frontend.
+  3. Add a small opt-in agent shim injected into the previewed page that posts
+     selections and console lines out via `postMessage`. No `allow-same-origin`
+     needed, works with the sandbox as-is, but only for pages the agent
+     instruments.
+
+Option 1 is free and probably right until someone asks for click-to-select by
+name. Do NOT quietly add `allow-same-origin` to make the feature work — that
+converts a contained preview into a same-origin frame running agent-written
+code.
+
 #### Items 17 and 18, inventoried 2026-08-08 — sizes were quoted without checking the backend
 
 Both were sized from the frontend's side. The backend serves one half of each.
@@ -178,7 +221,7 @@ against an API that cannot do it.
 
 | # | Item | Size |
 |---|---|---|
-| 16 | **Live preview loop**: preview pane, click-to-select an element, screenshot back to the model, console logs to the model, model-driven navigation | L |
+| 16 | **Live preview loop** — pane BUILT; the introspection half is a SECURITY TRADEOFF, not a build task; see below | M, needs a decision |
 | 17 | **Git review surface** — READ half is served, WRITE half has no endpoint at all; see "Items 17 and 18, inventoried" | M for read, blocked upstream for write |
 | 18 | **PR console** — CREATION already exists via MCP; checks/annotations/rerun/merge do not; see below | L |
 | 19 | **Live sub-agent progress + nested tool calls.** NOT a rendering gap — see "Item 19, answered" below. Needs the SDK to emit a mid-task event; no frontend work reaches it | L, blocked upstream |
