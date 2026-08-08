@@ -88,12 +88,56 @@ stale DONE costs the whole implementation.
 | 7 | **Queued-message control** | **DONE** | real queue store, cancel/reorder/promote |
 | 8 | **Cross-session transcript search** | **DONE** | `8f555ac2f` |
 | 9 | **Find-in-conversation (Cmd+F)** | **DONE** | `284849fc4`. CSS Custom Highlight API — see the collapsed-rows limitation recorded there |
-| 10 | **@-mention picker with content search** | not started | **Needs a schema decision first** — content search, not filename match. See §11 |
+| 10 | **@-mention picker with content search** | not started, **and blocked on a backend endpoint that does not exist** | Nothing reachable from the browser can list or search FILES. Needs a new app_server route before any UI. See "Item 10, scoped" |
 | 11 | **Tool-permission prompts + permission modes** | backend DONE, browser-reachable | See "Item 11, inventoried" below. Modes are S–M and purely frontend. Folder trust is separate and unbacked |
 | 12 | **Session fork + rewind** | **fix now IN the deployed image; behaviour still unverified** | `routing2-20260808` / rev `0000097` carries all three `/api`-prefixed callsites, confirmed by image inspection. Nobody has yet driven a fork against it. See "Item 12" below before touching it |
 | 13 | **Server-side PTY terminal** | **half done, half blocked upstream** | Read-only agent terminal ships. Interactive shell impossible on this API: no stdin, no TTY, no session. See "Item 13, answered" |
 | 14 | **`/help` + built-in command set** | **DONE** | `0357cd459`. Help reads `BUILT_IN_COMMANDS` at render, so it cannot go stale |
 | 15 | **Shortcut registry + `Cmd+K` + `↑` recall** | **DONE** | Registry `35e333cdb`, recall `590286ea9`, palette `3c797261a`. Palette actions derive from `useSettingsNavItems`, so they cannot drift from the real nav |
+
+#### Item 10, scoped 2026-08-08 — the blocker is not the schema
+
+This row said "needs a schema decision first — content search, not filename
+match". That is not the blocker. **There is no way for the browser to enumerate
+files at all**, by name or content, so the schema question never arises.
+
+**Every route the browser-facing proxy exposes** (`agent_proxy_router.py`
+153-175):
+
+    /api/conversations/{rest:path}
+    /api/git/{rest:path}
+    /api/vscode/{rest:path}
+    /api/file/{rest:path}
+
+**Every file route behind it** (SDK `agent_server/file_router.py`):
+
+    POST /file/upload         one file, in
+    GET  /file/download       one file, out, path must already be known
+    GET  /file/archive        the WHOLE tree as tar.gz
+    GET  /file/home           home dir + top-level DIRECTORIES + fs roots
+    GET  /file/search_subdirs immediate subdirectories
+
+`search_subdirs` is the GUI's workspace picker and its docstring is explicit:
+*"Symlinks and files are skipped."* It is the same directory-picker that item 21
+was once mistaken for. `/file/home` returns `FileBrowserEntry` values that are
+also directories. So the file surface is: put one, get one by known path, or
+download everything.
+
+**`/api/bash/*` is NOT proxied.** The obvious workaround — have the client run
+`git ls-files` or `rg --files` through `POST /api/bash/execute_bash_command` —
+is unavailable, and should stay that way: exposing arbitrary command execution
+to the browser is a security change, not a convenience, and the auth gate's
+exempt list (`nimbus_auth_gate.py:80`) would have to grow to match.
+
+**So item 10 needs a new app_server endpoint** — something like
+`GET /api/v1/app-conversations/{id}/workspace/search?q=` — that runs server-side
+and reaches the sandbox the way `fork_state_transport.py` already does
+(server-to-server, via `sandbox.api_base`). That is backend work and it comes
+before any picker UI. Sizing this as a frontend task will be wrong.
+
+What is genuinely undecided, once the endpoint exists, is whether it matches
+filenames or content, and what it returns per hit. That decision was never the
+thing standing in the way.
 
 #### Item 12, 2026-08-08 — merged, deployed, and never once functional
 
