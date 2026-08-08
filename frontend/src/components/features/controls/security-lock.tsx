@@ -17,7 +17,9 @@ export function SecurityLock() {
       placement="top"
     >
       <Link
-        to="/settings"
+        // /settings is the LLM-profiles screen, which is no longer in the
+        // nav -- see settings-nav.tsx. Land on general settings instead.
+        to="/settings/app"
         className="mr-2 cursor-pointer hover:opacity-80 transition-all"
         aria-label={t(I18nKey.SETTINGS$TITLE)}
       >
