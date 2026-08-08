@@ -162,3 +162,40 @@ Both calls authenticate the way every other sandbox-scoped call does:
 non-RUNNING sandboxes**. So forking a stopped or paused conversation has to start
 the parent's sandbox first, purely to read from it. There is no cold path, and
 that is a product-visible constraint, not an implementation detail.
+
+## An open decision the sequence above hides
+
+Steps 2-4 have the **app server** pull a customer's conversation state onto its
+own host, expand it, and re-archive it. That is a new data-handling surface: on a
+multi-tenant deployment, customer conversation content — including whatever the
+agent wrote into its own event log — would transit and be briefly materialised on
+shared app-server disk, in a temp directory, for every fork. Nothing does that
+today. The app-server event store is a mirror of *events*, not of the agent's
+private state directory.
+
+That should be a deliberate decision, not a side effect of the easiest wiring.
+
+**The variant that avoids it entirely:** never expand the archive on the app
+server. Relay the bytes, and do the mutation inside the target sandbox.
+
+    1. GET  {source}/file/archive?...&format=tar.gz     -> bytes (never expanded)
+    2. POST {target}/file/upload?path=/tmp/fork.tar.gz  -> the same bytes
+    3. POST {target}/bash/execute_bash_command
+           extract, rename the dir to <new_id>, rewrite base_state.json's id,
+           delete event files past the cutoff
+
+The app server then handles an opaque blob it never reads. The cost is that the
+mutation logic has to be expressed as a shell/one-liner in the sandbox rather
+than as the tested Python of `fork_conversation_state`, which trades a
+correctness asset for a privacy one — and that function's 13 tests, including the
+100,000-event ordering case, are not a small thing to give up.
+
+A third option keeps both: run the archive relay as above, but have the target
+sandbox do the mutation by invoking the same logic, if there is ever a supported
+way to execute app-server code in a sandbox. There is not one today.
+
+Recommendation: decide this before writing the transport, because it determines
+where the tested code runs and it is not a refactor afterwards. If the answer is
+"expand on the app server", the temp directory needs an explicit lifetime, a
+per-customer path, and cleanup on failure — none of which are implied by the
+six-step sequence as written.
