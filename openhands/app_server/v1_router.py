@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from openhands.app_server.app_conversation import (
     app_conversation_router,
     fork_conversation_router,
+    workspace_search_router,
 )
 from openhands.app_server.app_conversation.nimbus_memory_router import (
     router as nimbus_memory_router,
@@ -36,6 +37,10 @@ router.include_router(app_conversation_router.router)
 # Fork lives in its own module rather than in the 1100-line conversation
 # router; same prefix, so the URL is unchanged for clients.
 router.include_router(fork_conversation_router.fork_router)
+# Workspace file listing, for the @-mention picker. Same reasoning as fork:
+# its own module, same prefix. The browser has no other way to enumerate
+# files — see the module docstring.
+router.include_router(workspace_search_router.workspace_router)
 router.include_router(pending_message_router)
 router.include_router(sandbox_router.router)
 router.include_router(sandbox_spec_router.router)
