@@ -68,9 +68,18 @@ Worktrees remove 1, 2 and 3 outright, and reduce 4 to your own lane.
   caught the shared-index cases.
 - Prefer write + `git add` + `git commit` in ONE invocation. Zero window is the
   only window size that is safe if anything else can touch the tree.
-- **Commit WIP early.** Untracked files have no safety net at all: pre-commit
-  does not stash them, so they never enter its patch files. A 12KB test file was
-  lost exactly this way while five tracked files beside it survived.
+- **PUSH, do not just commit.** This is the sharpest lesson of the day and it is
+  a correction of an earlier one. The claim here used to be "untracked work has
+  no safety net", from a 12KB test file that appeared lost while five tracked
+  files beside it survived. That file was NOT lost — it had been committed and
+  pushed (`39e78f0b6`), and I had simply not looked for it there. The true
+  lesson is stronger: those five files were TRACKED and still vanished from the
+  working tree three times. What saved the test file was the commit being
+  **pushed**. A local commit lives in a tree something is repeatedly clearing.
+
+- **Before declaring anything lost, look in git.** `git show <ref>:<path>`,
+  `git log --all -- <path>`, `git fsck --lost-found`. Absence from the working
+  tree is not absence.
 
 ## Merging back
 
@@ -99,3 +108,26 @@ were recovered byte-exact.
 
 Verify recovery with byte sizes and grep markers recorded *before* the loss, not
 by eye.
+
+## Diagnostic traps that produced false findings today
+
+Every one of these made a working thing look broken, or a present thing look
+missing. A NEGATIVE result needs the instrument checked before the conclusion.
+
+- **`git diff` silently omits changes another session has STAGED.** Use
+  `git diff HEAD`. A working backup taken with plain `git diff` will quietly
+  exclude staged work.
+- **`grep -c pattern file || echo 0` prints TWO values** when there are no
+  matches, because `grep -c` exits 1 on zero. It reads like a garbled count and
+  makes intact files look empty.
+- **An anchored grep misses indented definitions.** `grep -c "^def test_"`
+  returned 0 on a file with 15 tests, because they sit inside a class. The file
+  was fine.
+- **`ls node_modules` returns 0 entries in Git Bash** on a healthy symlink farm.
+- **A zero-width viewport makes every element "overflow"** — every structural
+  measurement taken through it is meaningless, not alarming.
+- **Setting `textContent` directly fires no `input` event**, so any probe that
+  does it bypasses the semantics it is trying to test.
+
+To answer "did this fail before my change too?" in a contended tree, use a
+throwaway `git worktree add --detach <tmp> HEAD` — never `git stash`.
