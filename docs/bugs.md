@@ -120,3 +120,38 @@ persisted from what we ASKED for, after `raise_for_status()` on the switch. So
 it is honest as long as a 2xx means the swap landed. If switch_llm ever starts
 returning 2xx on a partial swap, the model chip becomes a claim rather than a
 fact.
+
+## 2026-08-08 — `npm run build` EPERM on build/locales is a LOCAL dev-server lock, not a build break
+
+Symptom, on Windows, in a tree that also has a Vite dev server running:
+
+    ✓ built in 10.24s
+    Error: EPERM: operation not permitted, rename
+      'frontend\build\client\locales' -> 'frontend\build\locales'
+      at Object.unpackClientDirectory (react-router.config.ts:19)
+
+NOTE THE ORDERING: the Vite build SUCCEEDS. The failure is the post-build
+unpack step renaming directories out of `build/client/`, and only `locales`
+fails — the one directory holding ~15 JSON files the build has just written.
+
+CAUSE: a `npm run dev:mock` server running in the SAME tree holds a handle on
+those files. On Windows a directory rename fails with EPERM while any handle
+inside it is open. Verified by experiment rather than assumed:
+
+  - clean `rm -rf build` then build, dev server RUNNING  -> EPERM, every time
+  - stop the dev server, `rm -rf build`, build           -> clean, and
+    build/locales + build/index.html present, 180 assets
+
+NOT a stale-artifact problem (it reproduces from an empty build/) and NOT a
+code or merge problem. It does not affect CI or the deploy, both of which
+build on Linux in a tree with no dev server.
+
+IF YOU HIT IT: stop your preview/dev server and rebuild. Do not go looking for
+it in react-router.config.ts.
+
+RELEVANT TO THIS REPO SPECIFICALLY because several sessions run dev servers
+out of the shared `openhands-nimbus` tree at once, so one session building
+while another previews will produce this for the builder.
+
+VERIFIED SEPARATELY, and the thing people actually want to know: the merged
+`land/auth-gates` tip BUILDS CLEAN.
