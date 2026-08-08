@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import logging
 import os
+import types
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
@@ -229,30 +230,56 @@ class BrowserBridgeExecutor(
 def _make_tool(
     tool_name: str, action_type: type[Action], description: str, read_only: bool
 ) -> type[ToolDefinition]:
-    # `tool_name`, not `name`: inside a class body the right-hand side of
-    # `name = name` resolves in the class namespace rather than the enclosing
-    # function, so the obvious spelling raises NameError at import.
-    class _Tool(ToolDefinition):
-        name: ClassVar[str] = tool_name
+    """Build a tool class whose real class name IS ``tool_name``.
 
-        @classmethod
-        def create(cls, conv_state: Any = None, **params: Any) -> Sequence['_Tool']:
-            return [
-                cls(
-                    description=description,
-                    action_type=action_type,
-                    observation_type=BrowserBridgeObservation,
-                    annotations=ToolAnnotations(
-                        title=tool_name,
-                        readOnlyHint=read_only,
-                        openWorldHint=True,
-                    ),
-                    executor=BrowserBridgeExecutor(tool_name),
-                )
-            ]
+    The name has to be correct at CLASS-CREATION time, which is why this uses
+    ``types.new_class`` rather than a class statement followed by a rename.
 
-    _Tool.__name__ = f'{tool_name}_tool'
-    return _Tool
+    Assigning ``__name__`` afterwards looks equivalent and is not. Pydantic
+    captures the name when it builds the core schema for the class, so the
+    serializer went on knowing the class as ``_Tool`` while instances reported
+    the new name. ``DiscriminatedUnionMixin._serialize_by_kind`` compares those
+    two (sdk/utils/models.py) to decide whether the handler belongs to the
+    current class; when they disagree it delegates to ``model_dump``, which
+    re-enters the same serializer, which disagrees again:
+
+        PydanticSerializationError: Error calling function
+        `_serialize_by_kind`: RecursionError
+
+    That surfaced as a 500 from the agent server on POST /events - i.e. sending
+    ANY message failed the moment these tools were actually in the agent, which
+    is why it stayed hidden behind the duplicate-name bug that stopped the agent
+    from being built at all.
+    """
+
+    def _create(cls: type, conv_state: Any = None, **params: Any) -> Sequence[Any]:
+        return [
+            cls(
+                description=description,
+                action_type=action_type,
+                observation_type=BrowserBridgeObservation,
+                annotations=ToolAnnotations(
+                    title=tool_name,
+                    readOnlyHint=read_only,
+                    openWorldHint=True,
+                ),
+                executor=BrowserBridgeExecutor(tool_name),
+            )
+        ]
+
+    def _body(ns: dict[str, Any]) -> None:
+        # `tool_name`, not `name`: inside a class body the right-hand side of
+        # `name = name` would resolve in the class namespace rather than the
+        # enclosing function.
+        ns['__annotations__'] = {'name': ClassVar[str]}
+        ns['name'] = tool_name
+        ns['__module__'] = __name__
+        ns['__doc__'] = description
+        ns['create'] = classmethod(_create)
+
+    # new_class, not type(): ToolDefinition has a custom metaclass, and a bare
+    # three-argument type() call would bypass it.
+    return types.new_class(tool_name, (ToolDefinition,), exec_body=_body)
 
 
 BrowserReadPageTool = _make_tool(
