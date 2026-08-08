@@ -65,13 +65,33 @@ The single failure is `recent-conversation`, a known-upstream red from
 `13634324c` that also fails in isolation. Uncapped on the same content they saw
 5 failures; capped they saw exactly the 1 real one.
 
-So the claim that actually survives is:
+**And "capped returns the same number twice" — which is what this section said
+an hour ago — did not survive either.** A fourth capped run here returned:
 
-> **Capped returns the same number twice. Uncapped does not.**
+    Test Files  1 failed | 320 passed | 2 skipped (323)
+         Tests  1 failed | 2776 passed
 
-Capping does not make failures go away — it stops inventing new ones, which is
-what makes the number mean something. If you cap and see a failure, that is a
-result, not a reason to re-run.
+`conversation-websocket-handler.test.tsx`. Run alone: **26 passed, 1 skipped, 13
+todo.** So that is a load-induced failure INSIDE a capped run — a different
+animal from the other session's capped failure, which was a genuine
+known-upstream red that also fails in isolation.
+
+Capped: 0, 0, 1(load-induced) here; 1(real) elsewhere. So:
+
+> **Capping reduces nondeterminism. It does not remove it.**
+>
+> **No suite failure is real until it reproduces in isolation.**
+
+That second line is the one to actually use, and it is cheap — a single file
+runs in about 6 seconds against 500 for the suite. It is also the only rule here
+that holds for both kinds of capped failure: it correctly keeps the
+known-upstream red and correctly discards the load-induced one, which no
+count-based rule does.
+
+Three claims have now been made in this file about what capping guarantees, and
+two were wrong. The stable part is the mechanism (workers contend, mocks go
+unapplied) and the isolation check. Treat any statement here about counts as
+provisional.
 
 ## How to get a trustworthy answer
 
