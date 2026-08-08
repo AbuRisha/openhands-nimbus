@@ -194,6 +194,53 @@ class TestTheRealProductionToolList:
         assert collided.isdisjoint({t.name for t in mod._TOOLS})
 
 
+class TestToolsCanBeSerialized:
+    """The third bug in the same three tools, found by actually sending a message.
+
+    With the name collision fixed the agent finally built, and the next POST to
+    /events returned 500 from the agent server:
+
+        PydanticSerializationError: Error calling function
+        `_serialize_by_kind`: RecursionError
+
+    `_make_tool` built the class under a throwaway name and reassigned
+    ``__name__`` afterwards. Pydantic had already captured the original when it
+    built the core schema, so `_serialize_by_kind` compared the two names,
+    found them different, delegated to `model_dump`, and re-entered itself
+    forever (sdk/utils/models.py).
+
+    Sending any message failed the moment these tools were really in the agent -
+    which is exactly why the duplicate-name bug hid it: the agent never got
+    built, so nothing ever tried to serialize them.
+    """
+
+    def test_every_bridge_tool_serializes(self):
+        from openhands.nimbus_bootstrap import nimbus_browser_tools as mod
+
+        for cls in mod._TOOLS:
+            tool = cls.create()[0]
+            # The real failure was RecursionError inside pydantic, so this must
+            # actually serialize rather than merely construct.
+            payload = tool.model_dump_json()
+            assert payload, f'{cls.__name__} serialized to nothing'
+
+    def test_the_class_name_matches_what_pydantic_recorded(self):
+        """The invariant behind the fix, stated directly.
+
+        Asserting on the class name rather than only on serialization means a
+        future refactor that reintroduces the rename fails here with an obvious
+        message instead of a RecursionError three layers down inside pydantic.
+        """
+        from openhands.nimbus_bootstrap import nimbus_browser_tools as mod
+
+        for cls in mod._TOOLS:
+            assert cls.__name__ == cls.name, (
+                f'class is named {cls.__name__!r} but the tool is {cls.name!r}; '
+                'pydantic captures the class name when it builds the schema, so '
+                'renaming afterwards makes _serialize_by_kind recurse forever'
+            )
+
+
 class TestWireVerbContract:
     def test_every_tool_has_a_verb_the_extension_understands(self):
         from openhands.nimbus_bootstrap import nimbus_browser_tools as mod
