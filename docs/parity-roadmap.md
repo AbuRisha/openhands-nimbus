@@ -90,43 +90,6 @@ because they are cheap and customer-visible.
 | 14 | **`/help` and a real built-in command set** | M | We have exactly 3 built-ins (`/new`, `/btw`, `/model`) vs ~20. No `/help` at all |
 | 15 | **Central shortcut registry + `Cmd+K` + `↑` recall** | M | 7 ad-hoc `document` keydown listeners today, no registry, three owners claim Cmd+Enter |
 
-### 12a. Item 19 was wrong on both halves — read this before building it
-
-Two sessions built a wrong answer off the old wording on 2026-08-07, in the same
-hour, independently. A third is the default outcome if it is left as it was.
-
-**"No render site reads it" — false.**
-`components/v1/chat/subagent/subagent-observation-content.tsx` is a rich card
-showing the sub-agent, the task id, the paired query and the result, dispatched
-from `get-event-content.tsx:214/278`. Sub-agent observations DO render.
-
-**"`TaskObservation.status` exists" — true but useless.** It is vestigial and
-cannot disagree with `is_error`. `tools/task/impl.py:38-66` is the only
-constructor:
-
-    case TaskStatus.COMPLETED -> status=task.status,  is_error unset (False)
-    case TaskStatus.ERROR     -> status=task.status,  is_error=True
-    except Exception          -> status="error",      is_error=True
-    case _                    -> raise RuntimeError   # never constructs one
-
-So `get-observation-result.ts` resolving on `is_error` alone is CORRECT, and a
-failed sub-agent cannot render as success. `status` is only useful if you want
-to DISPLAY "completed"/"error" as text, which is cosmetic.
-
-**And a RUNNING observation cannot exist.** `manager.py:283` sets
-`TaskStatus.RUNNING` on an internal `Task`, NOT on a `TaskObservation` — and the
-`case _` above refuses to build an observation for any non-terminal status. A
-"still running" indicator was built on that field and reverted (`8fc03de2f`),
-because ten green tests asserting an unreachable state are worse than no tests:
-the next reader takes them as a specification.
-
-**THE ACTUAL GAP, which no frontend work reaches:** there is no in-progress
-event for a sub-agent at all. The observation arrives exactly once, at the end.
-Live progress requires the SDK to emit something mid-task. Until it does, this
-item is not a rendering problem and there is nothing to build here.
-
----
-
 ### Tier 2 — high ceiling, honestly large
 
 | # | Item | Size |
@@ -134,7 +97,7 @@ item is not a rendering problem and there is nothing to build here.
 | 16 | **Live preview loop**: preview pane, click-to-select an element, screenshot back to the model, console logs to the model, model-driven navigation | L |
 | 17 | **Git review surface**: diff, per-file patch, dirty-tree warning, commit/stash | M–L |
 | 18 | **Full PR console**: checks, annotations, rerun, review comments, merge (~20 methods on their side) | L |
-| 19 | **Live sub-agent progress + nested tool calls.** ENTRY WAS WRONG ON BOTH HALVES — see §12a below before touching this | L |
+| 19 | **Live sub-agent progress + nested tool calls.** NOT a rendering gap — see "Item 19, answered" below. Needs the SDK to emit a mid-task event; no frontend work reaches it | L, blocked upstream |
 | 20 | **Artifacts**: gallery, versions, restore, share, auto-publish, print-to-PDF; artifacts that can call tools and query the model | L |
 | 21 | **Workspaces**: group folders/projects/links, auto-summary, auto-classify sessions, per-workspace memory | M–L |
 | 22 | **Scheduled tasks** with editable task files, trigger history, standing permissions | M |
@@ -143,6 +106,47 @@ item is not a rendering problem and there is nothing to build here.
 | 25 | **MCP management UI**: live status, per-server logs, probe-before-add, in-app OAuth, per-session tool enablement | M |
 | 26 | **Side chat** — scratch sub-conversation beside the main thread | M |
 | 27 | **Session summarize / compact** with a user trigger. Condensation events exist backend-side but `should-render-event.ts:15-80` has no branch, so they never render | M |
+
+#### Item 19, answered 2026-08-07 — and TWO wrong answers were built off the old wording first
+
+The original entry said `TaskObservation.status` exists and no render site reads
+it. Both halves misled, and both misleading readings were acted on within an hour
+of each other by different sessions. Recording the mechanism, because a third
+attempt is the default outcome otherwise.
+
+**The render site does exist.** `components/v1/chat/subagent/subagent-observation-content.tsx`
+is a rich card — subagent, task id, the paired query, the result — wired at
+`get-event-content.tsx:214`. The "no render site" clause was simply stale.
+
+**`status` is unread because it is redundant, not because it was forgotten.**
+`openhands/tools/task/impl.py:38-66` is the only constructor and every branch
+sets both fields together:
+
+    TaskStatus.COMPLETED  status=task.status, is_error unset (False)  -> success
+    TaskStatus.ERROR      status=task.status, is_error=True           -> error
+    except Exception      status="error",     is_error=True           -> error
+    case _                raise RuntimeError — never builds one
+
+`case _` is the SDK stating outright that a non-terminal `TaskObservation` is not
+a thing. So `status: "failed"` with a falsy `is_error` is unreachable, and
+`get-observation-result.ts` resolving on `is_error` alone is CORRECT.
+
+**The two wrong answers:**
+
+1. A "still running" indicator was built on `status`, reasoning that
+   `manager.py:283` emits `TaskStatus.RUNNING`. It does — but it constructs an
+   internal `Task`, not a `TaskObservation`. Shipped, then reverted in
+   `8fc03de2f`, along with ten green tests asserting behaviour the system cannot
+   produce. Tests documenting an unreachable state are worse than no tests: the
+   next reader takes them as a specification.
+2. The same field was flagged as a possible defect — a failed sub-agent rendering
+   with a green check. Correctly NOT called a bug without checking reachability,
+   and reachability came back clean.
+
+**What item 19 actually needs:** there is no in-progress event for a sub-agent at
+all. The observation arrives once, at the end. Live progress requires the SDK to
+emit something mid-task. No amount of frontend work reaches it, which is why this
+is marked blocked upstream rather than L.
 
 ### Tier 3 — cheap wins, do when passing
 
@@ -459,16 +463,21 @@ the same copy runs over `/file/archive` + `/file/upload`, or a single
 `/bash/execute_bash_command`. Both are already authenticated. So the runtime
 split is an implementation detail, not a capability gap.
 
-**The one thing still to decide is a PRODUCT question, and it is the founder's.**
-Does a fork SHARE the parent's sandbox, or get its own?
+**That question is ANSWERED BY THE CODE, not by preference.**
+`SandboxGroupingStrategy.NO_GROUPING` is the default —
+"each conversation gets its own sandbox" (settings_models.py:611). So a fork
+already gets its own sandbox and the persistence dir must be TRANSFERRED
+(archive + upload, or a bash copy), never shared. I previously recorded this as
+a founder decision; it is not one.
 
-  * Shared — one bash call, cheap, and the fork can mutate the parent's files.
-    A fork exists to try a different path; letting it damage the thing you
-    forked from defeats the purpose.
-  * Own sandbox — archive + upload, isolated, more moving parts.
+**THE GOTCHA THAT AFFECTS THE UI, and it is the sharpest thing about this
+feature: a fork rewinds the CONVERSATION but NOT the WORKING TREE.** The
+sandbox's files stay exactly as the parent left them; only event history
+truncates. Unsaid, that reads as a bug — the user rewinds to before a bad edit
+and the bad edit is still on disk. Whatever affordance ships has to say so.
 
-Nobody should implement this unprompted, because the two answers produce
-different endpoints.
+Full design, sequence and four gotchas: `docs/fork-conversation-design.md`.
+Not implemented; not scheduled.
 
 Frontend affordance stays unbuilt until the endpoint exists. A fork action
 that produces an amnesiac fork is worse than no fork action.
