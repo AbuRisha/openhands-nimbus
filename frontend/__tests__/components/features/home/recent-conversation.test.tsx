@@ -67,7 +67,10 @@ describe("RecentConversation - chip", () => {
       "title",
       "anthropic/claude-sonnet-4-20250514",
     );
-    expect(model.querySelector("svg")).toBeInTheDocument();
+    // An icon, not specifically an inline <svg>. AgentChipIcon renders the
+    // native mark as an <img> (the Nimbus favicon) since the OpenHands branding
+    // was stripped in 3d9594f6f; this test pinned the ELEMENT, not the behaviour.
+    expect(model.querySelector("svg, img")).toBeInTheDocument();
 
     const textSpan = model.querySelector("span.truncate");
     expect(textSpan).toBeInTheDocument();
