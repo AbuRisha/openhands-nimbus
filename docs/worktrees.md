@@ -31,6 +31,27 @@ and `npx` resolves the wrong `tsc` entirely. **Tests still passed through the
 junction**, which is what makes it dangerous: it looks like it works right up
 until you typecheck.
 
+**It does not merely fail to resolve — it resolves DIFFERENTLY, which is
+worse.** A junctioned lane reported six `TS2578 unused '@ts-expect-error'`
+errors in three test files nobody had touched, and they read exactly like real
+pre-existing breakage on the integration branch. Measured three ways at the
+same commit:
+
+    bare tsc, JUNCTIONED node_modules  -> six TS2578
+    bare tsc, REAL node_modules        -> 0
+    npm run typecheck (typegen + tsc)  -> clean
+
+Under broken resolution the mocked modules resolve wider, so directives that
+are genuinely NEEDED look redundant. A junction can therefore manufacture type
+errors in files you did not edit. Two sessions independently reached those six
+and both nearly filed them.
+
+**`rm -rf` FOLLOWS a junction and deletes the real target**, and so does
+`git worktree remove --force`. Delete the junction FIRST —
+`cmd /c rmdir <link>` or `[System.IO.Directory]::Delete($path, $false)` — then
+remove the worktree. This fired during a cleanup and was only avoided by
+counting entries before and after.
+
 `node_modules` is a symlink farm, so `ls node_modules` returns 0 entries in Git
 Bash even when the install is fine. Do not read that as missing — it reads
 exactly like a broken install and is not one.
