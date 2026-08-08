@@ -246,6 +246,19 @@ class RemoteSandboxService(SandboxService):
         upstream `DefaultUserAuth.get_user_id` returns None for EVERY caller by
         design, so refusing unconditionally would delete every read path on any
         deployment that never opted into Nimbus auth.
+
+        REACHABILITY — this backend is NOT the live one, and the commit that
+        introduced this guard described the exposure without saying so.
+        `config.sandbox` is assigned in exactly three places (config.py 347,
+        352, 398), all inside the legacy fallback; `NimbusServerConfig` never
+        sets it. Production runs `RUNTIME=process`, which resolves to
+        `ProcessSandboxServiceInjector`, so the leak that was actually
+        reachable lived in `process_sandbox_service.search_sandboxes` and was
+        closed separately (`ea0d161b3`). This fix is correct and latent.
+
+        Recording it here rather than only in a commit message, because a
+        reader arriving at this function will not have the message, and an
+        impact claim without a reachability claim reads as live.
         """
         query = select(StoredRemoteSandbox)
         user_id = await self.user_context.get_user_id()
