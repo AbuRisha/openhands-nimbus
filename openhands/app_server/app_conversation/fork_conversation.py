@@ -59,12 +59,35 @@ class ForkResult:
 
     @property
     def halves_agree(self) -> bool:
-        """Both halves cut at the same point.
+        """DO NOT TRUST THIS. It compares two numbers that do not measure the
+        same thing, and it is false on forks that are completely fine.
 
-        Not enforced — an inequality is worth logging and surfacing, not worth
-        destroying a fork over, because the cutoff rules are identical by
-        construction and a mismatch means an assumption broke somewhere that
-        wants investigating rather than papering over.
+        The original docstring here claimed the two cutoff rules were "identical
+        by construction" so a mismatch meant an assumption had broken. The first
+        real fork disproved it: a healthy full fork reported 11 events in agent
+        state against 5 in the transcript, and a fork truncated to 3 reported
+        11 against 3. The two stores hold different event KINDS, so their counts
+        were never comparable and this equality never tested what it claimed.
+
+        The cost was not theoretical. `shouldWarnAboutHalves` is `!halves_agree`,
+        so EVERY successful fork showed the user "do not rely on this
+        conversation" — a warning that fires on 100% of successes, which is
+        strictly worse than no warning because it teaches people to ignore the
+        one that matters.
+
+        **The property worth testing is whether each half was cut at the
+        requested point, measured against its OWN store** — not whether two
+        stores ended up the same size. That fix belongs with the truncation
+        defect it would expose: `up_to_event_id` never truncates agent memory at
+        all, because the copier matches the cutoff against SDK event-file ids
+        while a client can only supply transcript ids, so the "unknown id ->
+        copy everything" fallback fires every time. Repairing this comparison
+        without repairing that would just report the real failure in a field
+        nobody trusts any more.
+
+        Left returning the old value deliberately, rather than hardcoded True:
+        flipping it would silence the log below, which is currently the only
+        place the truncation defect announces itself.
         """
         return self.events_in_agent_state == self.events_in_transcript
 
@@ -115,9 +138,11 @@ async def fork_conversation(
         events_in_agent_state=in_state, events_in_transcript=in_transcript
     )
     if not result.halves_agree:
-        # Both halves use the same inclusive rule and the same unknown-id
-        # behaviour, so this should be impossible. Log loudly rather than
-        # silently: it means one of those two rules changed under the other.
+        # THIS FIRES ON EVERY FORK, INCLUDING HEALTHY ONES. The comparison is
+        # invalid (see ForkResult.halves_agree) -- but the numbers it prints are
+        # real, and they are currently the only visible signal that
+        # `up_to_event_id` is not truncating agent memory. Kept for that reason,
+        # and NOT because a disagreement here means what it says.
         _logger.error(
             'fork: halves disagree for %s -> %s: agent state %d events, '
             'transcript %d. Cutoff rules have diverged.',
