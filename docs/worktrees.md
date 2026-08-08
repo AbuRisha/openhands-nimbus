@@ -124,6 +124,12 @@ missing. A NEGATIVE result needs the instrument checked before the conclusion.
   returned 0 on a file with 15 tests, because they sit inside a class. The file
   was fine.
 - **`ls node_modules` returns 0 entries in Git Bash** on a healthy symlink farm.
+- **A MISSING junction is indistinguishable from a wiped dependency.** A lane
+  checked `.venv/Scripts/python.exe` in its OWN worktree, got a failure, and
+  reported the SHARED venv as wiped to two other sessions — telling both their
+  backend results were stale. The venv was fine; that lane simply had no
+  junction. Check the TARGET, not the link, before concluding anything about a
+  shared dependency, and say which directory you checked.
 - **A zero-width viewport makes every element "overflow"** — every structural
   measurement taken through it is meaningless, not alarming.
 - **Setting `textContent` directly fires no `input` event**, so any probe that

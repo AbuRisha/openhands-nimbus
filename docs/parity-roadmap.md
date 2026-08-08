@@ -90,6 +90,43 @@ because they are cheap and customer-visible.
 | 14 | **`/help` and a real built-in command set** | M | We have exactly 3 built-ins (`/new`, `/btw`, `/model`) vs ~20. No `/help` at all |
 | 15 | **Central shortcut registry + `Cmd+K` + `↑` recall** | M | 7 ad-hoc `document` keydown listeners today, no registry, three owners claim Cmd+Enter |
 
+### 12a. Item 19 was wrong on both halves — read this before building it
+
+Two sessions built a wrong answer off the old wording on 2026-08-07, in the same
+hour, independently. A third is the default outcome if it is left as it was.
+
+**"No render site reads it" — false.**
+`components/v1/chat/subagent/subagent-observation-content.tsx` is a rich card
+showing the sub-agent, the task id, the paired query and the result, dispatched
+from `get-event-content.tsx:214/278`. Sub-agent observations DO render.
+
+**"`TaskObservation.status` exists" — true but useless.** It is vestigial and
+cannot disagree with `is_error`. `tools/task/impl.py:38-66` is the only
+constructor:
+
+    case TaskStatus.COMPLETED -> status=task.status,  is_error unset (False)
+    case TaskStatus.ERROR     -> status=task.status,  is_error=True
+    except Exception          -> status="error",      is_error=True
+    case _                    -> raise RuntimeError   # never constructs one
+
+So `get-observation-result.ts` resolving on `is_error` alone is CORRECT, and a
+failed sub-agent cannot render as success. `status` is only useful if you want
+to DISPLAY "completed"/"error" as text, which is cosmetic.
+
+**And a RUNNING observation cannot exist.** `manager.py:283` sets
+`TaskStatus.RUNNING` on an internal `Task`, NOT on a `TaskObservation` — and the
+`case _` above refuses to build an observation for any non-terminal status. A
+"still running" indicator was built on that field and reverted (`8fc03de2f`),
+because ten green tests asserting an unreachable state are worse than no tests:
+the next reader takes them as a specification.
+
+**THE ACTUAL GAP, which no frontend work reaches:** there is no in-progress
+event for a sub-agent at all. The observation arrives exactly once, at the end.
+Live progress requires the SDK to emit something mid-task. Until it does, this
+item is not a rendering problem and there is nothing to build here.
+
+---
+
 ### Tier 2 — high ceiling, honestly large
 
 | # | Item | Size |
@@ -97,7 +134,7 @@ because they are cheap and customer-visible.
 | 16 | **Live preview loop**: preview pane, click-to-select an element, screenshot back to the model, console logs to the model, model-driven navigation | L |
 | 17 | **Git review surface**: diff, per-file patch, dirty-tree warning, commit/stash | M–L |
 | 18 | **Full PR console**: checks, annotations, rerun, review comments, merge (~20 methods on their side) | L |
-| 19 | **Live sub-agent progress + nested tool calls.** `TaskObservation.status` exists (`types/v1/core/base/observation.ts:318-321`) and **no render site reads it** | L |
+| 19 | **Live sub-agent progress + nested tool calls.** ENTRY WAS WRONG ON BOTH HALVES — see §12a below before touching this | L |
 | 20 | **Artifacts**: gallery, versions, restore, share, auto-publish, print-to-PDF; artifacts that can call tools and query the model | L |
 | 21 | **Workspaces**: group folders/projects/links, auto-summary, auto-classify sessions, per-workspace memory | M–L |
 | 22 | **Scheduled tasks** with editable task files, trigger history, standing permissions | M |
