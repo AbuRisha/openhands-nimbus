@@ -1,9 +1,23 @@
-"""``browser_*`` tools that drive the customer's OWN logged-in browser.
+"""``paired_browser_*`` tools that drive the customer's OWN logged-in browser.
 
 The agent already has a browser: a headless Chromium in the sandbox. This is a
 different thing, and the difference is the point — the sandbox browser is signed
 into nothing, so "check my orders" or "read the ticket" is impossible there and
 trivial in the browser the customer is already using.
+
+WHY THE NAMES CARRY A PREFIX
+----------------------------
+These were once `browser_read_page` / `browser_navigate` / `browser_list_tabs`.
+Two of those names are already taken by the SDK's own browser_use toolset, and a
+duplicate name does not shadow or lose a tool — the SDK refuses to build the
+agent at all:
+
+    Duplicate tool names found: {'browser_list_tabs', 'browser_navigate'}
+
+which broke every message send in the product, for every user, paired browser or
+not. The prefix also does real work at call time: the model must choose between a
+sandboxed browser signed into nothing and the customer's own signed-in one, and
+the name is most of what it has to go on.
 
 WHY THESE CALL BACK TO THE APP SERVER
 -------------------------------------
@@ -135,11 +149,37 @@ def _session_api_key() -> str:
     return os.getenv('OH_SESSION_API_KEYS_0') or os.getenv('SESSION_API_KEY') or ''
 
 
+# The WIRE VERB the extension switches on, per tool.
+#
+# extension/background.js dispatches `message.tool` over a small fixed
+# vocabulary — get_page_text / get_page_url / navigate / list_tabs — and throws
+# "unsupported tool" on anything else. Sending the TOOL NAME instead meant every
+# call reached a paired browser and was refused by it, so the bridge could never
+# have worked end to end however correct both halves looked.
+#
+# Kept as an explicit map rather than derived from the tool name, because the
+# two vocabularies belong to different things: the tool name is ours to rename
+# (it just changed, to stop colliding with the SDK's browser_use tools) while
+# the wire verb is a contract with an extension already installed in customers'
+# browsers. A rename must never reach the wire.
+_WIRE_VERB: dict[str, str] = {
+    'paired_browser_read_page': 'get_page_text',
+    'paired_browser_navigate': 'navigate',
+    'paired_browser_list_tabs': 'list_tabs',
+}
+
+
 class BrowserBridgeExecutor(
     ToolExecutor[BrowserBridgeAction, BrowserBridgeObservation]
 ):
     def __init__(self, tool: str) -> None:
         self._tool = tool
+        # Fail loudly at construction rather than at the first call: a tool
+        # added here without a verb would otherwise register fine, appear in the
+        # agent's tool list, and only fail once a customer used it.
+        if tool not in _WIRE_VERB:
+            raise KeyError(f'no bridge wire verb registered for tool {tool!r}')
+        self._verb = _WIRE_VERB[tool]
 
     def __call__(
         self, action: BrowserBridgeAction, conversation: Any = None
@@ -159,7 +199,7 @@ class BrowserBridgeExecutor(
                 headers={'X-Session-API-Key': _session_api_key()},
                 json={
                     'device_id': action.device_id or '',
-                    'tool': self._tool,
+                    'tool': self._verb,
                     'params': params,
                 },
                 timeout=BRIDGE_TIMEOUT,
@@ -216,7 +256,7 @@ def _make_tool(
 
 
 BrowserReadPageTool = _make_tool(
-    'browser_read_page',
+    'paired_browser_read_page',
     BrowserReadPageAction,
     (
         "Read the visible text of the page in the user's own browser. Use this "
@@ -228,7 +268,7 @@ BrowserReadPageTool = _make_tool(
 )
 
 BrowserNavigateTool = _make_tool(
-    'browser_navigate',
+    'paired_browser_navigate',
     BrowserNavigateAction,
     (
         "Open a URL in the user's own browser. This changes what they are "
@@ -239,7 +279,7 @@ BrowserNavigateTool = _make_tool(
 )
 
 BrowserListTabsTool = _make_tool(
-    'browser_list_tabs',
+    'paired_browser_list_tabs',
     BrowserListTabsAction,
     "List the tabs open in the user's own browser.",
     read_only=True,

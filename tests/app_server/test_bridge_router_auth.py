@@ -78,7 +78,7 @@ class TestCallRequiresACredential:
         """The whole bug: this used to reach a browser."""
         r = client.post(
             '/bridge/call',
-            json={'device_id': 'dev-1', 'tool': 'browser_read_page', 'params': {}},
+            json={'device_id': 'dev-1', 'tool': 'get_page_text', 'params': {}},
         )
 
         assert r.status_code == 401
@@ -95,7 +95,7 @@ class TestCallRequiresACredential:
             json={
                 'user_id': 'somebody-else',
                 'device_id': 'dev-1',
-                'tool': 'browser_read_page',
+                'tool': 'get_page_text',
             },
         )
 
@@ -109,7 +109,7 @@ class TestCallRequiresACredential:
         r = client.post(
             '/bridge/call',
             headers={'X-Session-API-Key': 'k'},
-            json={'device_id': 'dev-1', 'tool': 'browser_read_page'},
+            json={'device_id': 'dev-1', 'tool': 'get_page_text'},
         )
 
         assert r.status_code == 401
