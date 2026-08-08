@@ -104,3 +104,61 @@ detect, never as the design.
 - Truncation must cut the `EventLog` on an event boundary consistent with what
   `copy_events_until` used for the mirror, or the transcript and the agent's
   memory will disagree about where the fork happened.
+
+## Transport: the verified API contract
+
+The state copier (`fork_conversation_state`, merged) is a **local filesystem
+primitive** — `Path` in, `Path` out. Its `target_conversations_path` parameter
+handles a fork landing elsewhere, but only when both paths are visible to one
+process, and two sandboxes are two containers whose filesystems are not both
+mounted anywhere. So the app server cannot hand it a source in sandbox A and a
+target in sandbox B. What is missing is transport around it, not a change to it.
+
+Signatures read out of `agent_server/`, not assumed:
+
+    GET  /file/archive   ?path=<abs dir>&format=tar.gz
+                         &use_default_excludes=false
+    POST /file/upload    ?path=<abs FILE path>   multipart field: file
+    POST /bash/execute_bash_command   body: ExecuteBashRequest -> BashOutput
+                                      (runs and waits for the result)
+
+**Two things here will cost you a day if you assume instead of reading.**
+
+1. **`/file/archive` defaults to `format=git-delta`**, which is a *git patch of
+   working-tree changes* and requires a git repository. A conversations
+   directory is not one. `ArchiveFormat = Literal["git-delta", "tar.gz"]`
+   (`file_router.py:153`) — you must pass `format=tar.gz` explicitly. The
+   default silently means something completely different, and on a non-git
+   directory it fails rather than degrading.
+2. **`/file/upload` takes a single FILE, not a directory or an archive to
+   expand.** There is no upload-and-extract endpoint. Uploading a forked
+   persistence dir file-by-file is hundreds of round trips for a long
+   conversation, so upload the tarball as one file and expand it in the target
+   with `/bash/execute_bash_command`.
+
+Also pass `use_default_excludes=false`. The built-in excludes target
+`node_modules/`, `.venv/`, caches and build outputs — none of which should match
+event JSON, but a persistence dir is exactly the wrong place to accept a silent
+filter you did not choose.
+
+### Sequence
+
+    1. GET  {source}/file/archive?path=<conversations_dir>/<src_id>
+                                 &format=tar.gz&use_default_excludes=false
+    2. extract the tarball into a local temp tree            -> temp_src
+    3. fork_conversation_state(temp_src, src_id, new_id, cutoff, temp_tgt)
+    4. tar.gz temp_tgt/<new_id> locally
+    5. POST {target}/file/upload?path=/tmp/fork-<new_id>.tar.gz   (the tarball)
+    6. POST {target}/bash/execute_bash_command
+            mkdir -p <conversations_dir>
+            && tar xzf /tmp/fork-<new_id>.tar.gz -C <conversations_dir>
+            && rm /tmp/fork-<new_id>.tar.gz
+
+Step 3 is the merged copier, unchanged, running against two temp trees — the
+shape it already supports.
+
+Both calls authenticate the way every other sandbox-scoped call does:
+`X-Session-API-Key` resolved through `validate_session_key`, which **refuses
+non-RUNNING sandboxes**. So forking a stopped or paused conversation has to start
+the parent's sandbox first, purely to read from it. There is no cold path, and
+that is a product-visible constraint, not an implementation detail.
