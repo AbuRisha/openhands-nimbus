@@ -67,3 +67,56 @@ backend session: `proxy_events_socket` catching only `HTTPException`; the SPA
 catch-all, where `StaticFiles.__call__` asserts `scope["type"] == "http"` and
 so kills any websocket to an unmatched path; and anything in front of the app
 server, which cannot be verified from source.
+
+## 2026-08-08 — model routing: create-with-llm_model and switch_profile are EQUIVALENT
+
+Investigated because another session's raw-API tests failed on models the
+founder said work, and the working theory was that API-created conversations
+skip profile/key resolution the UI does. Traced both paths to the LLM object;
+they converge. Recorded because two of my own intermediate conclusions were
+wrong and someone will otherwise re-derive them.
+
+    create   _configure_llm (live_status_app_conversation_service.py:1538)
+             model    = request.llm_model
+             base_url = resolve_provider_llm_base_url(...)  -> saved base_url
+             api_key  = user.agent_settings.llm.api_key
+             stream   = True
+
+    switch   resolve_profile_llm (settings/llm_profiles.py)
+             model    = catalog model string (IDENTICAL — see below)
+             base_url = resolve_llm_base_url(...) -> pinned gateway
+             api_key  = profile key, else fallback to the same settings key
+             stream   = True
+
+WHAT I GOT WRONG FIRST, both worth knowing:
+
+1. "create leaves base_url unpinned, so a Nimbus key could reach a third
+   party." FALSE. `nimbus_settings_store._repair_base_url` (:228) forces
+   `llm.base_url = os.getenv('LLM_BASE_URL')` on EVERY settings load for EVERY
+   user, overwriting whatever was stored. base_url is always the current
+   gateway. There is no third-party exposure here.
+
+2. "the catalog pins a base_url the raw POST bypasses, and that explains the
+   failures." The pinning is real (nimbus_catalog_profiles.py:200) and changes
+   nothing, because the catalog seeds THE SAME MODEL STRINGS a raw caller
+   would send — 'openai/gpt-5.5', 'anthropic/claude-sonnet-5' etc., from
+   nimbus_llm_model_service. Same string, same gateway.
+
+RULED OUT, so nobody re-tests it: the agent-server LLM registry is
+first-write-wins by `usage_id`, but the switch handler already derives
+`profile:{name}:{sha1(payload)[:12]}` so a changed model always gets a fresh
+slot; and `LocalConversation.switch_llm` (sdk .../local_conversation.py:1458)
+genuinely rebinds — `update = {"llm": new_llm}` applied to the agent — rather
+than merely registering. A switch is not silently dropped.
+
+CONSEQUENCE: the /responses failure is NOT explained by conversation-creation
+path. `LLM.uses_responses_api` matches "gpt-5" by case-insensitive SUBSTRING
+against the SDK's own RESPONSES_API_MODELS, so it matches every gpt-5.x on
+BOTH paths, and the gateway does not implement /responses. Anyone testing this
+should expect a UI switch to GPT-5.5 to fail identically to a raw POST.
+
+ONE SOFT SPOT, not a bug today: the conversation record's `llm_model` is
+persisted from what we ASKED for, after `raise_for_status()` on the switch. So
+it is honest as long as a 2xx means the swap landed. If switch_llm ever starts
+returning 2xx on a partial swap, the model chip becomes a claim rather than a
+fact.
