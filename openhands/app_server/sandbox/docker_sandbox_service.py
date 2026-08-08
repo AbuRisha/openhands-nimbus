@@ -10,11 +10,12 @@ import base62
 import docker
 import httpx
 from docker.errors import APIError, NotFound
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from openhands.agent_server.utils import utc_now
 from openhands.app_server.errors import SandboxError
+from openhands.app_server.nimbus_sso.nimbus_auth_gate import auth_required
 from openhands.app_server.sandbox.docker_sandbox_spec_service import get_docker_client
 from openhands.app_server.sandbox.sandbox_models import (
     AGENT_SERVER,
@@ -38,6 +39,8 @@ from openhands.app_server.sandbox.sandbox_spec_service import (
     resolve_sandbox_spec,
 )
 from openhands.app_server.services.injector import InjectorState
+from openhands.app_server.user.elevated_context import is_elevated
+from openhands.app_server.user.user_context import UserContext
 from openhands.app_server.utils.docker_utils import (
     replace_localhost_hostname_for_docker,
 )
@@ -82,6 +85,41 @@ class ExposedPort(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+# The owning customer, recorded ON the container.
+#
+# Docker had no owner anywhere: `created_by_user_id` was hardcoded None, the
+# labels carried only the spec id, and the container name is
+# f'{prefix}{sandbox_id}'. So `search_sandboxes` could not scope even in
+# principle — there was nothing to filter on. A label is the only field that
+# survives a restart and is readable without executing anything in the
+# container.
+OWNER_LABEL = 'nimbus_user_id'
+
+
+def _labels_for(sandbox_spec_id: str, owner_id: str | None) -> dict[str, str]:
+    """Labels written at create.
+
+    The owner is set only when there IS one. A label of '' would be a real
+    value that every unowned container shares — the empty-string-bucket
+    problem rather than a fix for it — and `_owner_of` would then return ''
+    where the listing expects None.
+    """
+    labels = {'sandbox_spec_id': sandbox_spec_id}
+    if owner_id:
+        labels[OWNER_LABEL] = owner_id
+    return labels
+
+
+def _owner_of(container) -> str | None:
+    """The owner recorded on a container, or None for one created before labels.
+
+    None here means "we do not know", never "nobody" — which is why the
+    listing below excludes these under auth rather than showing them.
+    """
+    labels = (container.attrs or {}).get('Config', {}).get('Labels') or {}
+    return labels.get(OWNER_LABEL) or None
+
+
 @dataclass
 class DockerSandboxService(SandboxService):
     """Sandbox service built on docker.
@@ -91,6 +129,7 @@ class DockerSandboxService(SandboxService):
     """
 
     sandbox_spec_service: SandboxSpecService
+    user_context: UserContext
     container_name_prefix: str
     host_port: int
     container_url_pattern: str
@@ -227,7 +266,7 @@ class DockerSandboxService(SandboxService):
 
         return SandboxInfo(
             id=container.name,
-            created_by_user_id=None,
+            created_by_user_id=_owner_of(container),
             sandbox_spec_id=container.image.tags[0],
             status=status,
             session_api_key=session_api_key,
@@ -289,8 +328,32 @@ class DockerSandboxService(SandboxService):
         page_id: str | None = None,
         limit: int = 100,
     ) -> SandboxPage:
-        """Search for sandboxes."""
+        """Search for sandboxes owned by the calling user.
+
+        Was `containers.list(all=True)` filtered on a NAME PREFIX only, so every
+        authenticated caller saw every container on the host — including each
+        one's `session_api_key`, which `validate_session_key` accepts and the
+        agent proxy routes on.
+
+        Scoping had to wait for ownership to exist at all: the equality used by
+        `process_sandbox_service` cannot be ported here, because with
+        `created_by_user_id` hardcoded None the left side was None for every
+        row and the filter would have hidden every container from everyone.
+        """
         try:
+            user_id = await self.user_context.get_user_id()
+            if not user_id and auth_required() and not is_elevated(self.user_context):
+                _logger.warning(
+                    'sandbox listing refused: no verified identity on an '
+                    'authenticated deployment'
+                )
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED, detail='Authentication required'
+                )
+            # Elevated contexts (webhooks, validate_session_key) legitimately
+            # span customers; an unscoped read is the point of them.
+            scope_to = None if is_elevated(self.user_context) else user_id
+
             # Get all containers with our prefix
             all_containers = self.docker_client.containers.list(all=True)
             sandboxes = []
@@ -299,6 +362,11 @@ class DockerSandboxService(SandboxService):
                 if container.name and container.name.startswith(
                     self.container_name_prefix
                 ):
+                    # An unlabelled container predates ownership being recorded.
+                    # Excluded rather than shown: unknown owner is not "yours",
+                    # and showing it is the leak this closes.
+                    if scope_to is not None and _owner_of(container) != scope_to:
+                        continue
                     sandbox_info = await self._container_to_checked_sandbox_info(
                         container
                     )
@@ -376,7 +444,7 @@ class DockerSandboxService(SandboxService):
                     if env_vars.get(SESSION_API_KEY_VARIABLE) == session_api_key:
                         return SandboxRecord(
                             id=container.name,
-                            created_by_user_id=None,
+                            created_by_user_id=_owner_of(container),
                         )
             return None
         except (NotFound, APIError):
@@ -453,9 +521,7 @@ class DockerSandboxService(SandboxService):
                 env_vars[exposed_port.name] = str(exposed_port.container_port)
 
         # Prepare labels
-        labels = {
-            'sandbox_spec_id': sandbox_spec.id,
-        }
+        labels = _labels_for(sandbox_spec.id, await self.user_context.get_user_id())
 
         # Prepare volumes
         volumes = {
@@ -686,6 +752,7 @@ class DockerSandboxServiceInjector(SandboxServiceInjector):
             get_global_config,
             get_httpx_client,
             get_sandbox_spec_service,
+            get_user_context,
         )
 
         # Get web_url and permitted_cors_origins from global config
@@ -695,9 +762,11 @@ class DockerSandboxServiceInjector(SandboxServiceInjector):
         async with (
             get_httpx_client(state) as httpx_client,
             get_sandbox_spec_service(state) as sandbox_spec_service,
+            get_user_context(state, request) as user_context,
         ):
             yield DockerSandboxService(
                 sandbox_spec_service=sandbox_spec_service,
+                user_context=user_context,
                 container_name_prefix=self.container_name_prefix,
                 host_port=self.host_port,
                 container_url_pattern=self.container_url_pattern,

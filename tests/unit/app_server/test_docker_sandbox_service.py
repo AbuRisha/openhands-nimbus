@@ -28,6 +28,9 @@ from openhands.app_server.sandbox.sandbox_models import (
     SandboxPage,
     SandboxStatus,
 )
+from openhands.app_server.user.specifiy_user_context import (
+    ADMIN as _TEST_USER_CONTEXT,
+)
 
 
 @pytest.fixture
@@ -66,6 +69,7 @@ def service(mock_sandbox_spec_service, mock_httpx_client, mock_docker_client):
     """Create DockerSandboxService instance for testing."""
     return DockerSandboxService(
         sandbox_spec_service=mock_sandbox_spec_service,
+        user_context=_TEST_USER_CONTEXT,
         container_name_prefix='oh-test-',
         host_port=3000,
         container_url_pattern='http://localhost:{port}',
@@ -569,6 +573,7 @@ class TestDockerSandboxService:
         # Create service with extra_hosts
         service_with_extra_hosts = DockerSandboxService(
             sandbox_spec_service=mock_sandbox_spec_service,
+            user_context=_TEST_USER_CONTEXT,
             container_name_prefix='oh-test-',
             host_port=3000,
             container_url_pattern='http://localhost:{port}',
@@ -638,6 +643,7 @@ class TestDockerSandboxService:
         # Create service without extra_hosts (empty dict)
         service_without_extra_hosts = DockerSandboxService(
             sandbox_spec_service=mock_sandbox_spec_service,
+            user_context=_TEST_USER_CONTEXT,
             container_name_prefix='oh-test-',
             host_port=3000,
             container_url_pattern='http://localhost:{port}',
@@ -701,6 +707,7 @@ class TestDockerSandboxService:
         # Create service with web_url configured for CORS
         service_with_cors = DockerSandboxService(
             sandbox_spec_service=mock_sandbox_spec_service,
+            user_context=_TEST_USER_CONTEXT,
             container_name_prefix='oh-test-',
             host_port=3000,
             container_url_pattern='http://192.168.1.100:{port}',
@@ -762,6 +769,7 @@ class TestDockerSandboxService:
         # Create service without web_url (local development mode)
         service_without_cors = DockerSandboxService(
             sandbox_spec_service=mock_sandbox_spec_service,
+            user_context=_TEST_USER_CONTEXT,
             container_name_prefix='oh-test-',
             host_port=3000,
             container_url_pattern='http://localhost:{port}',
@@ -1384,6 +1392,7 @@ class TestDockerSandboxServiceHostNetwork:
         """Create DockerSandboxService instance with host network enabled."""
         return DockerSandboxService(
             sandbox_spec_service=mock_sandbox_spec_service,
+            user_context=_TEST_USER_CONTEXT,
             container_name_prefix='oh-test-',
             host_port=3000,
             container_url_pattern='http://localhost:{port}',
@@ -1567,6 +1576,7 @@ class TestDockerSandboxServiceHostNetwork:
         # Create service with host network AND max_num_sandboxes > 1
         service = DockerSandboxService(
             sandbox_spec_service=mock_sandbox_spec_service,
+            user_context=_TEST_USER_CONTEXT,
             container_name_prefix='oh-test-',
             host_port=3000,
             container_url_pattern='http://localhost:{port}',
@@ -1628,6 +1638,7 @@ class TestDockerSandboxServiceHostNetwork:
         # Create service with host network AND max_num_sandboxes = 1
         service = DockerSandboxService(
             sandbox_spec_service=mock_sandbox_spec_service,
+            user_context=_TEST_USER_CONTEXT,
             container_name_prefix='oh-test-',
             host_port=3000,
             container_url_pattern='http://localhost:{port}',

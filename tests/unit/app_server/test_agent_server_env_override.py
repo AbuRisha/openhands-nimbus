@@ -29,6 +29,9 @@ from openhands.app_server.sandbox.sandbox_spec_service import (
     AUTO_FORWARD_PREFIXES,
     get_agent_server_env,
 )
+from openhands.app_server.user.specifiy_user_context import (
+    ADMIN as _TEST_USER_CONTEXT,
+)
 
 
 class TestGetAgentServerEnv:
@@ -775,6 +778,7 @@ class TestDockerSandboxServiceEnvIntegration:
             # Create service
             service = DockerSandboxService(
                 sandbox_spec_service=mock_spec_service,
+                user_context=_TEST_USER_CONTEXT,
                 container_name_prefix='oh-test-',
                 host_port=3000,
                 container_url_pattern='http://localhost:{port}',
@@ -857,6 +861,7 @@ class TestDockerSandboxServiceEnvIntegration:
             # Create service with host network enabled
             service = DockerSandboxService(
                 sandbox_spec_service=mock_spec_service,
+                user_context=_TEST_USER_CONTEXT,
                 container_name_prefix='oh-test-',
                 host_port=3000,
                 container_url_pattern='http://localhost:{port}',
@@ -930,6 +935,7 @@ class TestDockerSandboxServiceEnvIntegration:
             # Create service with bridge network (default)
             service = DockerSandboxService(
                 sandbox_spec_service=mock_spec_service,
+                user_context=_TEST_USER_CONTEXT,
                 container_name_prefix='oh-test-',
                 host_port=3000,
                 container_url_pattern='http://localhost:{port}',
