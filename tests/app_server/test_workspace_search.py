@@ -230,3 +230,25 @@ class TestEndpointBehaviour:
             await _call(monkeypatch, info=_Info(None), sandbox=_Sandbox())
 
         assert excinfo.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_a_sandbox_the_service_will_not_return_is_404(self, monkeypatch):
+        """Pins the interaction with sandbox-listing ownership scoping.
+
+        Once `get_sandbox` filters on `process_info.user_id == self.user_id`, a
+        sandbox this caller does not own resolves to None here. 404 is the right
+        answer — the same one a nonexistent id gets, so the response does not
+        confirm that someone else's sandbox exists.
+
+        The combination worth watching is MIXED: a sandbox started without a
+        user id, later read by an authenticated caller, would take this branch
+        for a conversation the user legitimately owns. Not believed reachable —
+        `start_sandbox` stamps `self.user_id` and the gate requires auth — but
+        the failure would present as "sandbox not found" on your own
+        conversation, which is a confusing enough symptom to name here rather
+        than rediscover.
+        """
+        with pytest.raises(HTTPException) as excinfo:
+            await _call(monkeypatch, info=_Info('sb-1'), sandbox=None)
+
+        assert excinfo.value.status_code == 404
