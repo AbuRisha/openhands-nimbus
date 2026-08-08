@@ -463,16 +463,21 @@ the same copy runs over `/file/archive` + `/file/upload`, or a single
 `/bash/execute_bash_command`. Both are already authenticated. So the runtime
 split is an implementation detail, not a capability gap.
 
-**The one thing still to decide is a PRODUCT question, and it is the founder's.**
-Does a fork SHARE the parent's sandbox, or get its own?
+**That question is ANSWERED BY THE CODE, not by preference.**
+`SandboxGroupingStrategy.NO_GROUPING` is the default —
+"each conversation gets its own sandbox" (settings_models.py:611). So a fork
+already gets its own sandbox and the persistence dir must be TRANSFERRED
+(archive + upload, or a bash copy), never shared. I previously recorded this as
+a founder decision; it is not one.
 
-  * Shared — one bash call, cheap, and the fork can mutate the parent's files.
-    A fork exists to try a different path; letting it damage the thing you
-    forked from defeats the purpose.
-  * Own sandbox — archive + upload, isolated, more moving parts.
+**THE GOTCHA THAT AFFECTS THE UI, and it is the sharpest thing about this
+feature: a fork rewinds the CONVERSATION but NOT the WORKING TREE.** The
+sandbox's files stay exactly as the parent left them; only event history
+truncates. Unsaid, that reads as a bug — the user rewinds to before a bad edit
+and the bad edit is still on disk. Whatever affordance ships has to say so.
 
-Nobody should implement this unprompted, because the two answers produce
-different endpoints.
+Full design, sequence and four gotchas: `docs/fork-conversation-design.md`.
+Not implemented; not scheduled.
 
 Frontend affordance stays unbuilt until the endpoint exists. A fork action
 that produces an amnesiac fork is worse than no fork action.
