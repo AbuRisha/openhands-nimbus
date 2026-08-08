@@ -337,17 +337,35 @@ Four links, each read rather than inferred:
    storage exactly one way in this runtime". The app-server store is a
    downstream DISPLAY MIRROR. Nothing writes back.
 
-3. **The agent server has no event-injection endpoint.** Its conversation
+3. **The agent server has no event-injection endpoint.** Its CONVERSATION
    router offers start, pause, interrupt, run, goal, goal/stop, goal/resume,
    secrets, confirmation_policy, security_analyzer, switch_profile, switch_llm.
    There is no import, no replay, no set-history.
+
+   **SCOPE CORRECTION, and it changes the conclusion below.** That list is the
+   conversation router ONLY. The agent server also exposes
+   `bash_router.py` (`POST /bash/execute_bash_command`) and `file_router.py`
+   (`POST /file/upload`, `GET /file/download`, `GET /file/archive`) — and
+   `/api/file` is already reachable and already classified, sitting in
+   `_EXEMPT_PREFIXES` at `nimbus_auth_gate.py:80` authenticated by
+   X-Session-API-Key. A fork does not need event INJECTION; it needs FILESYSTEM
+   access, and that exists over the network today.
 
 4. **`StartConversationRequest` cannot carry prior events.** Its fields are
    workspace, worktree, conversation_id, confirmation_policy,
    security_analyzer, initial_message (sdk/conversation/request.py:77). A grep
    for an events field returns zero.
 
-So there is NO API path that gives a forked conversation the original's memory.
+So there is no path that gives a forked conversation the original's memory by
+INJECTING EVENTS — but that was the wrong thing to look for. The file and bash
+routers give the filesystem access the copy actually needs, over the network,
+for remote sandboxes too.
+
+**This corrects an earlier claim in this section that said no API path exists at
+all.** That conclusion came from enumerating one router and generalising. A
+negative finding is only as strong as the set it searched, and the set was not
+stated — which is the same failure as a path-filtered recovery that does not
+say what it filtered out.
 
 **What a correct fork actually requires.** The resume path keys on the
 conversation id and raises `ValueError` on mismatch (state.py:524), so the fork
@@ -397,14 +415,23 @@ The order is not arbitrary and is what makes this work at all:
 
 Steps 2 and 4 are both required. Either alone is a broken fork.
 
-**The one thing still to decide: remote sandboxes.** The path above is
-filesystem work and only holds for `RUNTIME=process`, where the sandbox is a
-child of the app container and shares its filesystem (`OH_PERSISTENCE_DIR` is
-in the inherited-env allowlist). A remote sandbox has no locally reachable
-conversations dir. So the sandbox service needs a capability method — return
-the conversations path, or None — and `/fork` must return a clear "not
-supported for this runtime" rather than silently producing an amnesiac fork.
-That decision is a deployment question, not a code one.
+**Remote sandboxes are NOT a blocker.** Direct filesystem access holds only
+for `RUNTIME=process`, where the sandbox is a child of the app container
+(`OH_PERSISTENCE_DIR` is in the inherited-env allowlist). For a remote sandbox
+the same copy runs over `/file/archive` + `/file/upload`, or a single
+`/bash/execute_bash_command`. Both are already authenticated. So the runtime
+split is an implementation detail, not a capability gap.
+
+**The one thing still to decide is a PRODUCT question, and it is the founder's.**
+Does a fork SHARE the parent's sandbox, or get its own?
+
+  * Shared — one bash call, cheap, and the fork can mutate the parent's files.
+    A fork exists to try a different path; letting it damage the thing you
+    forked from defeats the purpose.
+  * Own sandbox — archive + upload, isolated, more moving parts.
+
+Nobody should implement this unprompted, because the two answers produce
+different endpoints.
 
 Frontend affordance stays unbuilt until the endpoint exists. A fork action
 that produces an amnesiac fork is worse than no fork action.
