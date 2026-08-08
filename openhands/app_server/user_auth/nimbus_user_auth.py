@@ -29,12 +29,23 @@ from pydantic import SecretStr
 
 from openhands.app_server import shared
 from openhands.app_server.integrations.provider import PROVIDER_TOKEN_TYPE
-from openhands.app_server.nimbus_sso.nimbus_session import COOKIE_SESSION, read_session
+from openhands.app_server.nimbus_sso.nimbus_session import (
+    COOKIE_SESSION,
+    issue_mcp_token,
+    mcp_token_user_id,
+    read_session,
+)
 from openhands.app_server.secrets.secrets_models import Secrets
 from openhands.app_server.secrets.secrets_store import SecretsStore
 from openhands.app_server.settings.settings_models import Settings
 from openhands.app_server.settings.settings_store import SettingsStore
 from openhands.app_server.user_auth.user_auth import UserAuth
+
+# The header the SDK already sends on MCP calls — see
+# live_status_app_conversation_service._add_system_mcp_servers, which puts
+# get_mcp_api_key() into it. Reusing the existing header keeps the sandbox
+# plumbing unchanged; only the value went from absent to a real credential.
+MCP_TOKEN_HEADER = 'X-Session-API-Key'
 
 
 @dataclass
@@ -98,12 +109,37 @@ class NimbusUserAuth(UserAuth):
         return None if secrets is None else secrets.provider_tokens
 
     async def get_mcp_api_key(self) -> str | None:
-        return None
+        """The credential the sandbox presents to ``POST /mcp/mcp``.
+
+        This returned None, and that was the whole of the /mcp hole: with no
+        credential to send, the sandbox called the MCP endpoint anonymously,
+        `get_user_id` returned None without raising, and the tools ran as the
+        legacy shared user — indistinguishable from an anonymous caller off the
+        public internet. Minting a real token is the half that has to land
+        FIRST; requiring one (see mcp_router) is worthless until the legitimate
+        caller has something to send.
+        """
+        user_id = self._user_id
+        if not user_id:
+            return None
+        return issue_mcp_token(user_id)
 
     @classmethod
     async def get_instance(cls, request: Request) -> UserAuth:
         payload = read_session(request.cookies.get(COOKIE_SESSION))
         if payload is None:
+            # No session cookie. On the MCP path only, fall back to the MCP
+            # token the sandbox carries — it is signed with the same secret but
+            # stamped purpose=mcp, so it verifies here and NOWHERE else.
+            #
+            # Scoped by path deliberately. A token minted for MCP should not be
+            # able to stand in for a session on /api or /bridge, so the
+            # narrowest thing that makes the sandbox work is the most it gets.
+            if request.url.path.startswith('/mcp'):
+                mcp_user_id = mcp_token_user_id(request.headers.get(MCP_TOKEN_HEADER))
+                if mcp_user_id:
+                    return NimbusUserAuth(_user_id=mcp_user_id)
+
             # Unauthenticated. user_id stays None, which the auth dependency
             # turns into a 401 — it does NOT silently fall back to a shared
             # workspace, which is what DefaultUserAuth did.

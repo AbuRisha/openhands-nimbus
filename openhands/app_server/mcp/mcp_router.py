@@ -3,6 +3,7 @@ import re
 from typing import Annotated
 from uuid import UUID
 
+from fastapi import Request
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
@@ -28,6 +29,7 @@ from openhands.app_server.integrations.github.github_service import GithubServic
 from openhands.app_server.integrations.gitlab.gitlab_service import GitLabServiceImpl
 from openhands.app_server.integrations.provider import ProviderToken
 from openhands.app_server.integrations.service_types import GitService, ProviderType
+from openhands.app_server.nimbus_sso.nimbus_auth_gate import auth_required
 from openhands.app_server.services.injector import InjectorState
 from openhands.app_server.user.specifiy_user_context import (
     USER_CONTEXT_ATTR,
@@ -44,6 +46,42 @@ mcp_server = FastMCP('mcp', mask_error_details=True)
 
 HOST = f'https://{os.getenv("WEB_HOST", "app.all-hands.dev").strip()}'
 CONVERSATION_URL = HOST + '/conversations/{}'
+
+
+async def _require_identity(request: Request) -> str | None:
+    """The caller's verified user id, refusing an anonymous caller.
+
+    WHY THIS IS NOT REDUNDANT WITH THE AUTH GATE
+    --------------------------------------------
+    ``/mcp`` is mounted as an ASGI sub-app OUTSIDE ``/api``, and
+    ``nimbus_auth_gate`` only demands a session under ``/api`` — for anything
+    else a non-page-load request falls straight through to ``call_next``.
+    ``/mcp`` is not exempt-listed; the gate simply never applied to it. FastMCP
+    is constructed with no auth provider of its own, and ``get_user_id`` returns
+    ``str | None`` WITHOUT raising. So before this function existed, an
+    unauthenticated request off the public internet reached these tools with
+    ``user_id=None`` and executed — resolving to the LEGACY SHARED
+    ``secrets.json`` at the file-store root, whose provider tokens it would then
+    act with. Verified against a real ASGI server, not TestClient, which cannot
+    reach this code at all (no lifespan, so no session manager).
+
+    Identity is checked BEFORE any secrets store is touched, so a refused call
+    does not even read a token it is not allowed to use.
+
+    Tied to ``NIMBUS_REQUIRE_AUTH``: upstream ``DefaultUserAuth`` returns
+    user_id=None for EVERY caller by design ("does not support multi tenancy"),
+    so a deployment that has not opted into Nimbus auth must keep working
+    rather than lose create_pr entirely.
+    """
+    user_id = await get_user_id(request)
+    if user_id is None and auth_required():
+        logger.warning('mcp: refused an unauthenticated tool call')
+        raise ToolError(
+            'Authentication required. This MCP call carried no verified '
+            'identity: no Nimbus session cookie and no valid X-Session-API-Key. '
+            'Refusing rather than acting as the shared anonymous user.'
+        )
+    return user_id
 
 
 def init_tavily_proxy() -> None:
@@ -168,9 +206,9 @@ async def create_pr(
     headers = request.headers
     conversation_id = headers.get('X-OpenHands-ServerConversation-ID', None)
 
+    user_id = await _require_identity(request)
     provider_tokens = await get_provider_tokens(request)
     access_token = await get_access_token(request)
-    user_id = await get_user_id(request)
 
     github_token = (
         provider_tokens.get(ProviderType.GITHUB, ProviderToken())
@@ -241,9 +279,9 @@ async def create_mr(
     headers = request.headers
     conversation_id = headers.get('X-OpenHands-ServerConversation-ID', None)
 
+    user_id = await _require_identity(request)
     provider_tokens = await get_provider_tokens(request)
     access_token = await get_access_token(request)
-    user_id = await get_user_id(request)
 
     github_token = (
         provider_tokens.get(ProviderType.GITLAB, ProviderToken())
@@ -308,9 +346,9 @@ async def create_bitbucket_pr(
     headers = request.headers
     conversation_id = headers.get('X-OpenHands-ServerConversation-ID', None)
 
+    user_id = await _require_identity(request)
     provider_tokens = await get_provider_tokens(request)
     access_token = await get_access_token(request)
-    user_id = await get_user_id(request)
 
     bitbucket_token = (
         provider_tokens.get(ProviderType.BITBUCKET, ProviderToken())
@@ -375,9 +413,9 @@ async def create_bitbucket_data_center_pr(
     headers = request.headers
     conversation_id = headers.get('X-OpenHands-ServerConversation-ID', None)
 
+    user_id = await _require_identity(request)
     provider_tokens = await get_provider_tokens(request)
     access_token = await get_access_token(request)
-    user_id = await get_user_id(request)
 
     bitbucket_dc_token = (
         provider_tokens.get(ProviderType.BITBUCKET_DATA_CENTER, ProviderToken())
@@ -442,9 +480,9 @@ async def create_azure_devops_pr(
     headers = request.headers
     conversation_id = headers.get('X-OpenHands-ServerConversation-ID', None)
 
+    user_id = await _require_identity(request)
     provider_tokens = await get_provider_tokens(request)
     access_token = await get_access_token(request)
-    user_id = await get_user_id(request)
 
     azure_devops_token = (
         provider_tokens.get(ProviderType.AZURE_DEVOPS, ProviderToken())
