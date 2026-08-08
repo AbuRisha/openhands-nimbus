@@ -531,6 +531,21 @@ and the bad edit is still on disk. Whatever affordance ships has to say so.
 Full design, sequence and four gotchas: `docs/fork-conversation-design.md`.
 Not implemented; not scheduled.
 
+**`fork_conversation_state` is a LOCAL primitive and the transport is the
+caller's job.** Two sandboxes are two containers whose filesystems are not both
+mounted anywhere, so it can never be called with a source in sandbox A and a
+target in sandbox B. The wrapper is `GET /file/archive` on the source →
+extract to a temp tree → the function against two temp trees → archive →
+`POST /file/upload` on the target. Note `validate_session_key` refuses a
+non-RUNNING sandbox, so the parent's must be started purely to be read from.
+
+**CALL IT SOMETHING OTHER THAN "FORK" IN THE UI.** This follows from the
+working-tree gotcha rather than being a matter of taste: the operation rewinds
+the CONVERSATION, and someone reading "fork" expects a branch of the whole
+world, files included. "Retry from here" or "New attempt from this message"
+promises only what it delivers. Decide before the affordance exists — renaming
+it afterwards is worse than naming it right once.
+
 Frontend affordance stays unbuilt until the endpoint exists. A fork action
 that produces an amnesiac fork is worse than no fork action.
 
