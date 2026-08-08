@@ -21,6 +21,26 @@ import React from "react";
  */
 const TERMINAL_CLOSE_CODES = new Set([1000, 1001, 1008]);
 
+/**
+ * Attempts allowed when the socket has NEVER opened.
+ *
+ * Deliberately small. A never-opened close is a refused handshake — a 403/401
+ * the browser will not show us — and retrying an authorization decision cannot
+ * change it. Three covers a server that is still starting; more is just noise
+ * aimed at a door that is locked.
+ */
+const HANDSHAKE_MAX_ATTEMPTS = 3;
+
+const BASE_RECONNECT_DELAY_MS = 3000;
+const MAX_RECONNECT_DELAY_MS = 30000;
+
+/** 3s, 6s, 12s, 24s, then capped at 30s. */
+export const reconnectDelay = (attempt: number): number =>
+  Math.min(
+    BASE_RECONNECT_DELAY_MS * 2 ** Math.max(0, attempt - 1),
+    MAX_RECONNECT_DELAY_MS,
+  );
+
 export interface WebSocketHookOptions {
   queryParams?: Record<string, string | boolean>;
   onOpen?: (event: Event) => void;
@@ -51,6 +71,18 @@ export const useWebSocket = <T = string>(
   const [isUnrecoverable, setIsUnrecoverable] = React.useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
   const attemptCountRef = React.useRef(0);
+  /**
+   * Did the CURRENT run of attempts ever reach `onopen`?
+   *
+   * The browser never exposes an HTTP rejection to JS: a handshake refused with
+   * 403 (or 401) surfaces as close code 1006, which is indistinguishable by
+   * CODE from a mid-session network blip. The distinguishing fact is whether we
+   * were ever connected. Never-opened 1006 means the server refused the
+   * upgrade, and retrying an authorization failure cannot fix it — that is what
+   * produced a tab hammering /sockets/events every few seconds forever after
+   * its conversation was deleted.
+   */
+  const everOpenedRef = React.useRef(false);
   const reconnectTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const shouldReconnectRef = React.useRef(true); // Only set to false by disconnect()
   // Track which WebSocket instances are allowed to reconnect using a WeakSet
@@ -92,6 +124,7 @@ export const useWebSocket = <T = string>(
       setError(null); // Clear any previous errors
       setIsReconnecting(false);
       attemptCountRef.current = 0; // Reset attempt count on successful connection
+      everOpenedRef.current = true;
       optionsRef.current?.onOpen?.(event);
     };
 
@@ -126,7 +159,13 @@ export const useWebSocket = <T = string>(
       // Bounded by DEFAULT. Infinity was the old default and it is the wrong
       // one: an unbounded retry with no surfacing is indistinguishable from a
       // hung UI. 20 attempts at 3s covers a minute of ordinary restart churn.
-      const maxAttempts = optionsRef.current?.reconnect?.maxAttempts ?? 20;
+      const configuredMax = optionsRef.current?.reconnect?.maxAttempts ?? 20;
+      // A socket that NEVER opened was refused, not interrupted. Three tries
+      // covers a server still coming up; beyond that we are retrying a "no",
+      // and 20 attempts at an auth failure is 20 pointless requests per tab.
+      const maxAttempts = everOpenedRef.current
+        ? configuredMax
+        : Math.min(configuredMax, HANDSHAKE_MAX_ATTEMPTS);
       const isTerminal = TERMINAL_CLOSE_CODES.has(event.code);
 
       if (
@@ -139,9 +178,17 @@ export const useWebSocket = <T = string>(
         setIsReconnecting(true);
         attemptCountRef.current += 1;
 
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebSocket();
-        }, 3000); // 3 second delay
+        reconnectTimeoutRef.current = setTimeout(
+          () => {
+            connectWebSocket();
+          },
+          // EXPONENTIAL BACKOFF, capped. A fixed 3s delay means every stranded
+          // tab hits the server at the same steady rate for as long as it is
+          // open — and they all reconnect together after a deploy, so the rate
+          // is multiplied by the number of open tabs exactly when the server is
+          // least able to absorb it.
+          reconnectDelay(attemptCountRef.current),
+        );
       } else {
         setIsReconnecting(false);
         // Only when we were actually trying to hold this connection open. A
@@ -163,6 +210,7 @@ export const useWebSocket = <T = string>(
     // Reset shouldReconnect flag and attempt count when creating a new connection
     shouldReconnectRef.current = true;
     attemptCountRef.current = 0;
+    everOpenedRef.current = false;
 
     // Only attempt connection if we have a valid URL
     if (url && url.trim() !== "") {
