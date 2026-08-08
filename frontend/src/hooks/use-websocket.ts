@@ -1,4 +1,19 @@
 import React from "react";
+import {
+  classifyCloseCode,
+  describeCloseEvent,
+  getReconnectDelayMs,
+  DEFAULT_MAX_RECONNECT_ATTEMPTS,
+} from "#/utils/websocket-close";
+
+/**
+ * Why the connection stopped, when it stopped for good.
+ *
+ * `session-expired` is a rejection no retry can fix — the caller has to get a
+ * new session key, which in practice means reloading the page.
+ * `unreachable` means the transient budget ran out.
+ */
+export type WebSocketFailureReason = "session-expired" | "unreachable";
 
 export interface WebSocketHookOptions {
   queryParams?: Record<string, string | boolean>;
@@ -6,9 +21,19 @@ export interface WebSocketHookOptions {
   onClose?: (event: CloseEvent) => void;
   onMessage?: (event: MessageEvent) => void;
   onError?: (event: Event) => void;
+  /**
+   * The socket was refused in a way that will be refused again. Fired INSTEAD
+   * of `onError`, not alongside it: a caller that treats the two the same is
+   * back to being unable to tell "wait" from "this will never work", which is
+   * the bug this separation exists to prevent.
+   */
+  onPermanentClose?: (event: CloseEvent) => void;
   reconnect?: {
     enabled?: boolean;
+    /** Defaults to DEFAULT_MAX_RECONNECT_ATTEMPTS. Was previously unbounded. */
     maxAttempts?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
   };
 }
 
@@ -21,6 +46,8 @@ export const useWebSocket = <T = string>(
   const [messages, setMessages] = React.useState<T[]>([]);
   const [error, setError] = React.useState<Error | null>(null);
   const [isReconnecting, setIsReconnecting] = React.useState(false);
+  const [failureReason, setFailureReason] =
+    React.useState<WebSocketFailureReason | null>(null);
   const wsRef = React.useRef<WebSocket | null>(null);
   const attemptCountRef = React.useRef(0);
   const reconnectTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -60,6 +87,7 @@ export const useWebSocket = <T = string>(
       setIsConnected(true);
       setError(null); // Clear any previous errors
       setIsReconnecting(false);
+      setFailureReason(null);
       attemptCountRef.current = 0; // Reset attempt count on successful connection
       optionsRef.current?.onOpen?.(event);
     };
@@ -73,42 +101,63 @@ export const useWebSocket = <T = string>(
     ws.onclose = (event) => {
       // Check if this specific WebSocket instance is allowed to reconnect
       const canReconnect = allowedToReconnectRef.current.has(ws);
+      const closure = classifyCloseCode(event.code);
       setIsConnected(false);
       // If the connection closes with an error code, treat it as an error
-      if (event.code !== 1000) {
-        // 1000 is normal closure
-        setError(
-          new Error(
-            `WebSocket closed with code ${event.code}: ${event.reason || "Connection closed unexpectedly"}`,
-          ),
-        );
-        // Also call onError handler for error closures (only if allowed to reconnect)
+      if (closure !== "normal") {
+        setError(new Error(describeCloseEvent(event.code, event.reason)));
+        // Only report to the caller if allowed to reconnect — an unmount is
+        // not a failure. A permanent rejection takes its own channel so the
+        // caller can offer a reload instead of a spinner.
         if (canReconnect) {
-          optionsRef.current?.onError?.(event);
+          if (closure === "permanent") {
+            optionsRef.current?.onPermanentClose?.(event);
+          } else {
+            optionsRef.current?.onError?.(event);
+          }
         }
       }
       optionsRef.current?.onClose?.(event);
 
+      // A permanent rejection is not retried at all, not even once. The key
+      // the handshake carried is the same key the next handshake would carry,
+      // and the sandbox registry that would have to recognise it is in-process
+      // memory (process_sandbox_service.py `_processes`) — a container restart
+      // empties it, so a key minted by an earlier revision can never validate
+      // again. Retrying that is a loop with no exit.
+      if (closure === "permanent") {
+        setIsReconnecting(false);
+        setFailureReason("session-expired");
+        return;
+      }
+
       // Attempt reconnection if enabled and allowed
       // IMPORTANT: Only reconnect if this specific instance is allowed to reconnect
-      const reconnectEnabled = optionsRef.current?.reconnect?.enabled ?? false;
-      const maxAttempts =
-        optionsRef.current?.reconnect?.maxAttempts ?? Infinity;
-
-      if (
-        reconnectEnabled &&
+      const reconnectConfig = optionsRef.current?.reconnect;
+      const wantsReconnect =
+        (reconnectConfig?.enabled ?? false) &&
         canReconnect &&
-        shouldReconnectRef.current &&
-        attemptCountRef.current < maxAttempts
-      ) {
+        shouldReconnectRef.current;
+      const maxAttempts =
+        reconnectConfig?.maxAttempts ?? DEFAULT_MAX_RECONNECT_ATTEMPTS;
+
+      if (wantsReconnect && attemptCountRef.current < maxAttempts) {
         setIsReconnecting(true);
         attemptCountRef.current += 1;
 
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebSocket();
-        }, 3000); // 3 second delay
-      } else {
-        setIsReconnecting(false);
+        reconnectTimeoutRef.current = setTimeout(
+          () => {
+            connectWebSocket();
+          },
+          getReconnectDelayMs(attemptCountRef.current, reconnectConfig),
+        );
+        return;
+      }
+
+      setIsReconnecting(false);
+      if (wantsReconnect) {
+        // Wanted to retry, had no attempts left.
+        setFailureReason("unreachable");
       }
     };
 
@@ -122,6 +171,7 @@ export const useWebSocket = <T = string>(
     // Reset shouldReconnect flag and attempt count when creating a new connection
     shouldReconnectRef.current = true;
     attemptCountRef.current = 0;
+    setFailureReason(null);
 
     // Only attempt connection if we have a valid URL
     if (url && url.trim() !== "") {
@@ -187,6 +237,9 @@ export const useWebSocket = <T = string>(
     sendMessage,
     isReconnecting,
     attemptCount: attemptCountRef.current,
+    /** Non-null once the socket has stopped trying. See WebSocketFailureReason. */
+    failureReason,
+    isSessionExpired: failureReason === "session-expired",
     disconnect,
   };
 };

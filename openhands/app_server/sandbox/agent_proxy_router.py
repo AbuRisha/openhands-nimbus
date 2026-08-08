@@ -195,9 +195,32 @@ async def proxy_events_socket(websocket: WebSocket, conversation_id: str) -> Non
     try:
         base = await _resolve(key)
     except HTTPException:
-        # Close before accept: the browser sees a failed handshake rather than
-        # an accepted socket that dies immediately, which is easier to debug.
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        # ACCEPT FIRST, then close. This looks backwards and is not.
+        #
+        # Closing before accept makes uvicorn refuse the handshake with a plain
+        # HTTP 403 ("connection rejected (403 Forbidden)" in the logs). A
+        # refused handshake never completes, so RFC 6455 has no closing frame to
+        # deliver and the browser synthesises CloseEvent code **1006** —
+        # the same code it reports for a yanked network cable. The close code
+        # chosen here never left the process.
+        #
+        # That is what made the rejection retry forever: the client could not
+        # tell "this key is dead, get a new one" from "the wifi blipped", so it
+        # treated a permanent failure as a transient one, at a flat 3s, with no
+        # attempt ceiling. Accepting first completes the handshake, so 1008
+        # arrives as 1008 and `classifyCloseCode` in the frontend can act on it.
+        #
+        # The failure is still just as visible in the logs, one line below.
+        # `bridge_router.device_socket` already closes this way for the same
+        # reason.
+        _logger.info(
+            'agent proxy: refused event socket for %s (invalid session key)',
+            conversation_id,
+        )
+        await websocket.accept()
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION, reason='invalid session key'
+        )
         return
 
     query = websocket.url.query
