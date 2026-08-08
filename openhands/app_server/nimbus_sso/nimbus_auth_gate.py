@@ -105,6 +105,17 @@ def _enabled() -> bool:
     return os.getenv('NIMBUS_REQUIRE_AUTH', '1') != '0'
 
 
+def auth_required() -> bool:
+    """Public read of the same switch, for enforcement outside this middleware.
+
+    ``/mcp`` is an ASGI Mount outside ``/api``, so this middleware never gates
+    it; the MCP tools have to refuse anonymous callers themselves. They ask
+    here rather than re-reading the env var so there is ONE answer to "does
+    this deployment authenticate" and one switch that turns it all off.
+    """
+    return _enabled()
+
+
 def _sso_entry_url() -> str:
     """Where to send a signed-out page load.
 
@@ -147,9 +158,16 @@ class NimbusAuthGateMiddleware(BaseHTTPMiddleware):
         if not path.startswith('/api'):
             # Signed-out page load -> hand off to the dashboard rather than
             # render a shell whose every data call will 401 into a blank page.
-            if _is_page_load(request) and read_session(request.cookies.get(COOKIE_SESSION)) is None:
-                logger.info('nimbus_auth_gate: redirecting signed-out page load %s to SSO', path)
-                return RedirectResponse(url=_sso_entry_url(), status_code=status.HTTP_302_FOUND)
+            if (
+                _is_page_load(request)
+                and read_session(request.cookies.get(COOKIE_SESSION)) is None
+            ):
+                logger.info(
+                    'nimbus_auth_gate: redirecting signed-out page load %s to SSO', path
+                )
+                return RedirectResponse(
+                    url=_sso_entry_url(), status_code=status.HTTP_302_FOUND
+                )
 
             return await call_next(request)
 
