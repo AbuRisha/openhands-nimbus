@@ -371,6 +371,44 @@ An honest smaller feature, if the full fork is too large: "start a new
 conversation seeded with a summary of this one" is buildable today with no
 sandbox work, and is not the same thing — so it must not be labelled fork.
 
+### BUILT 2026-08-07: the missing half
+
+`app_conversation/fork_conversation_state.py` (13 tests, mypy clean) copies the
+agent's OWN state — `base_state.json` with the id rewritten, plus the EventLog
+truncated at the cutoff. Same cutoff semantics as `copy_events_until`, stated
+identically in both places so the two halves of one fork cannot disagree about
+where the cut falls.
+
+### The endpoint, now fully specified — sequencing is the load-bearing part
+
+The order is not arbitrary and is what makes this work at all:
+
+1. `sandbox_service.start_sandbox(...)` — a separate call from the conversation
+   POST (`live_status_app_conversation_service.py:1174`), which is what makes
+   step 2 possible.
+2. `fork_conversation_state(...)` into the NEW sandbox's conversations dir,
+   at `<sandbox_dir>/workspace/conversations/<new_id.hex>/`.
+3. POST start_conversation with `conversation_id = <new_id>`. The agent's
+   `ConversationState.create` finds `base_state.json` already present and takes
+   its RESUME path — so it comes up with the forked history as its memory.
+   This is the whole trick: nothing is injected, the agent resumes state that
+   was placed there first.
+4. `copy_events_until` into the app-server store, so the transcript renders.
+
+Steps 2 and 4 are both required. Either alone is a broken fork.
+
+**The one thing still to decide: remote sandboxes.** The path above is
+filesystem work and only holds for `RUNTIME=process`, where the sandbox is a
+child of the app container and shares its filesystem (`OH_PERSISTENCE_DIR` is
+in the inherited-env allowlist). A remote sandbox has no locally reachable
+conversations dir. So the sandbox service needs a capability method — return
+the conversations path, or None — and `/fork` must return a clear "not
+supported for this runtime" rather than silently producing an amnesiac fork.
+That decision is a deployment question, not a code one.
+
+Frontend affordance stays unbuilt until the endpoint exists. A fork action
+that produces an amnesiac fork is worse than no fork action.
+
 ---
 
 ## 10. Which way an unreadable setting should fail
