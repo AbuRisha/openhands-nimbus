@@ -258,3 +258,35 @@ no transport, because it looks finished. Whoever picks this up should write it
 against a live sandbox and verify step 3's stdout parsing and step 6's extraction
 by hand at least once. The steps above are contract-verified; their composition
 is not.
+
+## A tempting shortcut that does not exist
+
+The obvious question is: the app server has an AzureFile share mounted at
+`OH_PERSISTENCE_DIR=/data/openhands`, and it contains per-conversation
+directories — so can the transport be skipped and the agent's state read straight
+off the share?
+
+**No.** Checked on the live share (`nimbusbackups4768`/`openhands-data`).
+`<user>/v1_conversations/<conversation_id>/` contains files named
+`<event_id>.json`, one per event:
+
+    3823874a59564a98ac102aa7dd6938f7.json      303 bytes
+    3d98ba6b5c1840498fe01a1e1ba84a77.json   402249 bytes
+    ...
+
+That is the **app-server event mirror** — the same store `copy_events_until`
+writes to — keyed by event id. It is not the agent's persistence directory, which
+has an entirely different shape: `base_state.json` plus
+`events/event-{idx:05d}-{event_id}.json`. Neither of those names appears anywhere
+on the share, at any level.
+
+Which also answers the same question from the other side: sandboxes do not mount
+this share, because if they did their persistence directories would be visible on
+it. They are not.
+
+So the two stores really are distinct and really are on different filesystems, and
+the transport is load-bearing rather than incidental. This is worth having written
+down because "just read it off the mounted volume" is the first thing anyone will
+try, the share genuinely does contain per-conversation directories, and the
+directory names are conversation ids in both stores — so a quick look is
+misleading rather than merely unhelpful.
