@@ -4,9 +4,11 @@ import { UploadedFiles } from "../uploaded-files";
 import { ChatInputRow } from "./chat-input-row";
 import { ChatInputActions } from "./chat-input-actions";
 import { SlashCommandMenu } from "./slash-command-menu";
+import { MentionFileMenu } from "./mention-file-menu";
 import { useConversationStore } from "#/stores/conversation-store";
 import { cn } from "#/utils/utils";
 import { SlashCommandItem } from "#/hooks/chat/use-slash-command";
+import { WorkspaceFile } from "#/api/workspace-service/workspace-service.api";
 
 interface ChatInputContainerProps {
   chatContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -30,6 +32,13 @@ interface ChatInputContainerProps {
   slashItems?: SlashCommandItem[];
   slashSelectedIndex?: number;
   onSlashSelect?: (item: SlashCommandItem) => void;
+  isMentionMenuOpen?: boolean;
+  mentionItems?: WorkspaceFile[];
+  mentionSelectedIndex?: number;
+  mentionIsLoading?: boolean;
+  mentionIsError?: boolean;
+  mentionTruncated?: boolean;
+  onMentionSelect?: (file: WorkspaceFile) => void;
 }
 
 export function ChatInputContainer({
@@ -54,6 +63,13 @@ export function ChatInputContainer({
   slashItems = [],
   slashSelectedIndex = 0,
   onSlashSelect,
+  isMentionMenuOpen = false,
+  mentionItems = [],
+  mentionSelectedIndex = 0,
+  mentionIsLoading = false,
+  mentionIsError = false,
+  mentionTruncated = false,
+  onMentionSelect,
 }: ChatInputContainerProps) {
   const conversationMode = useConversationStore(
     (state) => state.conversationMode,
@@ -81,6 +97,20 @@ export function ChatInputContainer({
               items={slashItems}
               selectedIndex={slashSelectedIndex}
               onSelect={onSlashSelect}
+            />
+          )}
+
+          {/* Only one menu at a time: both own Up/Down/Enter, and a composer
+              with two open listboxes has no defensible keyboard contract.
+              Slash wins because it is triggered by an explicit command. */}
+          {isMentionMenuOpen && !isSlashMenuOpen && (
+            <MentionFileMenu
+              items={mentionItems}
+              selectedIndex={mentionSelectedIndex}
+              isLoading={mentionIsLoading}
+              isError={mentionIsError}
+              truncated={mentionTruncated}
+              onSelect={onMentionSelect}
             />
           )}
 

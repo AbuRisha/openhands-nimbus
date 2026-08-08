@@ -5,6 +5,7 @@ import { useGripResize } from "#/hooks/chat/use-grip-resize";
 import { useChatInputEvents } from "#/hooks/chat/use-chat-input-events";
 import { useChatSubmission } from "#/hooks/chat/use-chat-submission";
 import { useSlashCommand } from "#/hooks/chat/use-slash-command";
+import { useMentionPicker } from "#/hooks/chat/use-mention-picker";
 import { usePromptRecall } from "#/hooks/chat/use-prompt-recall";
 import { ChatInputGrip } from "./components/chat-input-grip";
 import { ChatInputContainer } from "./components/chat-input-container";
@@ -120,6 +121,19 @@ export function CustomChatInput({
     closeMenu: closeSlashMenu,
   } = useSlashCommand(chatInputRef as React.RefObject<HTMLDivElement | null>);
 
+  const {
+    isMenuOpen: isMentionMenuOpen,
+    items: mentionItems,
+    selectedIndex: mentionSelectedIndex,
+    isLoading: mentionIsLoading,
+    isError: mentionIsError,
+    truncated: mentionTruncated,
+    updateMenu: updateMentionMenu,
+    selectItem: selectMentionItem,
+    handleMentionKeyDown,
+    closeMenu: closeMentionMenu,
+  } = useMentionPicker(chatInputRef as React.RefObject<HTMLDivElement | null>);
+
   const { recallPrevious, recallNext, reset: resetRecall } = usePromptRecall();
 
   /**
@@ -214,6 +228,7 @@ export function CustomChatInput({
           onInput={() => {
             handleInput();
             updateSlashMenu();
+            updateMentionMenu();
             saveDraft();
             // Typing ends the history walk, so the next Up starts from the most
             // recent prompt again. Recall's own write is exempt — see
@@ -223,6 +238,9 @@ export function CustomChatInput({
           onPaste={handlePaste}
           onKeyDown={(e) => {
             if (handleSlashKeyDown(e)) return;
+            // BEFORE recall: recall also claims Up, and an open menu has the
+            // stronger claim on it.
+            if (handleMentionKeyDown(e)) return;
             if (handleRecallKeyDown(e)) return;
             handleKeyDown(e, isDisabled, handleSubmit);
           }}
@@ -230,11 +248,19 @@ export function CustomChatInput({
           onBlur={() => {
             handleBlur();
             closeSlashMenu();
+            closeMentionMenu();
           }}
           isSlashMenuOpen={isSlashMenuOpen}
           slashItems={slashItems}
           slashSelectedIndex={slashSelectedIndex}
           onSlashSelect={selectSlashItem}
+          isMentionMenuOpen={isMentionMenuOpen}
+          mentionItems={mentionItems}
+          mentionSelectedIndex={mentionSelectedIndex}
+          mentionIsLoading={mentionIsLoading}
+          mentionIsError={mentionIsError}
+          mentionTruncated={mentionTruncated}
+          onMentionSelect={selectMentionItem}
         />
       </div>
     </div>
